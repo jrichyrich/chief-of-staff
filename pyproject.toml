@@ -13,6 +13,7 @@ dependencies = [
     "sentence-transformers>=3.0.0",
     "pyyaml>=6.0",
     "rich>=13.0.0",
+    "mcp[cli]>=1.26,<2",
 ]
 
 [project.optional-dependencies]
@@ -24,3 +25,4 @@ dev = [
 
 [project.scripts]
 chief = "main:cli_entry"
+chief-mcp = "mcp_server:main"
