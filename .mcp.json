@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "chief-of-staff": {
+      "command": "python3.11",
+      "args": ["${PROJECT_ROOT}/mcp_server.py"],
+      "env": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    }
+  }
+}
