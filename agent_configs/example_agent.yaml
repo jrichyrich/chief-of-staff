@@ -1,0 +1,15 @@
+# agent_configs/example_agent.yaml
+name: general_assistant
+description: "A general-purpose assistant for common tasks"
+system_prompt: |
+  You are a general-purpose assistant. You help with a wide range of tasks
+  including answering questions, writing text, and providing recommendations.
+  Be concise and helpful.
+capabilities:
+  - memory_read
+  - memory_write
+  - document_search
+temperature: 0.5
+max_tokens: 4096
+created_by: system
+created_at: "2026-02-12"
