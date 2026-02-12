@@ -24,6 +24,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("chief-of-staff-mcp")
 
+# Module-level state populated by the lifespan manager.
+# mcp.get_context() returns a Context object that doesn't support dict access,
+# so tools and resources read from this dict instead.
+_state: dict = {}
+
 
 @asynccontextmanager
 async def app_lifespan(server: FastMCP):
@@ -40,16 +45,19 @@ async def app_lifespan(server: FastMCP):
         agent_registry=agent_registry,
     )
 
+    _state.update({
+        "chief": chief,
+        "memory_store": memory_store,
+        "document_store": document_store,
+        "agent_registry": agent_registry,
+    })
+
     logger.info("Chief of Staff MCP server initialized")
 
     try:
-        yield {
-            "chief": chief,
-            "memory_store": memory_store,
-            "document_store": document_store,
-            "agent_registry": agent_registry,
-        }
+        yield
     finally:
+        _state.clear()
         memory_store.close()
         logger.info("Chief of Staff MCP server shut down")
 
@@ -74,8 +82,7 @@ async def chief_of_staff_ask(message: str) -> str:
     Args:
         message: Your request in natural language (e.g., "Help me plan a team offsite")
     """
-    ctx = mcp.get_context()
-    chief = ctx["chief"]
+    chief = _state["chief"]
     try:
         return await chief.process(message)
     except Exception as e:
@@ -91,8 +98,7 @@ async def ingest_documents(path: str) -> str:
     Args:
         path: Absolute path to a file or directory to ingest
     """
-    ctx = mcp.get_context()
-    document_store = ctx["document_store"]
+    document_store = _state["document_store"]
     target = Path(path)
 
     if not target.exists():
@@ -137,8 +143,7 @@ async def ingest_documents(path: str) -> str:
 @mcp.resource("memory://facts")
 async def get_all_facts() -> str:
     """All stored facts about the user, organized by category."""
-    ctx = mcp.get_context()
-    memory_store = ctx["memory_store"]
+    memory_store = _state["memory_store"]
     categories = ["personal", "preference", "work", "relationship"]
     result = {}
     for cat in categories:
@@ -151,8 +156,7 @@ async def get_all_facts() -> str:
 @mcp.resource("memory://facts/{category}")
 async def get_facts_by_category(category: str) -> str:
     """Facts for a specific category (personal, preference, work, relationship)."""
-    ctx = mcp.get_context()
-    memory_store = ctx["memory_store"]
+    memory_store = _state["memory_store"]
     facts = memory_store.get_facts_by_category(category)
     result = [{"key": f.key, "value": f.value, "confidence": f.confidence} for f in facts]
     return json.dumps(result, indent=2)
@@ -161,8 +165,7 @@ async def get_facts_by_category(category: str) -> str:
 @mcp.resource("agents://list")
 async def get_agents_list() -> str:
     """All available expert agents and their descriptions."""
-    ctx = mcp.get_context()
-    agent_registry = ctx["agent_registry"]
+    agent_registry = _state["agent_registry"]
     agents = agent_registry.list_agents()
     result = [
         {"name": a.name, "description": a.description, "capabilities": a.capabilities}

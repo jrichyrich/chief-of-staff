@@ -1,6 +1,14 @@
 # tests/test_mcp_server.py
+import json
+
 import pytest
 from unittest.mock import patch, MagicMock
+
+from memory.models import Fact
+from memory.store import MemoryStore
+from documents.store import DocumentStore
+from agents.registry import AgentRegistry, AgentConfig
+from chief.orchestrator import ChiefOfStaff
 
 
 def test_mcp_server_imports():
@@ -36,16 +44,6 @@ def test_mcp_server_has_resources():
     assert "memory://facts/{category}" in template_uris
 
 
-# --- Resource Tests ---
-
-import json
-from memory.store import MemoryStore
-from memory.models import Fact
-from documents.store import DocumentStore
-from agents.registry import AgentRegistry, AgentConfig
-from chief.orchestrator import ChiefOfStaff
-
-
 @pytest.fixture
 def shared_state(tmp_path):
     """Create the shared state dict that lifespan would provide."""
@@ -71,19 +69,130 @@ def shared_state(tmp_path):
     memory_store.close()
 
 
+# --- Tool Tests ---
+
+
+class TestIngestDocumentsTool:
+    @pytest.mark.asyncio
+    async def test_ingest_single_file(self, shared_state, tmp_path):
+        import mcp_server
+        from mcp_server import ingest_documents
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("This is a test document about machine learning.")
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await ingest_documents(str(test_file))
+        finally:
+            mcp_server._state.clear()
+
+        assert "1 file(s)" in result
+        assert "chunk" in result
+
+    @pytest.mark.asyncio
+    async def test_ingest_directory(self, shared_state, tmp_path):
+        import mcp_server
+        from mcp_server import ingest_documents
+
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "a.txt").write_text("Document A content")
+        (docs_dir / "b.md").write_text("# Document B\nContent here")
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await ingest_documents(str(docs_dir))
+        finally:
+            mcp_server._state.clear()
+
+        assert "2 file(s)" in result
+
+    @pytest.mark.asyncio
+    async def test_ingest_nonexistent_path(self, shared_state):
+        import mcp_server
+        from mcp_server import ingest_documents
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await ingest_documents("/nonexistent/path")
+        finally:
+            mcp_server._state.clear()
+
+        assert "Path not found" in result
+
+    @pytest.mark.asyncio
+    async def test_ingest_empty_directory(self, shared_state, tmp_path):
+        import mcp_server
+        from mcp_server import ingest_documents
+
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await ingest_documents(str(empty_dir))
+        finally:
+            mcp_server._state.clear()
+
+        assert "No supported files" in result
+
+
+class TestChiefOfStaffAskTool:
+    @pytest.mark.asyncio
+    async def test_ask_returns_response(self, shared_state):
+        import mcp_server
+        from mcp_server import chief_of_staff_ask
+
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(type="text", text="Hello! I'm your Chief of Staff.")]
+        mock_response.stop_reason = "end_turn"
+
+        mcp_server._state.update(shared_state)
+        try:
+            with patch.object(shared_state["chief"], "_call_api", return_value=mock_response):
+                result = await chief_of_staff_ask("Hello")
+        finally:
+            mcp_server._state.clear()
+
+        assert "Chief of Staff" in result
+
+    @pytest.mark.asyncio
+    async def test_ask_handles_error_gracefully(self, shared_state):
+        import mcp_server
+        from mcp_server import chief_of_staff_ask
+
+        mcp_server._state.update(shared_state)
+        try:
+            with patch.object(shared_state["chief"], "_call_api", side_effect=Exception("API down")):
+                result = await chief_of_staff_ask("Hello")
+        finally:
+            mcp_server._state.clear()
+
+        assert "unavailable" in result.lower()
+
+
+# --- Resource Tests ---
+
+
 class TestResources:
     @pytest.mark.asyncio
     async def test_get_all_facts_empty(self, shared_state):
+        import mcp_server
         from mcp_server import get_all_facts
 
-        with patch("mcp_server.mcp.get_context", return_value=shared_state):
+        mcp_server._state.update(shared_state)
+        try:
             result = await get_all_facts()
+        finally:
+            mcp_server._state.clear()
 
         data = json.loads(result)
         assert "message" in data  # "No facts stored yet."
 
     @pytest.mark.asyncio
     async def test_get_all_facts_with_data(self, shared_state):
+        import mcp_server
         from mcp_server import get_all_facts
 
         shared_state["memory_store"].store_fact(
@@ -93,8 +202,11 @@ class TestResources:
             Fact(category="preference", key="color", value="blue")
         )
 
-        with patch("mcp_server.mcp.get_context", return_value=shared_state):
+        mcp_server._state.update(shared_state)
+        try:
             result = await get_all_facts()
+        finally:
+            mcp_server._state.clear()
 
         data = json.loads(result)
         assert "personal" in data
@@ -103,14 +215,18 @@ class TestResources:
 
     @pytest.mark.asyncio
     async def test_get_facts_by_category(self, shared_state):
+        import mcp_server
         from mcp_server import get_facts_by_category
 
         shared_state["memory_store"].store_fact(
             Fact(category="work", key="title", value="Engineer")
         )
 
-        with patch("mcp_server.mcp.get_context", return_value=shared_state):
+        mcp_server._state.update(shared_state)
+        try:
             result = await get_facts_by_category("work")
+        finally:
+            mcp_server._state.clear()
 
         data = json.loads(result)
         assert len(data) == 1
@@ -118,26 +234,35 @@ class TestResources:
 
     @pytest.mark.asyncio
     async def test_get_facts_by_category_empty(self, shared_state):
+        import mcp_server
         from mcp_server import get_facts_by_category
 
-        with patch("mcp_server.mcp.get_context", return_value=shared_state):
+        mcp_server._state.update(shared_state)
+        try:
             result = await get_facts_by_category("personal")
+        finally:
+            mcp_server._state.clear()
 
         data = json.loads(result)
         assert data == []
 
     @pytest.mark.asyncio
     async def test_get_agents_list_empty(self, shared_state):
+        import mcp_server
         from mcp_server import get_agents_list
 
-        with patch("mcp_server.mcp.get_context", return_value=shared_state):
+        mcp_server._state.update(shared_state)
+        try:
             result = await get_agents_list()
+        finally:
+            mcp_server._state.clear()
 
         data = json.loads(result)
         assert "message" in data  # "No agents configured yet."
 
     @pytest.mark.asyncio
     async def test_get_agents_list_with_agents(self, shared_state):
+        import mcp_server
         from mcp_server import get_agents_list
 
         shared_state["agent_registry"].save_agent(AgentConfig(
@@ -147,8 +272,11 @@ class TestResources:
             capabilities=["web_search", "memory_read"],
         ))
 
-        with patch("mcp_server.mcp.get_context", return_value=shared_state):
+        mcp_server._state.update(shared_state)
+        try:
             result = await get_agents_list()
+        finally:
+            mcp_server._state.clear()
 
         data = json.loads(result)
         assert len(data) == 1
