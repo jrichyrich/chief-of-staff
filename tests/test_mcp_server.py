@@ -1226,6 +1226,40 @@ class TestCheckAlerts:
 # --- Tool Registration Tests (new tools) ---
 
 
+class TestDismissAlert:
+    @pytest.mark.asyncio
+    async def test_dismiss_existing_rule(self, shared_state):
+        import mcp_server
+        from mcp_server import create_alert_rule, dismiss_alert
+
+        mcp_server._state.update(shared_state)
+        try:
+            created = json.loads(await create_alert_rule("my_rule", "overdue_delegation"))
+            assert created["enabled"] is True
+            result = await dismiss_alert(created["id"])
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "dismissed"
+        assert data["name"] == "my_rule"
+        assert data["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_dismiss_not_found(self, shared_state):
+        import mcp_server
+        from mcp_server import dismiss_alert
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await dismiss_alert(9999)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+
+
 class TestNewToolsRegistered:
     def test_new_mcp_tools_registered(self):
         """Verify new MCP tools are registered."""
@@ -1234,7 +1268,7 @@ class TestNewToolsRegistered:
         expected = [
             "log_decision", "search_decisions", "update_decision", "list_pending_decisions",
             "add_delegation", "list_delegations", "update_delegation", "check_overdue_delegations",
-            "create_alert_rule", "list_alert_rules", "check_alerts",
+            "create_alert_rule", "list_alert_rules", "check_alerts", "dismiss_alert",
         ]
         for name in expected:
             assert name in tool_names, f"Tool '{name}' not registered"
