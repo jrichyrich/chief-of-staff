@@ -16,6 +16,7 @@ from agents.base import BaseExpertAgent
 from agents.registry import AgentConfig, AgentRegistry
 from chief.dispatcher import AgentDispatcher
 from documents.store import DocumentStore
+from memory.models import Decision, Delegation
 from memory.store import MemoryStore
 from tools.definitions import get_chief_tools
 from tools.executor import execute_query_memory, execute_store_memory, execute_search_documents
@@ -152,6 +153,54 @@ class ChiefOfStaff:
         elif tool_name == "list_agents":
             agents = self.agent_registry.list_agents()
             return [{"name": a.name, "description": a.description} for a in agents]
+
+        elif tool_name == "log_decision":
+            decision = Decision(
+                title=tool_input["title"],
+                description=tool_input.get("description", ""),
+                context=tool_input.get("context", ""),
+                decided_by=tool_input.get("decided_by", ""),
+                owner=tool_input.get("owner", ""),
+                status=tool_input.get("status", "pending_execution"),
+                follow_up_date=tool_input.get("follow_up_date") or None,
+                tags=tool_input.get("tags", ""),
+                source=tool_input.get("source", ""),
+            )
+            stored = self.memory_store.store_decision(decision)
+            return {"status": "logged", "id": stored.id, "title": stored.title}
+
+        elif tool_name == "add_delegation":
+            delegation = Delegation(
+                task=tool_input["task"],
+                delegated_to=tool_input["delegated_to"],
+                description=tool_input.get("description", ""),
+                due_date=tool_input.get("due_date") or None,
+                priority=tool_input.get("priority", "medium"),
+                source=tool_input.get("source", ""),
+            )
+            stored = self.memory_store.store_delegation(delegation)
+            return {"status": "created", "id": stored.id, "task": stored.task}
+
+        elif tool_name == "check_alerts":
+            from datetime import date, timedelta
+            alerts = {"overdue_delegations": [], "stale_decisions": [], "upcoming_deadlines": []}
+            overdue = self.memory_store.list_overdue_delegations()
+            for d in overdue:
+                alerts["overdue_delegations"].append({"id": d.id, "task": d.task, "delegated_to": d.delegated_to, "due_date": d.due_date})
+            pending = self.memory_store.list_decisions_by_status("pending_execution")
+            cutoff = (date.today() - timedelta(days=7)).isoformat()
+            for d in pending:
+                if d.created_at and d.created_at[:10] < cutoff:
+                    alerts["stale_decisions"].append({"id": d.id, "title": d.title, "created_at": d.created_at})
+            today = date.today()
+            soon = (today + timedelta(days=3)).isoformat()
+            today_str = today.isoformat()
+            active = self.memory_store.list_delegations(status="active")
+            for d in active:
+                if d.due_date and today_str <= d.due_date <= soon:
+                    alerts["upcoming_deadlines"].append({"id": d.id, "task": d.task, "delegated_to": d.delegated_to, "due_date": d.due_date})
+            total = sum(len(v) for v in alerts.values())
+            return {"total_alerts": total, "alerts": alerts}
 
         return {"error": f"Unknown tool: {tool_name}"}
 

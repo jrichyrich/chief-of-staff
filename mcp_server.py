@@ -17,7 +17,7 @@ import config as app_config
 from agents.registry import AgentConfig, AgentRegistry
 from documents.ingestion import ingest_path as _ingest_path
 from documents.store import DocumentStore
-from memory.models import Fact, Location
+from memory.models import AlertRule, Decision, Delegation, Fact, Location
 from memory.store import MemoryStore
 
 # All logging to stderr (stdout is the JSON-RPC channel for stdio transport)
@@ -279,6 +279,410 @@ async def create_agent(name: str, description: str, system_prompt: str, capabili
     )
     agent_registry.save_agent(config)
     return json.dumps({"status": "created", "name": name, "capabilities": caps})
+
+
+# --- Decision Log Tools ---
+
+
+@mcp.tool()
+async def log_decision(
+    title: str,
+    description: str = "",
+    context: str = "",
+    decided_by: str = "",
+    owner: str = "",
+    status: str = "pending_execution",
+    follow_up_date: str = "",
+    tags: str = "",
+    source: str = "",
+) -> str:
+    """Log a decision for tracking and follow-up.
+
+    Args:
+        title: Short title of the decision (required)
+        description: Detailed description of what was decided
+        context: Background context or rationale
+        decided_by: Who made the decision
+        owner: Who is responsible for execution
+        status: Decision status (default: pending_execution)
+        follow_up_date: Date to follow up (YYYY-MM-DD)
+        tags: Comma-separated tags for categorization
+        source: Where the decision was made (e.g. meeting name, email)
+    """
+    memory_store = _state["memory_store"]
+    decision = Decision(
+        title=title,
+        description=description,
+        context=context,
+        decided_by=decided_by,
+        owner=owner,
+        status=status,
+        follow_up_date=follow_up_date or None,
+        tags=tags,
+        source=source,
+    )
+    stored = memory_store.store_decision(decision)
+    return json.dumps({
+        "status": "logged",
+        "id": stored.id,
+        "title": stored.title,
+        "decision_status": stored.status,
+    })
+
+
+@mcp.tool()
+async def search_decisions(query: str = "", status: str = "") -> str:
+    """Search decisions by text and/or filter by status.
+
+    Args:
+        query: Text to search in title, description, and tags
+        status: Filter by decision status (e.g. pending_execution, executed, deferred)
+    """
+    memory_store = _state["memory_store"]
+
+    if status and query:
+        decisions = memory_store.search_decisions(query)
+        decisions = [d for d in decisions if d.status == status]
+    elif status:
+        decisions = memory_store.list_decisions_by_status(status)
+    elif query:
+        decisions = memory_store.search_decisions(query)
+    else:
+        # Return all decisions
+        decisions = memory_store.search_decisions("")
+
+    if not decisions:
+        return json.dumps({"message": "No decisions found.", "results": []})
+
+    results = [
+        {
+            "id": d.id,
+            "title": d.title,
+            "status": d.status,
+            "owner": d.owner,
+            "decided_by": d.decided_by,
+            "follow_up_date": d.follow_up_date,
+            "tags": d.tags,
+            "created_at": d.created_at,
+        }
+        for d in decisions
+    ]
+    return json.dumps({"results": results})
+
+
+@mcp.tool()
+async def update_decision(decision_id: int, status: str = "", notes: str = "") -> str:
+    """Update a decision's status or add notes.
+
+    Args:
+        decision_id: The ID of the decision to update
+        status: New status value
+        notes: Additional notes to append to the description
+    """
+    memory_store = _state["memory_store"]
+    existing = memory_store.get_decision(decision_id)
+    if not existing:
+        return json.dumps({"error": f"Decision {decision_id} not found."})
+
+    kwargs = {}
+    if status:
+        kwargs["status"] = status
+    if notes:
+        updated_desc = f"{existing.description}\n\n[Update] {notes}".strip()
+        kwargs["description"] = updated_desc
+
+    if not kwargs:
+        return json.dumps({"error": "No fields to update. Provide status or notes."})
+
+    updated = memory_store.update_decision(decision_id, **kwargs)
+    return json.dumps({
+        "status": "updated",
+        "id": updated.id,
+        "title": updated.title,
+        "decision_status": updated.status,
+    })
+
+
+@mcp.tool()
+async def list_pending_decisions() -> str:
+    """List all decisions with status 'pending_execution'."""
+    memory_store = _state["memory_store"]
+    decisions = memory_store.list_decisions_by_status("pending_execution")
+
+    if not decisions:
+        return json.dumps({"message": "No pending decisions.", "results": []})
+
+    results = [
+        {
+            "id": d.id,
+            "title": d.title,
+            "owner": d.owner,
+            "follow_up_date": d.follow_up_date,
+            "created_at": d.created_at,
+        }
+        for d in decisions
+    ]
+    return json.dumps({"results": results})
+
+
+# --- Delegation Tracker Tools ---
+
+
+@mcp.tool()
+async def add_delegation(
+    task: str,
+    delegated_to: str,
+    description: str = "",
+    due_date: str = "",
+    priority: str = "medium",
+    source: str = "",
+) -> str:
+    """Create a new delegation to track a task assigned to someone.
+
+    Args:
+        task: Short description of the delegated task (required)
+        delegated_to: Who the task is delegated to (required)
+        description: Detailed description of expectations
+        due_date: Due date (YYYY-MM-DD)
+        priority: Priority level (low, medium, high, critical)
+        source: Where the delegation originated
+    """
+    memory_store = _state["memory_store"]
+    delegation = Delegation(
+        task=task,
+        delegated_to=delegated_to,
+        description=description,
+        due_date=due_date or None,
+        priority=priority,
+        source=source,
+    )
+    stored = memory_store.store_delegation(delegation)
+    return json.dumps({
+        "status": "created",
+        "id": stored.id,
+        "task": stored.task,
+        "delegated_to": stored.delegated_to,
+        "due_date": stored.due_date,
+    })
+
+
+@mcp.tool()
+async def list_delegations(status: str = "", delegated_to: str = "") -> str:
+    """List delegations with optional filters.
+
+    Args:
+        status: Filter by status (active, completed, cancelled)
+        delegated_to: Filter by who the task is delegated to
+    """
+    memory_store = _state["memory_store"]
+    delegations = memory_store.list_delegations(
+        status=status or None,
+        delegated_to=delegated_to or None,
+    )
+
+    if not delegations:
+        return json.dumps({"message": "No delegations found.", "results": []})
+
+    results = [
+        {
+            "id": d.id,
+            "task": d.task,
+            "delegated_to": d.delegated_to,
+            "status": d.status,
+            "priority": d.priority,
+            "due_date": d.due_date,
+            "created_at": d.created_at,
+        }
+        for d in delegations
+    ]
+    return json.dumps({"results": results})
+
+
+@mcp.tool()
+async def update_delegation(delegation_id: int, status: str = "", notes: str = "") -> str:
+    """Update a delegation's status or add notes.
+
+    Args:
+        delegation_id: The ID of the delegation to update
+        status: New status value (active, completed, cancelled)
+        notes: Additional notes
+    """
+    memory_store = _state["memory_store"]
+    existing = memory_store.get_delegation(delegation_id)
+    if not existing:
+        return json.dumps({"error": f"Delegation {delegation_id} not found."})
+
+    kwargs = {}
+    if status:
+        kwargs["status"] = status
+    if notes:
+        updated_notes = f"{existing.notes}\n{notes}".strip()
+        kwargs["notes"] = updated_notes
+
+    if not kwargs:
+        return json.dumps({"error": "No fields to update. Provide status or notes."})
+
+    updated = memory_store.update_delegation(delegation_id, **kwargs)
+    return json.dumps({
+        "status": "updated",
+        "id": updated.id,
+        "task": updated.task,
+        "delegation_status": updated.status,
+    })
+
+
+@mcp.tool()
+async def check_overdue_delegations() -> str:
+    """Return all active delegations that are past their due date."""
+    memory_store = _state["memory_store"]
+    overdue = memory_store.list_overdue_delegations()
+
+    if not overdue:
+        return json.dumps({"message": "No overdue delegations.", "results": []})
+
+    results = [
+        {
+            "id": d.id,
+            "task": d.task,
+            "delegated_to": d.delegated_to,
+            "due_date": d.due_date,
+            "priority": d.priority,
+        }
+        for d in overdue
+    ]
+    return json.dumps({"results": results})
+
+
+# --- Alert Tools ---
+
+
+@mcp.tool()
+async def create_alert_rule(
+    name: str,
+    alert_type: str,
+    description: str = "",
+    condition: str = "",
+    enabled: bool = True,
+) -> str:
+    """Create or update an alert rule.
+
+    Args:
+        name: Unique name for the alert rule (required)
+        alert_type: Type of alert: overdue_delegation, pending_decision, upcoming_deadline (required)
+        description: Human-readable description of what this alert checks
+        condition: Machine-readable condition expression
+        enabled: Whether the rule is active (default: True)
+    """
+    memory_store = _state["memory_store"]
+    rule = AlertRule(
+        name=name,
+        description=description,
+        alert_type=alert_type,
+        condition=condition,
+        enabled=enabled,
+    )
+    stored = memory_store.store_alert_rule(rule)
+    return json.dumps({
+        "status": "created",
+        "id": stored.id,
+        "name": stored.name,
+        "alert_type": stored.alert_type,
+        "enabled": stored.enabled,
+    })
+
+
+@mcp.tool()
+async def list_alert_rules(enabled_only: bool = False) -> str:
+    """List all alert rules.
+
+    Args:
+        enabled_only: If True, only return enabled rules
+    """
+    memory_store = _state["memory_store"]
+    rules = memory_store.list_alert_rules(enabled_only=enabled_only)
+
+    if not rules:
+        return json.dumps({"message": "No alert rules configured.", "results": []})
+
+    results = [
+        {
+            "id": r.id,
+            "name": r.name,
+            "alert_type": r.alert_type,
+            "description": r.description,
+            "enabled": r.enabled,
+        }
+        for r in rules
+    ]
+    return json.dumps({"results": results})
+
+
+@mcp.tool()
+async def check_alerts() -> str:
+    """Run alert checks: overdue delegations, stale pending decisions (>7 days), and upcoming deadlines (within 3 days)."""
+    from datetime import date, timedelta
+
+    memory_store = _state["memory_store"]
+    alerts = {"overdue_delegations": [], "stale_decisions": [], "upcoming_deadlines": []}
+
+    # 1. Overdue delegations
+    overdue = memory_store.list_overdue_delegations()
+    for d in overdue:
+        alerts["overdue_delegations"].append({
+            "id": d.id,
+            "task": d.task,
+            "delegated_to": d.delegated_to,
+            "due_date": d.due_date,
+        })
+
+    # 2. Pending decisions older than 7 days
+    pending = memory_store.list_decisions_by_status("pending_execution")
+    cutoff = (date.today() - timedelta(days=7)).isoformat()
+    for d in pending:
+        if d.created_at and d.created_at[:10] < cutoff:
+            alerts["stale_decisions"].append({
+                "id": d.id,
+                "title": d.title,
+                "created_at": d.created_at,
+            })
+
+    # 3. Delegations due within 3 days
+    today = date.today()
+    soon = (today + timedelta(days=3)).isoformat()
+    today_str = today.isoformat()
+    active = memory_store.list_delegations(status="active")
+    for d in active:
+        if d.due_date and today_str <= d.due_date <= soon:
+            alerts["upcoming_deadlines"].append({
+                "id": d.id,
+                "task": d.task,
+                "delegated_to": d.delegated_to,
+                "due_date": d.due_date,
+            })
+
+    total = sum(len(v) for v in alerts.values())
+    return json.dumps({"total_alerts": total, "alerts": alerts})
+
+
+@mcp.tool()
+async def dismiss_alert(rule_id: int) -> str:
+    """Disable an alert rule so it no longer triggers.
+
+    Args:
+        rule_id: The ID of the alert rule to disable
+    """
+    memory_store = _state["memory_store"]
+    existing = memory_store.get_alert_rule(rule_id)
+    if not existing:
+        return json.dumps({"error": f"Alert rule {rule_id} not found."})
+
+    updated = memory_store.update_alert_rule(rule_id, enabled=False)
+    return json.dumps({
+        "status": "dismissed",
+        "id": updated.id,
+        "name": updated.name,
+        "enabled": updated.enabled,
+    })
 
 
 # --- Resources ---

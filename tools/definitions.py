@@ -106,6 +106,59 @@ CHIEF_TOOLS = [
             "required": ["tasks"],
         },
     },
+    {
+        "name": "log_decision",
+        "description": "Log a decision for tracking and follow-up. Use when the user mentions a decision that was made, needs to be made, or should be recorded.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Short title of the decision"},
+                "description": {"type": "string", "description": "Detailed description"},
+                "context": {"type": "string", "description": "Background context or rationale"},
+                "decided_by": {"type": "string", "description": "Who made the decision"},
+                "owner": {"type": "string", "description": "Who is responsible for execution"},
+                "status": {
+                    "type": "string",
+                    "description": "Decision status",
+                    "enum": ["pending_execution", "executed", "deferred", "reversed"],
+                    "default": "pending_execution",
+                },
+                "follow_up_date": {"type": "string", "description": "Follow-up date (YYYY-MM-DD)"},
+                "tags": {"type": "string", "description": "Comma-separated tags"},
+                "source": {"type": "string", "description": "Where the decision was made"},
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "add_delegation",
+        "description": "Track a task delegated to someone. Use when the user assigns or mentions assigning work to another person.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "Short description of the task"},
+                "delegated_to": {"type": "string", "description": "Who the task is assigned to"},
+                "description": {"type": "string", "description": "Detailed expectations"},
+                "due_date": {"type": "string", "description": "Due date (YYYY-MM-DD)"},
+                "priority": {
+                    "type": "string",
+                    "description": "Priority level",
+                    "enum": ["low", "medium", "high", "critical"],
+                    "default": "medium",
+                },
+                "source": {"type": "string", "description": "Origin of the delegation"},
+            },
+            "required": ["task", "delegated_to"],
+        },
+    },
+    {
+        "name": "check_alerts",
+        "description": "Check for overdue delegations, stale pending decisions, and upcoming deadlines. Use proactively at the start of conversations or when asked for a status update.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 

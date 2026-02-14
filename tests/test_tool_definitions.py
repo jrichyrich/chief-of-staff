@@ -24,4 +24,4 @@ class TestToolDefinitions:
 
     def test_tool_count(self):
         tools = get_chief_tools()
-        assert len(tools) == 7
+        assert len(tools) == 10

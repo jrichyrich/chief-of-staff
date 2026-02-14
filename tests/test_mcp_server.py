@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from memory.models import Fact, Location
+from memory.models import AlertRule, Decision, Delegation, Fact, Location
 from memory.store import MemoryStore
 from documents.store import DocumentStore
 from agents.registry import AgentRegistry, AgentConfig
@@ -627,3 +627,622 @@ class TestIngestDocumentsSecurity:
             mcp_server._state.clear()
 
         assert "Access denied" in result
+
+
+# --- Decision Log Tool Tests ---
+
+
+class TestLogDecision:
+    @pytest.mark.asyncio
+    async def test_log_decision_minimal(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await log_decision("Migrate to AWS")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "logged"
+        assert data["title"] == "Migrate to AWS"
+        assert data["decision_status"] == "pending_execution"
+        assert isinstance(data["id"], int)
+
+    @pytest.mark.asyncio
+    async def test_log_decision_full(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await log_decision(
+                title="Switch to PostgreSQL",
+                description="Moving from SQLite to PostgreSQL for production",
+                context="Growing data volume",
+                decided_by="CTO",
+                owner="Platform team",
+                status="pending_execution",
+                follow_up_date="2026-03-01",
+                tags="infrastructure,database",
+                source="Architecture review meeting",
+            )
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "logged"
+        assert data["title"] == "Switch to PostgreSQL"
+
+
+class TestSearchDecisions:
+    @pytest.mark.asyncio
+    async def test_search_empty(self, shared_state):
+        import mcp_server
+        from mcp_server import search_decisions
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await search_decisions(query="anything")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_search_by_query(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, search_decisions
+
+        mcp_server._state.update(shared_state)
+        try:
+            await log_decision("Migrate to AWS")
+            await log_decision("Hire frontend dev")
+            result = await search_decisions(query="AWS")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["title"] == "Migrate to AWS"
+
+    @pytest.mark.asyncio
+    async def test_search_by_status(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, search_decisions
+
+        mcp_server._state.update(shared_state)
+        try:
+            await log_decision("Decision A", status="executed")
+            await log_decision("Decision B", status="pending_execution")
+            result = await search_decisions(status="executed")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["title"] == "Decision A"
+
+    @pytest.mark.asyncio
+    async def test_search_by_query_and_status(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, search_decisions
+
+        mcp_server._state.update(shared_state)
+        try:
+            await log_decision("Migrate DB", status="pending_execution")
+            await log_decision("Migrate API", status="executed")
+            result = await search_decisions(query="Migrate", status="executed")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["title"] == "Migrate API"
+
+    @pytest.mark.asyncio
+    async def test_search_all(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, search_decisions
+
+        mcp_server._state.update(shared_state)
+        try:
+            await log_decision("Decision A")
+            await log_decision("Decision B")
+            result = await search_decisions()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 2
+
+
+class TestUpdateDecision:
+    @pytest.mark.asyncio
+    async def test_update_status(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, update_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            logged = json.loads(await log_decision("Test decision"))
+            result = await update_decision(logged["id"], status="executed")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "updated"
+        assert data["decision_status"] == "executed"
+
+    @pytest.mark.asyncio
+    async def test_update_notes(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, update_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            logged = json.loads(await log_decision("Test decision"))
+            result = await update_decision(logged["id"], notes="Completed successfully")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "updated"
+
+    @pytest.mark.asyncio
+    async def test_update_not_found(self, shared_state):
+        import mcp_server
+        from mcp_server import update_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await update_decision(9999, status="executed")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_update_no_fields(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, update_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            logged = json.loads(await log_decision("Test decision"))
+            result = await update_decision(logged["id"])
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+
+
+class TestListPendingDecisions:
+    @pytest.mark.asyncio
+    async def test_no_pending(self, shared_state):
+        import mcp_server
+        from mcp_server import list_pending_decisions
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_pending_decisions()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_with_pending(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, list_pending_decisions
+
+        mcp_server._state.update(shared_state)
+        try:
+            await log_decision("Pending one", status="pending_execution")
+            await log_decision("Done one", status="executed")
+            result = await list_pending_decisions()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["title"] == "Pending one"
+
+
+# --- Delegation Tracker Tool Tests ---
+
+
+class TestAddDelegation:
+    @pytest.mark.asyncio
+    async def test_add_delegation_minimal(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await add_delegation("Review PR", "Alice")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "created"
+        assert data["task"] == "Review PR"
+        assert data["delegated_to"] == "Alice"
+        assert isinstance(data["id"], int)
+
+    @pytest.mark.asyncio
+    async def test_add_delegation_full(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await add_delegation(
+                task="Deploy v2.0",
+                delegated_to="Bob",
+                description="Full production deployment",
+                due_date="2026-02-20",
+                priority="high",
+                source="Sprint planning",
+            )
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "created"
+        assert data["due_date"] == "2026-02-20"
+
+
+class TestListDelegations:
+    @pytest.mark.asyncio
+    async def test_list_empty(self, shared_state):
+        import mcp_server
+        from mcp_server import list_delegations
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_delegations()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_all(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, list_delegations
+
+        mcp_server._state.update(shared_state)
+        try:
+            await add_delegation("Task A", "Alice")
+            await add_delegation("Task B", "Bob")
+            result = await list_delegations()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_by_status(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, update_delegation, list_delegations
+
+        mcp_server._state.update(shared_state)
+        try:
+            created = json.loads(await add_delegation("Task A", "Alice"))
+            await add_delegation("Task B", "Bob")
+            await update_delegation(created["id"], status="completed")
+            result = await list_delegations(status="active")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["task"] == "Task B"
+
+    @pytest.mark.asyncio
+    async def test_list_by_delegated_to(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, list_delegations
+
+        mcp_server._state.update(shared_state)
+        try:
+            await add_delegation("Task A", "Alice")
+            await add_delegation("Task B", "Bob")
+            result = await list_delegations(delegated_to="Alice")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["delegated_to"] == "Alice"
+
+
+class TestUpdateDelegation:
+    @pytest.mark.asyncio
+    async def test_update_status(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, update_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            created = json.loads(await add_delegation("Task", "Alice"))
+            result = await update_delegation(created["id"], status="completed")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "updated"
+        assert data["delegation_status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_update_notes(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, update_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            created = json.loads(await add_delegation("Task", "Alice"))
+            result = await update_delegation(created["id"], notes="In progress")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "updated"
+
+    @pytest.mark.asyncio
+    async def test_update_not_found(self, shared_state):
+        import mcp_server
+        from mcp_server import update_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await update_delegation(9999, status="completed")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_update_no_fields(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, update_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            created = json.loads(await add_delegation("Task", "Alice"))
+            result = await update_delegation(created["id"])
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+
+
+class TestCheckOverdueDelegations:
+    @pytest.mark.asyncio
+    async def test_no_overdue(self, shared_state):
+        import mcp_server
+        from mcp_server import check_overdue_delegations
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await check_overdue_delegations()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_with_overdue(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, check_overdue_delegations
+
+        mcp_server._state.update(shared_state)
+        try:
+            await add_delegation("Overdue task", "Alice", due_date="2020-01-01")
+            await add_delegation("Future task", "Bob", due_date="2099-12-31")
+            result = await check_overdue_delegations()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["task"] == "Overdue task"
+
+
+# --- Alert Tool Tests ---
+
+
+class TestCreateAlertRule:
+    @pytest.mark.asyncio
+    async def test_create_rule(self, shared_state):
+        import mcp_server
+        from mcp_server import create_alert_rule
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await create_alert_rule("overdue_check", "overdue_delegation", description="Check overdue items")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "created"
+        assert data["name"] == "overdue_check"
+        assert data["alert_type"] == "overdue_delegation"
+        assert data["enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_disabled_rule(self, shared_state):
+        import mcp_server
+        from mcp_server import create_alert_rule
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await create_alert_rule("test_rule", "pending_decision", enabled=False)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["enabled"] is False
+
+
+class TestListAlertRules:
+    @pytest.mark.asyncio
+    async def test_list_empty(self, shared_state):
+        import mcp_server
+        from mcp_server import list_alert_rules
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_alert_rules()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_all(self, shared_state):
+        import mcp_server
+        from mcp_server import create_alert_rule, list_alert_rules
+
+        mcp_server._state.update(shared_state)
+        try:
+            await create_alert_rule("rule_a", "overdue_delegation")
+            await create_alert_rule("rule_b", "pending_decision", enabled=False)
+            result = await list_alert_rules()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_enabled_only(self, shared_state):
+        import mcp_server
+        from mcp_server import create_alert_rule, list_alert_rules
+
+        mcp_server._state.update(shared_state)
+        try:
+            await create_alert_rule("enabled_rule", "overdue_delegation")
+            await create_alert_rule("disabled_rule", "pending_decision", enabled=False)
+            result = await list_alert_rules(enabled_only=True)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "enabled_rule"
+
+
+class TestCheckAlerts:
+    @pytest.mark.asyncio
+    async def test_check_no_alerts(self, shared_state):
+        import mcp_server
+        from mcp_server import check_alerts
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await check_alerts()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["total_alerts"] == 0
+
+    @pytest.mark.asyncio
+    async def test_check_overdue_delegation_alert(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, check_alerts
+
+        mcp_server._state.update(shared_state)
+        try:
+            await add_delegation("Past due task", "Alice", due_date="2020-01-01")
+            result = await check_alerts()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["total_alerts"] >= 1
+        assert len(data["alerts"]["overdue_delegations"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_check_stale_decision_alert(self, shared_state):
+        """Decisions pending > 7 days should show as stale."""
+        import mcp_server
+        from mcp_server import check_alerts
+        from datetime import datetime, timedelta
+
+        # Directly insert an old decision
+        memory_store = shared_state["memory_store"]
+        old_date = (datetime.now() - timedelta(days=10)).isoformat()
+        memory_store.conn.execute(
+            """INSERT INTO decisions (title, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?)""",
+            ("Old pending decision", "pending_execution", old_date, old_date),
+        )
+        memory_store.conn.commit()
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await check_alerts()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["alerts"]["stale_decisions"]) == 1
+        assert data["alerts"]["stale_decisions"][0]["title"] == "Old pending decision"
+
+    @pytest.mark.asyncio
+    async def test_check_upcoming_deadline_alert(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, check_alerts
+        from datetime import date, timedelta
+
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+        mcp_server._state.update(shared_state)
+        try:
+            await add_delegation("Due soon", "Bob", due_date=tomorrow)
+            result = await check_alerts()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["alerts"]["upcoming_deadlines"]) == 1
+        assert data["alerts"]["upcoming_deadlines"][0]["task"] == "Due soon"
+
+
+# --- Tool Registration Tests (new tools) ---
+
+
+class TestNewToolsRegistered:
+    def test_new_mcp_tools_registered(self):
+        """Verify new MCP tools are registered."""
+        import mcp_server
+        tool_names = [t.name for t in mcp_server.mcp._tool_manager.list_tools()]
+        expected = [
+            "log_decision", "search_decisions", "update_decision", "list_pending_decisions",
+            "add_delegation", "list_delegations", "update_delegation", "check_overdue_delegations",
+            "create_alert_rule", "list_alert_rules", "check_alerts",
+        ]
+        for name in expected:
+            assert name in tool_names, f"Tool '{name}' not registered"
+
+    def test_chief_tools_include_new_tools(self):
+        """Verify tools/definitions.py includes new orchestrator tools."""
+        from tools.definitions import get_chief_tools
+        tool_names = [t["name"] for t in get_chief_tools()]
+        assert "log_decision" in tool_names
+        assert "add_delegation" in tool_names
+        assert "check_alerts" in tool_names
