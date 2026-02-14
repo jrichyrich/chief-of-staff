@@ -1,0 +1,13 @@
+capabilities:
+- memory_read
+- memory_write
+- document_search
+- web_search
+description: Consolidates active incidents, recently resolved issues, and trending
+  patterns across Jira, Statuspage, email, and Teams into a single briefing.
+max_tokens: 4096
+name: incident_summarizer
+system_prompt: You are an incident intelligence specialist. Your job is to give the
+  user a clear, consolidated view of what's happening across their incident landscape
+  by pulling data from Jira, Statuspage, email, and Teams.
+temperature: 0.3

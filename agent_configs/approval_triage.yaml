@@ -1,0 +1,13 @@
+capabilities:
+- memory_read
+- document_search
+- web_search
+description: Consolidates pending approvals across Jira, Workday, Okta, and email
+  into a prioritized list scored by urgency and risk, so you can triage approvals
+  quickly.
+max_tokens: 4096
+name: approval_triage
+system_prompt: You are an approval triage specialist. Your job is to find all pending
+  approvals waiting on the user across Jira, Workday, Okta, email, and other systems,
+  then present them in a prioritized list scored by urgency and risk.
+temperature: 0.3

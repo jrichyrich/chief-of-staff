@@ -1,0 +1,36 @@
+{
+  "manifest_version": "0.4",
+  "name": "jarvis",
+  "display_name": "Jarvis",
+  "version": "0.1.0",
+  "description": "Personal AI Chief of Staff with persistent memory, document search, and expert agent management",
+  "author": {
+    "name": "Jason Richards"
+  },
+  "server": {
+    "type": "uv",
+    "entry_point": "mcp_server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "mcp_server.py"]
+    }
+  },
+  "tools": [
+    { "name": "store_fact", "description": "Store a fact about the user in long-term memory" },
+    { "name": "query_memory", "description": "Search stored facts about the user" },
+    { "name": "store_location", "description": "Store a named location in memory" },
+    { "name": "list_locations", "description": "List all stored locations" },
+    { "name": "search_documents", "description": "Semantic search over ingested documents" },
+    { "name": "ingest_documents", "description": "Ingest documents into the knowledge base" },
+    { "name": "list_agents", "description": "List all expert agent configurations" },
+    { "name": "get_agent", "description": "Get details for a specific expert agent" },
+    { "name": "create_agent", "description": "Create or update an expert agent configuration" }
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.11,<4.0"
+    }
+  }
+}

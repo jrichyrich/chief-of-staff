@@ -1,9 +1,9 @@
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "chief-of-staff"
+name = "jarvis"
 version = "0.1.0"
 description = "AI orchestration system with a Chief of Staff managing expert agents"
 requires-python = ">=3.11"
@@ -23,6 +23,15 @@ dev = [
     "pytest-mock>=3.14.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["memory*", "agents*", "documents*", "chief*", "tools*"]
+
+[tool.setuptools.package-data]
+"agent_configs" = ["*.yaml"]
+
+[tool.setuptools]
+py-modules = ["mcp_server", "config"]
+
 [project.scripts]
 chief = "main:cli_entry"
-chief-mcp = "mcp_server:main"
+jarvis-mcp = "mcp_server:main"

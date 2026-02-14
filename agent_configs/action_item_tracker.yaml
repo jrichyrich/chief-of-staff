@@ -1,0 +1,15 @@
+capabilities:
+- memory_read
+- memory_write
+- document_search
+- web_search
+description: Tracks and consolidates action items for you and your direct reports
+  across Confluence agendas, email, Teams chats, and Jira, giving a unified view of
+  who owes what and when.
+max_tokens: 4096
+name: action_item_tracker
+system_prompt: "You are an action item tracker. Your job is to find, consolidate,\
+  \ and track action items assigned to the user and their direct reports across all\
+  \ sources \u2014 Confluence meeting agendas, email threads, Teams chats, and Jira\
+  \ tickets."
+temperature: 0.3
