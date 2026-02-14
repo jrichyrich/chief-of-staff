@@ -10,13 +10,12 @@ MAX_TOOL_ROUNDS = 25
 
 import config as app_config
 from agents.base import BaseExpertAgent
-from agents.factory import AgentFactory
-from agents.registry import AgentRegistry
+from agents.registry import AgentConfig, AgentRegistry
 from chief.dispatcher import AgentDispatcher
 from documents.store import DocumentStore
-from memory.models import Fact
 from memory.store import MemoryStore
 from tools.definitions import get_chief_tools
+from tools.executor import execute_query_memory, execute_store_memory, execute_search_documents
 
 CHIEF_SYSTEM_PROMPT = """You are the Chief of Staff, an AI orchestrator that manages a team of expert agents.
 
@@ -43,7 +42,6 @@ class ChiefOfStaff:
         self.memory_store = memory_store
         self.document_store = document_store
         self.agent_registry = agent_registry
-        self.agent_factory = AgentFactory(agent_registry)
         self.dispatcher = AgentDispatcher(timeout_seconds=app_config.AGENT_TIMEOUT_SECONDS)
         self.client = anthropic.Anthropic(api_key=app_config.ANTHROPIC_API_KEY)
         self.conversation_history: list[dict] = []
@@ -97,40 +95,31 @@ class ChiefOfStaff:
         )
 
     async def _handle_tool_call_async(self, tool_name: str, tool_input: dict) -> Any:
-        if tool_name in ("dispatch_agent", "dispatch_parallel", "create_agent"):
+        if tool_name in ("dispatch_agent", "dispatch_parallel"):
             return await self._handle_async_tool(tool_name, tool_input)
+        if tool_name == "create_agent":
+            return self._handle_create_agent(tool_input)
         return self.handle_tool_call(tool_name, tool_input)
 
     def handle_tool_call(self, tool_name: str, tool_input: dict) -> Any:
         if tool_name == "query_memory":
-            query = tool_input["query"]
-            category = tool_input.get("category")
-            if category == "location":
-                locations = self.memory_store.list_locations()
-                return [{"name": l.name, "address": l.address} for l in locations
-                        if query.lower() in (l.name or "").lower() or query.lower() in (l.address or "").lower()]
-            if category:
-                facts = self.memory_store.get_facts_by_category(category)
-                facts = [f for f in facts if query.lower() in f.value.lower() or query.lower() in f.key.lower()]
-            else:
-                facts = self.memory_store.search_facts(query)
-            return [{"category": f.category, "key": f.key, "value": f.value} for f in facts]
+            return execute_query_memory(
+                self.memory_store, tool_input["query"], tool_input.get("category")
+            )
 
         elif tool_name == "store_memory":
-            fact = Fact(
-                category=tool_input["category"],
-                key=tool_input["key"],
-                value=tool_input["value"],
+            return execute_store_memory(
+                self.memory_store,
+                tool_input["category"],
+                tool_input["key"],
+                tool_input["value"],
                 source="chief_of_staff",
             )
-            self.memory_store.store_fact(fact)
-            return {"status": "stored", "key": tool_input["key"]}
 
         elif tool_name == "search_documents":
-            query = tool_input["query"]
-            top_k = tool_input.get("top_k", 5)
-            results = self.document_store.search(query, top_k=top_k)
-            return [{"text": r["text"], "source": r["metadata"].get("source", "unknown")} for r in results]
+            return execute_search_documents(
+                self.document_store, tool_input["query"], tool_input.get("top_k", 5)
+            )
 
         elif tool_name == "list_agents":
             agents = self.agent_registry.list_agents()
@@ -138,12 +127,18 @@ class ChiefOfStaff:
 
         return {"error": f"Unknown tool: {tool_name}"}
 
-    async def _handle_async_tool(self, tool_name: str, tool_input: dict) -> Any:
-        if tool_name == "create_agent":
-            config = self.agent_factory.create_agent(tool_input["description"])
-            return {"status": "created", "name": config.name, "description": config.description}
+    def _handle_create_agent(self, tool_input: dict) -> Any:
+        config = AgentConfig(
+            name=tool_input["name"],
+            description=tool_input["description"],
+            system_prompt=tool_input["system_prompt"],
+            capabilities=tool_input.get("capabilities", ["memory_read"]),
+        )
+        self.agent_registry.save_agent(config)
+        return {"status": "created", "name": config.name, "description": config.description}
 
-        elif tool_name == "dispatch_agent":
+    async def _handle_async_tool(self, tool_name: str, tool_input: dict) -> Any:
+        if tool_name == "dispatch_agent":
             agent_name = tool_input["agent_name"]
             task = tool_input["task"]
             config = self.agent_registry.get_agent(agent_name)

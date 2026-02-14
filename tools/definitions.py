@@ -68,16 +68,20 @@ CHIEF_TOOLS = [
     },
     {
         "name": "create_agent",
-        "description": "Create a new expert agent when no existing agent has the right expertise. Describe what kind of expert is needed.",
+        "description": "Create a new expert agent when no existing agent has the right expertise. Provide explicit config fields.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string",
-                    "description": "Description of the expertise needed (e.g., 'an expert in event planning and logistics')",
+                "name": {"type": "string", "description": "Agent name (lowercase, underscores, e.g. 'event_planner')"},
+                "description": {"type": "string", "description": "One-line description of expertise"},
+                "system_prompt": {"type": "string", "description": "Detailed system prompt for the agent"},
+                "capabilities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of capabilities: memory_read, memory_write, document_search",
                 },
             },
-            "required": ["description"],
+            "required": ["name", "description", "system_prompt"],
         },
     },
     {

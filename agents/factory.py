@@ -13,9 +13,6 @@ Available capabilities (choose only what's relevant):
 - memory_read: Read from shared memory (facts, locations, personal details)
 - memory_write: Write to shared memory
 - document_search: Search over ingested documents
-- web_search: Search the web
-- file_operations: Read/write local files
-- code_execution: Run Python code
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 {

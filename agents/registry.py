@@ -26,14 +26,27 @@ class AgentRegistry:
     def __init__(self, configs_dir: Path):
         self.configs_dir = configs_dir
         self.configs_dir.mkdir(parents=True, exist_ok=True)
+        self._cache: dict[str, AgentConfig] = {}
+        self._cache_loaded = False
 
-    def list_agents(self) -> list[AgentConfig]:
-        agents = []
+    def _ensure_cache(self) -> None:
+        """Load all configs into cache on first access."""
+        if self._cache_loaded:
+            return
+        self._cache.clear()
         for path in sorted(self.configs_dir.glob("*.yaml")):
             config = self._load_yaml(path)
             if config:
-                agents.append(config)
-        return agents
+                self._cache[config.name] = config
+        self._cache_loaded = True
+
+    def _invalidate_cache(self) -> None:
+        self._cache_loaded = False
+        self._cache.clear()
+
+    def list_agents(self) -> list[AgentConfig]:
+        self._ensure_cache()
+        return list(self._cache.values())
 
     @staticmethod
     def _validate_name(name: str) -> None:
@@ -45,10 +58,8 @@ class AgentRegistry:
 
     def get_agent(self, name: str) -> Optional[AgentConfig]:
         self._validate_name(name)
-        path = self.configs_dir / f"{name}.yaml"
-        if not path.exists():
-            return None
-        return self._load_yaml(path)
+        self._ensure_cache()
+        return self._cache.get(name)
 
     def save_agent(self, config: AgentConfig) -> Path:
         self._validate_name(config.name)
@@ -66,11 +77,13 @@ class AgentRegistry:
         if config.created_at:
             data["created_at"] = config.created_at
         path.write_text(yaml.dump(data, default_flow_style=False))
+        self._invalidate_cache()
         return path
 
     def agent_exists(self, name: str) -> bool:
         self._validate_name(name)
-        return (self.configs_dir / f"{name}.yaml").exists()
+        self._ensure_cache()
+        return name in self._cache
 
     def _load_yaml(self, path: Path) -> Optional[AgentConfig]:
         try:

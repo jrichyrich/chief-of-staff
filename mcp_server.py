@@ -15,7 +15,7 @@ from mcp.server.fastmcp import FastMCP
 
 import config as app_config
 from agents.registry import AgentConfig, AgentRegistry
-from documents.ingestion import chunk_text, content_hash, load_text_file
+from documents.ingestion import ingest_path as _ingest_path
 from documents.store import DocumentStore
 from memory.models import Fact, Location
 from memory.store import MemoryStore
@@ -93,6 +93,25 @@ async def store_fact(category: str, key: str, value: str, confidence: float = 1.
         "key": stored.key,
         "value": stored.value,
     })
+
+
+@mcp.tool()
+async def delete_fact(category: str, key: str) -> str:
+    """Delete a fact from long-term memory.
+
+    Args:
+        category: The fact category (personal, preference, work, relationship)
+        key: The fact key to delete
+    """
+    if category not in VALID_CATEGORIES:
+        return json.dumps({
+            "error": f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
+        })
+    memory_store = _state["memory_store"]
+    deleted = memory_store.delete_fact(category, key)
+    if deleted:
+        return json.dumps({"status": "deleted", "category": category, "key": key})
+    return json.dumps({"status": "not_found", "message": f"No fact found with category='{category}', key='{key}'"})
 
 
 @mcp.tool()
@@ -197,37 +216,9 @@ async def ingest_documents(path: str) -> str:
     if not target.exists():
         return f"Path not found: {path}"
 
-    supported = {".txt", ".md", ".py", ".json", ".yaml", ".yml"}
-    files = []
-
-    if target.is_file():
-        files = [target]
-    elif target.is_dir():
-        for ext in supported:
-            files.extend(target.glob(f"**/*{ext}"))
-
-    if not files:
-        return f"No supported files found at {path}"
-
-    total_chunks = 0
-    for file in files:
-        text = load_text_file(file)
-        chunks = chunk_text(text)
-        file_hash = content_hash(text)
-
-        texts = []
-        metadatas = []
-        ids = []
-        for i, chunk in enumerate(chunks):
-            texts.append(chunk)
-            metadatas.append({"source": str(file.name), "chunk_index": i})
-            ids.append(f"{file_hash}_{i}")
-
-        document_store.add_documents(texts=texts, metadatas=metadatas, ids=ids)
-        total_chunks += len(chunks)
-
-    logger.info(f"Ingested {len(files)} file(s), {total_chunks} chunks from {path}")
-    return f"Ingested {len(files)} file(s), {total_chunks} chunks."
+    result = _ingest_path(target, document_store)
+    logger.info(f"Ingested from {path}: {result}")
+    return result
 
 
 # --- Agent Tools ---

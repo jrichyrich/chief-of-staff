@@ -1,6 +1,5 @@
 # tests/test_memory_models.py
-from memory.models import Fact, Location, ContextEntry
-from datetime import datetime
+from memory.models import Fact, Location
 
 
 def test_fact_creation():
@@ -36,14 +35,3 @@ def test_location_creation():
     assert loc.name == "office"
     assert loc.address == "123 Main St"
     assert loc.latitude == 37.7749
-
-
-def test_context_entry_creation():
-    entry = ContextEntry(
-        session_id="sess_001",
-        topic="project planning",
-        summary="Discussed Q2 roadmap priorities",
-        agent="research_analyst",
-    )
-    assert entry.topic == "project planning"
-    assert entry.agent == "research_analyst"

@@ -1,5 +1,5 @@
 # memory/models.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -23,15 +23,5 @@ class Location:
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     notes: Optional[str] = None
-    id: Optional[int] = None
-    created_at: Optional[datetime] = None
-
-
-@dataclass
-class ContextEntry:
-    topic: str
-    summary: str
-    session_id: Optional[str] = None
-    agent: Optional[str] = None
     id: Optional[int] = None
     created_at: Optional[datetime] = None

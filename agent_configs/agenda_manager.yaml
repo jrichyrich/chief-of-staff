@@ -2,7 +2,6 @@ capabilities:
 - memory_read
 - memory_write
 - document_search
-- web_search
 description: Creates and updates meeting agendas by pulling context from calendar,
   email, Teams, and memory, then publishing to Confluence with local markdown backup.
   Handles recurring and one-off meetings, with carryover of open items from previous

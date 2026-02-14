@@ -75,7 +75,13 @@ class TestAgentRegistry:
 
     def test_agent_exists(self, registry, configs_dir):
         assert not registry.agent_exists("researcher")
-        _write_agent_yaml(configs_dir, "researcher", "Research expert", ["web_search"])
+        config = AgentConfig(
+            name="researcher",
+            description="Research expert",
+            system_prompt="You are a researcher.",
+            capabilities=["memory_read"],
+        )
+        registry.save_agent(config)
         assert registry.agent_exists("researcher")
 
 

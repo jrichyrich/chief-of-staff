@@ -9,7 +9,7 @@ from rich.text import Text
 import config as app_config
 from agents.registry import AgentRegistry
 from chief.orchestrator import ChiefOfStaff
-from documents.ingestion import chunk_text, content_hash, load_text_file
+from documents.ingestion import ingest_path as _ingest_path
 from documents.store import DocumentStore
 from memory.store import MemoryStore
 
@@ -31,8 +31,10 @@ def create_chief() -> ChiefOfStaff:
     )
 
 
-async def run_command(command: str, chief: ChiefOfStaff) -> str:
-    if command == "agents":
+async def run_command(user_input: str, chief: ChiefOfStaff) -> str:
+    cmd = user_input.split()[0].lower() if user_input.strip() else ""
+
+    if cmd == "agents":
         agents = chief.agent_registry.list_agents()
         if not agents:
             return "No expert agents configured yet. They'll be created on demand."
@@ -41,7 +43,7 @@ async def run_command(command: str, chief: ChiefOfStaff) -> str:
             lines.append(f"  - {a.name}: {a.description}")
         return "\n".join(lines)
 
-    elif command == "memory":
+    elif cmd == "memory":
         categories = ["personal", "preference", "work", "relationship"]
         lines = ["Stored facts:"]
         total = 0
@@ -56,50 +58,21 @@ async def run_command(command: str, chief: ChiefOfStaff) -> str:
             return "No facts stored yet. I'll learn about you as we chat."
         return "\n".join(lines)
 
-    elif command == "clear":
+    elif cmd == "clear":
         chief.conversation_history.clear()
         return "Conversation cleared. Memory persists."
 
-    elif command.startswith("ingest "):
-        path = Path(command[7:].strip())
+    elif cmd == "ingest":
+        # Preserve original case for file paths
+        rest = user_input[len("ingest"):].strip()
+        if not rest:
+            return "Usage: ingest <path>"
+        path = Path(rest)
         if not path.exists():
             return f"Path not found: {path}"
-        return ingest_path(path, chief.document_store)
+        return _ingest_path(path, chief.document_store)
 
     return None
-
-
-def ingest_path(path: Path, document_store: DocumentStore) -> str:
-    supported = {".txt", ".md", ".py", ".json", ".yaml", ".yml"}
-    files = []
-
-    if path.is_file():
-        files = [path]
-    elif path.is_dir():
-        for ext in supported:
-            files.extend(path.glob(f"**/*{ext}"))
-
-    if not files:
-        return f"No supported files found at {path}"
-
-    total_chunks = 0
-    for file in files:
-        text = load_text_file(file)
-        chunks = chunk_text(text)
-        file_hash = content_hash(text)
-
-        texts = []
-        metadatas = []
-        ids = []
-        for i, chunk in enumerate(chunks):
-            texts.append(chunk)
-            metadatas.append({"source": str(file.name), "chunk_index": i})
-            ids.append(f"{file_hash}_{i}")
-
-        document_store.add_documents(texts=texts, metadatas=metadatas, ids=ids)
-        total_chunks += len(chunks)
-
-    return f"Ingested {len(files)} file(s), {total_chunks} chunks."
 
 
 async def chat_loop():
@@ -127,8 +100,8 @@ async def chat_loop():
             console.print("Goodbye!")
             break
 
-        # Check for built-in commands
-        cmd_result = await run_command(user_input.lower(), chief)
+        # Check for built-in commands (lowercase only the command, preserve args)
+        cmd_result = await run_command(user_input, chief)
         if cmd_result is not None:
             console.print(cmd_result)
             continue

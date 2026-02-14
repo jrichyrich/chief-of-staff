@@ -1,5 +1,4 @@
 capabilities:
-- web_search
 - memory_read
 - document_search
 description: Chief Technology Officer agent that manages, plans, and creates software

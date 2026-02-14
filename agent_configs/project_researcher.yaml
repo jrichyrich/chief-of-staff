@@ -2,7 +2,6 @@ capabilities:
 - memory_read
 - memory_write
 - document_search
-- web_search
 description: Conducts comprehensive multi-platform deep dives on specific projects.
   Searches Confluence, Jira, email, Teams, and SharePoint to build a complete picture
   of a project -- history, current state, stakeholders, decisions, risks, and artifacts.

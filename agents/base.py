@@ -7,8 +7,8 @@ import anthropic
 import config as app_config
 from agents.registry import AgentConfig
 from documents.store import DocumentStore
-from memory.models import Fact
 from memory.store import MemoryStore
+from tools.executor import execute_query_memory, execute_store_memory, execute_search_documents
 
 MAX_TOOL_ROUNDS = 25
 
@@ -124,29 +124,22 @@ class BaseExpertAgent:
 
     def _handle_tool_call(self, tool_name: str, tool_input: dict) -> Any:
         if tool_name == "query_memory":
-            query = tool_input["query"]
-            category = tool_input.get("category")
-            if category:
-                facts = self.memory_store.get_facts_by_category(category)
-                facts = [f for f in facts if query.lower() in f.value.lower() or query.lower() in f.key.lower()]
-            else:
-                facts = self.memory_store.search_facts(query)
-            return [{"category": f.category, "key": f.key, "value": f.value} for f in facts]
+            return execute_query_memory(
+                self.memory_store, tool_input["query"], tool_input.get("category")
+            )
 
         elif tool_name == "store_memory":
-            fact = Fact(
-                category=tool_input["category"],
-                key=tool_input["key"],
-                value=tool_input["value"],
+            return execute_store_memory(
+                self.memory_store,
+                tool_input["category"],
+                tool_input["key"],
+                tool_input["value"],
                 source=self.name,
             )
-            self.memory_store.store_fact(fact)
-            return {"status": "stored", "key": tool_input["key"]}
 
         elif tool_name == "search_documents":
-            query = tool_input["query"]
-            top_k = tool_input.get("top_k", 5)
-            results = self.document_store.search(query, top_k=top_k)
-            return [{"text": r["text"], "source": r["metadata"].get("source", "unknown")} for r in results]
+            return execute_search_documents(
+                self.document_store, tool_input["query"], tool_input.get("top_k", 5)
+            )
 
         return {"error": f"Unknown tool: {tool_name}"}

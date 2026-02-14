@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from memory.models import ContextEntry, Fact, Location
+from memory.models import Fact, Location
 
 
 class MemoryStore:
@@ -37,15 +37,6 @@ class MemoryStore:
                 latitude REAL,
                 longitude REAL,
                 notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS context (
-                id INTEGER PRIMARY KEY,
-                session_id TEXT,
-                topic TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                agent TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -88,6 +79,13 @@ class MemoryStore:
             (f"%{query}%", f"%{query}%"),
         ).fetchall()
         return [self._row_to_fact(r) for r in rows]
+
+    def delete_fact(self, category: str, key: str) -> bool:
+        cursor = self.conn.execute(
+            "DELETE FROM facts WHERE category=? AND key=?", (category, key)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def _row_to_fact(self, row: sqlite3.Row) -> Fact:
         return Fact(
@@ -138,38 +136,6 @@ class MemoryStore:
             latitude=row["latitude"],
             longitude=row["longitude"],
             notes=row["notes"],
-            created_at=row["created_at"],
-        )
-
-    # --- Context ---
-
-    def store_context(self, entry: ContextEntry) -> None:
-        self.conn.execute(
-            """INSERT INTO context (session_id, topic, summary, agent)
-               VALUES (?, ?, ?, ?)""",
-            (entry.session_id, entry.topic, entry.summary, entry.agent),
-        )
-        self.conn.commit()
-
-    def get_context_by_session(self, session_id: str) -> list[ContextEntry]:
-        rows = self.conn.execute(
-            "SELECT * FROM context WHERE session_id=? ORDER BY created_at", (session_id,)
-        ).fetchall()
-        return [self._row_to_context(r) for r in rows]
-
-    def get_recent_context(self, limit: int = 10) -> list[ContextEntry]:
-        rows = self.conn.execute(
-            "SELECT * FROM context ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [self._row_to_context(r) for r in rows]
-
-    def _row_to_context(self, row: sqlite3.Row) -> ContextEntry:
-        return ContextEntry(
-            id=row["id"],
-            session_id=row["session_id"],
-            topic=row["topic"],
-            summary=row["summary"],
-            agent=row["agent"],
             created_at=row["created_at"],
         )
 

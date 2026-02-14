@@ -1,9 +1,7 @@
 # tests/test_memory_store.py
 import pytest
-import os
-from pathlib import Path
 from memory.store import MemoryStore
-from memory.models import Fact, Location, ContextEntry
+from memory.models import Fact, Location
 
 
 @pytest.fixture
@@ -66,25 +64,3 @@ class TestLocations:
         memory_store.store_location(Location(name="office", address="123 Main St"))
         results = memory_store.list_locations()
         assert len(results) == 2
-
-
-class TestContext:
-    def test_store_and_retrieve_context(self, memory_store):
-        entry = ContextEntry(
-            session_id="sess_001",
-            topic="planning",
-            summary="Discussed roadmap",
-            agent="chief",
-        )
-        memory_store.store_context(entry)
-        results = memory_store.get_context_by_session("sess_001")
-        assert len(results) == 1
-        assert results[0].topic == "planning"
-
-    def test_get_recent_context(self, memory_store):
-        for i in range(5):
-            memory_store.store_context(
-                ContextEntry(topic=f"topic_{i}", summary=f"summary_{i}")
-            )
-        results = memory_store.get_recent_context(limit=3)
-        assert len(results) == 3

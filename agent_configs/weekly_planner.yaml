@@ -1,7 +1,6 @@
 capabilities:
 - memory_read
 - document_search
-- web_search
 description: Runs a priority-focused weekly planning session by pulling context from
   calendar, email, Teams, and memory to surface what matters most and help set focus
   for the week ahead.

@@ -1,7 +1,6 @@
 capabilities:
 - memory_read
 - document_search
-- web_search
 description: Maps stakeholders, roles, and responsibilities (RACI) for projects and
   initiatives. Identifies who is accountable, consulted, informed, and executing across
   organizational boundaries. Pulls data from Confluence team pages, Jira assignments,
