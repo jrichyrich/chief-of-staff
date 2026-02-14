@@ -73,7 +73,7 @@ class TestIntegration:
         mock_response.content = [MagicMock(type="text", text="I'm your Chief of Staff. How can I help?")]
         mock_response.stop_reason = "end_turn"
 
-        with patch.object(chief, "_call_api", return_value=mock_response):
+        with patch.object(chief, "_call_api", new_callable=AsyncMock, return_value=mock_response):
             response = await chief.process("Hello, who are you?")
             assert "Chief of Staff" in response
 
@@ -98,7 +98,7 @@ class TestIntegration:
         text_response.content = [MagicMock(type="text", text="Got it! You have a dog named Max.")]
         text_response.stop_reason = "end_turn"
 
-        with patch.object(chief, "_call_api", side_effect=[tool_response, text_response]):
+        with patch.object(chief, "_call_api", new_callable=AsyncMock, side_effect=[tool_response, text_response]):
             response = await chief.process("I have a dog named Max")
             assert "Max" in response
 

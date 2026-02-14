@@ -9,6 +9,7 @@ from agents.registry import AgentConfig
 from documents.store import DocumentStore
 from memory.store import MemoryStore
 from tools.executor import execute_query_memory, execute_store_memory, execute_search_documents
+from utils.retry import retry_api_call
 
 MAX_TOOL_ROUNDS = 25
 
@@ -59,12 +60,13 @@ class BaseExpertAgent:
         config: AgentConfig,
         memory_store: MemoryStore,
         document_store: DocumentStore,
+        client: Optional[anthropic.AsyncAnthropic] = None,
     ):
         self.config = config
         self.name = config.name
         self.memory_store = memory_store
         self.document_store = document_store
-        self.client = anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
+        self.client = client or anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
 
     def build_system_prompt(self) -> str:
         return self.config.system_prompt
@@ -111,6 +113,7 @@ class BaseExpertAgent:
 
         return "[Agent reached maximum tool rounds without producing a final response]"
 
+    @retry_api_call
     async def _call_api(self, messages: list, tools: list) -> Any:
         kwargs = {
             "model": app_config.DEFAULT_MODEL,

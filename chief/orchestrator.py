@@ -1,10 +1,13 @@
 # chief/orchestrator.py
 import asyncio
 import json
+import logging
 import uuid
 from typing import Any
 
 import anthropic
+
+logger = logging.getLogger("chief-of-staff")
 
 MAX_TOOL_ROUNDS = 25
 
@@ -16,6 +19,7 @@ from documents.store import DocumentStore
 from memory.store import MemoryStore
 from tools.definitions import get_chief_tools
 from tools.executor import execute_query_memory, execute_store_memory, execute_search_documents
+from utils.retry import retry_api_call
 
 CHIEF_SYSTEM_PROMPT = """You are the Chief of Staff, an AI orchestrator that manages a team of expert agents.
 
@@ -29,7 +33,21 @@ Your responsibilities:
 7. Store important facts and details in shared memory for future reference
 
 Always check memory first for context. When you learn new facts about the user (name, preferences, etc.), store them.
-When delegating, give agents clear, specific tasks. When creating new agents, describe the expertise needed clearly."""
+
+Effort scaling — match agent dispatch to task complexity:
+- Simple factual lookups or single-domain questions: handle directly or dispatch 1 agent
+- Comparisons or multi-faceted questions: dispatch 2-4 agents in parallel
+- Complex multi-source research or comprehensive analysis: dispatch 5+ agents
+
+Task delegation — each agent task must include:
+- A clear, specific objective (not vague "research this")
+- Expected output format or structure
+- Relevant context from the conversation so far
+
+Result synthesis — after receiving agent results:
+- Identify overlaps, conflicts, and gaps across responses
+- Cite which agent provided which information when relevant
+- Present a unified, coherent synthesis rather than listing agent outputs verbatim"""
 
 
 class ChiefOfStaff:
@@ -43,17 +61,18 @@ class ChiefOfStaff:
         self.document_store = document_store
         self.agent_registry = agent_registry
         self.dispatcher = AgentDispatcher(timeout_seconds=app_config.AGENT_TIMEOUT_SECONDS)
-        self.client = anthropic.Anthropic(api_key=app_config.ANTHROPIC_API_KEY)
+        self.client = anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
         self.conversation_history: list[dict] = []
         self.session_id = str(uuid.uuid4())[:8]
 
     async def process(self, user_message: str) -> str:
+        logger.info("Processing user message (session=%s)", self.session_id)
         self.conversation_history.append({"role": "user", "content": user_message})
         messages = list(self.conversation_history)
         tools = get_chief_tools()
 
         for _round in range(MAX_TOOL_ROUNDS):
-            response = self._call_api(messages, tools)
+            response = await self._call_api(messages, tools)
 
             if response.stop_reason == "tool_use":
                 assistant_content = response.content
@@ -62,6 +81,7 @@ class ChiefOfStaff:
                 tool_results = []
                 for block in assistant_content:
                     if block.type == "tool_use":
+                        logger.info("Tool call: %s (round %d)", block.name, _round + 1)
                         result = await self._handle_tool_call_async(block.name, block.input)
                         tool_results.append({
                             "type": "tool_result",
@@ -78,15 +98,23 @@ class ChiefOfStaff:
                 if block.type == "text":
                     text += block.text
 
-            self.conversation_history.append({"role": "assistant", "content": text})
+            logger.info("Final response after %d round(s) (session=%s)", _round + 1, self.session_id)
+            # Persist intermediate tool call/result messages and the final
+            # response with full content blocks so subsequent turns have
+            # complete context (tool_use blocks, tool_results, and text).
+            new_messages = messages[len(self.conversation_history):]
+            self.conversation_history.extend(new_messages)
+            self.conversation_history.append({"role": "assistant", "content": response.content})
             return text
 
+        logger.warning("Reached max tool rounds (%d) without final response (session=%s)", MAX_TOOL_ROUNDS, self.session_id)
         fallback = "[Reached maximum tool rounds without a final response]"
         self.conversation_history.append({"role": "assistant", "content": fallback})
         return fallback
 
-    def _call_api(self, messages: list, tools: list) -> Any:
-        return self.client.messages.create(
+    @retry_api_call
+    async def _call_api(self, messages: list, tools: list) -> Any:
+        return await self.client.messages.create(
             model=app_config.CHIEF_MODEL,
             max_tokens=4096,
             system=CHIEF_SYSTEM_PROMPT,
@@ -137,14 +165,30 @@ class ChiefOfStaff:
         self.agent_registry.save_agent(config)
         return {"status": "created", "name": config.name, "description": config.description}
 
+    def _get_last_user_message(self) -> str | None:
+        """Return the most recent user text message from conversation history."""
+        for msg in reversed(self.conversation_history):
+            if msg["role"] == "user" and isinstance(msg["content"], str):
+                return msg["content"]
+        return None
+
+    def _enrich_task(self, task: str) -> str:
+        """Prepend the user's original request to give agents fuller context."""
+        user_msg = self._get_last_user_message()
+        if user_msg:
+            return f"User's original request: {user_msg}\n\nYour specific task: {task}"
+        return task
+
     async def _handle_async_tool(self, tool_name: str, tool_input: dict) -> Any:
         if tool_name == "dispatch_agent":
             agent_name = tool_input["agent_name"]
-            task = tool_input["task"]
+            task = self._enrich_task(tool_input["task"])
             config = self.agent_registry.get_agent(agent_name)
             if config is None:
+                logger.warning("Agent '%s' not found for dispatch", agent_name)
                 return {"error": f"Agent '{agent_name}' not found"}
-            agent = BaseExpertAgent(config, self.memory_store, self.document_store)
+            logger.info("Dispatching agent: %s", agent_name)
+            agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client)
             results = await self.dispatcher.dispatch([(agent_name, agent, task)])
             r = results[0]
             if r.error:
@@ -153,20 +197,31 @@ class ChiefOfStaff:
 
         elif tool_name == "dispatch_parallel":
             tasks_to_dispatch = []
+            missing_agents = []
             for item in tool_input["tasks"]:
-                config = self.agent_registry.get_agent(item["agent_name"])
+                name = item["agent_name"]
+                config = self.agent_registry.get_agent(name)
                 if config is None:
+                    logger.warning("Agent '%s' not found, skipping in parallel dispatch", name)
+                    missing_agents.append(name)
                     continue
-                agent = BaseExpertAgent(config, self.memory_store, self.document_store)
-                tasks_to_dispatch.append((item["agent_name"], agent, item["task"]))
+                agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client)
+                enriched_task = self._enrich_task(item["task"])
+                tasks_to_dispatch.append((name, agent, enriched_task))
 
             if not tasks_to_dispatch:
                 return {"error": "No valid agents found for dispatch"}
 
+            agent_names = [t[0] for t in tasks_to_dispatch]
+            logger.info("Dispatching %d agent(s) in parallel: %s", len(agent_names), ", ".join(agent_names))
+
             results = await self.dispatcher.dispatch(tasks_to_dispatch)
-            return [
+            output = [
                 {"agent": r.agent_name, "response": r.result, "error": r.error}
                 for r in results
             ]
+            for name in missing_agents:
+                output.append({"agent": name, "error": f"Agent '{name}' not found"})
+            return output
 
         return {"error": f"Unknown async tool: {tool_name}"}
