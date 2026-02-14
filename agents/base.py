@@ -10,6 +10,8 @@ from documents.store import DocumentStore
 from memory.models import Fact
 from memory.store import MemoryStore
 
+MAX_TOOL_ROUNDS = 25
+
 CAPABILITY_TOOLS = {
     "memory_read": {
         "name": "query_memory",
@@ -62,7 +64,7 @@ class BaseExpertAgent:
         self.name = config.name
         self.memory_store = memory_store
         self.document_store = document_store
-        self.client = anthropic.Anthropic(api_key=app_config.ANTHROPIC_API_KEY)
+        self.client = anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
 
     def build_system_prompt(self) -> str:
         return self.config.system_prompt
@@ -78,7 +80,7 @@ class BaseExpertAgent:
         messages = [{"role": "user", "content": task}]
         tools = self.get_tools()
 
-        while True:
+        for _round in range(MAX_TOOL_ROUNDS):
             response = await self._call_api(messages, tools)
 
             # Check if the model wants to use a tool
@@ -107,6 +109,8 @@ class BaseExpertAgent:
 
             return ""
 
+        return "[Agent reached maximum tool rounds without producing a final response]"
+
     async def _call_api(self, messages: list, tools: list) -> Any:
         kwargs = {
             "model": app_config.DEFAULT_MODEL,
@@ -116,7 +120,7 @@ class BaseExpertAgent:
         }
         if tools:
             kwargs["tools"] = tools
-        return self.client.messages.create(**kwargs)
+        return await self.client.messages.create(**kwargs)
 
     def _handle_tool_call(self, tool_name: str, tool_input: dict) -> Any:
         if tool_name == "query_memory":

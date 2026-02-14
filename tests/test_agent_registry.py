@@ -77,3 +77,36 @@ class TestAgentRegistry:
         assert not registry.agent_exists("researcher")
         _write_agent_yaml(configs_dir, "researcher", "Research expert", ["web_search"])
         assert registry.agent_exists("researcher")
+
+
+class TestAgentNameValidation:
+    def test_rejects_path_traversal(self, registry):
+        with pytest.raises(ValueError, match="Invalid agent name"):
+            registry.get_agent("../../../etc/passwd")
+
+    def test_rejects_absolute_path(self, registry):
+        with pytest.raises(ValueError, match="Invalid agent name"):
+            registry.get_agent("/etc/passwd")
+
+    def test_rejects_spaces(self, registry):
+        with pytest.raises(ValueError, match="Invalid agent name"):
+            registry.get_agent("my agent")
+
+    def test_rejects_uppercase(self, registry):
+        with pytest.raises(ValueError, match="Invalid agent name"):
+            registry.get_agent("MyAgent")
+
+    def test_accepts_valid_names(self, registry):
+        # These should not raise (will return None since agents don't exist)
+        assert registry.get_agent("researcher") is None
+        assert registry.get_agent("code-reviewer") is None
+        assert registry.get_agent("agent_v2") is None
+
+    def test_save_rejects_invalid_name(self, registry):
+        config = AgentConfig(
+            name="../../bad_name",
+            description="Bad",
+            system_prompt="Bad",
+        )
+        with pytest.raises(ValueError, match="Invalid agent name"):
+            registry.save_agent(config)

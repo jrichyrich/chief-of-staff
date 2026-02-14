@@ -1,9 +1,13 @@
 # agents/registry.py
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import yaml
+
+# Only allow lowercase alphanumeric, underscores, and hyphens (no path separators)
+VALID_AGENT_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 @dataclass
@@ -31,13 +35,23 @@ class AgentRegistry:
                 agents.append(config)
         return agents
 
+    @staticmethod
+    def _validate_name(name: str) -> None:
+        if not VALID_AGENT_NAME.match(name):
+            raise ValueError(
+                f"Invalid agent name '{name}': must be lowercase alphanumeric, "
+                "underscores, or hyphens, starting with a letter or digit"
+            )
+
     def get_agent(self, name: str) -> Optional[AgentConfig]:
+        self._validate_name(name)
         path = self.configs_dir / f"{name}.yaml"
         if not path.exists():
             return None
         return self._load_yaml(path)
 
     def save_agent(self, config: AgentConfig) -> Path:
+        self._validate_name(config.name)
         path = self.configs_dir / f"{config.name}.yaml"
         data = {
             "name": config.name,
@@ -55,6 +69,7 @@ class AgentRegistry:
         return path
 
     def agent_exists(self, name: str) -> bool:
+        self._validate_name(name)
         return (self.configs_dir / f"{name}.yaml").exists()
 
     def _load_yaml(self, path: Path) -> Optional[AgentConfig]:

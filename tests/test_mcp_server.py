@@ -135,7 +135,30 @@ class TestQueryMemory:
 
         mcp_server._state.update(shared_state)
         try:
-            result = await query_memory("anything", category="work")
+            result = await query_memory("Engineer", category="work")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert data["results"][0]["key"] == "title"
+
+    @pytest.mark.asyncio
+    async def test_query_category_filters_by_query_text(self, shared_state):
+        """When both category and query are provided, filter by both."""
+        import mcp_server
+        from mcp_server import query_memory
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="title", value="Engineer")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="company", value="Acme Corp")
+        )
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await query_memory("Engineer", category="work")
         finally:
             mcp_server._state.clear()
 
@@ -220,6 +243,7 @@ class TestIngestDocumentsTool:
         test_file = tmp_path / "test.txt"
         test_file.write_text("This is a test document about machine learning.")
 
+        shared_state["allowed_ingest_roots"] = [tmp_path.resolve()]
         mcp_server._state.update(shared_state)
         try:
             result = await ingest_documents(str(test_file))
@@ -239,6 +263,7 @@ class TestIngestDocumentsTool:
         (docs_dir / "a.txt").write_text("Document A content")
         (docs_dir / "b.md").write_text("# Document B\nContent here")
 
+        shared_state["allowed_ingest_roots"] = [tmp_path.resolve()]
         mcp_server._state.update(shared_state)
         try:
             result = await ingest_documents(str(docs_dir))
@@ -248,13 +273,14 @@ class TestIngestDocumentsTool:
         assert "2 file(s)" in result
 
     @pytest.mark.asyncio
-    async def test_ingest_nonexistent_path(self, shared_state):
+    async def test_ingest_nonexistent_path(self, shared_state, tmp_path):
         import mcp_server
         from mcp_server import ingest_documents
 
+        shared_state["allowed_ingest_roots"] = [tmp_path.resolve()]
         mcp_server._state.update(shared_state)
         try:
-            result = await ingest_documents("/nonexistent/path")
+            result = await ingest_documents(str(tmp_path / "nonexistent"))
         finally:
             mcp_server._state.clear()
 
@@ -268,6 +294,7 @@ class TestIngestDocumentsTool:
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
 
+        shared_state["allowed_ingest_roots"] = [tmp_path.resolve()]
         mcp_server._state.update(shared_state)
         try:
             result = await ingest_documents(str(empty_dir))
@@ -300,6 +327,7 @@ class TestSearchDocuments:
         test_file = tmp_path / "ml.txt"
         test_file.write_text("Deep learning is a subset of machine learning that uses neural networks.")
 
+        shared_state["allowed_ingest_roots"] = [tmp_path.resolve()]
         mcp_server._state.update(shared_state)
         try:
             await ingest_documents(str(test_file))
@@ -537,3 +565,65 @@ class TestResources:
         assert len(data) == 1
         assert data[0]["name"] == "researcher"
         assert "web_search" in data[0]["capabilities"]
+
+
+# --- Security Fix Tests ---
+
+
+class TestStoreFactValidation:
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_category(self, shared_state):
+        import mcp_server
+        from mcp_server import store_fact
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await store_fact("invalid_cat", "key", "value")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+        assert "Invalid category" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_accepts_valid_categories(self, shared_state):
+        import mcp_server
+        from mcp_server import store_fact
+
+        mcp_server._state.update(shared_state)
+        try:
+            for cat in ("personal", "preference", "work", "relationship"):
+                result = await store_fact(cat, "test_key", "test_value")
+                data = json.loads(result)
+                assert data["status"] == "stored", f"Failed for category: {cat}"
+        finally:
+            mcp_server._state.clear()
+
+
+class TestIngestDocumentsSecurity:
+    @pytest.mark.asyncio
+    async def test_rejects_path_outside_home(self, shared_state):
+        import mcp_server
+        from mcp_server import ingest_documents
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await ingest_documents("/etc/passwd")
+        finally:
+            mcp_server._state.clear()
+
+        assert "Access denied" in result
+
+    @pytest.mark.asyncio
+    async def test_rejects_path_traversal(self, shared_state):
+        import mcp_server
+        from mcp_server import ingest_documents
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await ingest_documents("/tmp/../etc/passwd")
+        finally:
+            mcp_server._state.clear()
+
+        assert "Access denied" in result

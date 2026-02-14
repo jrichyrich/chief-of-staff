@@ -1,7 +1,7 @@
 # tests/test_base_agent.py
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from agents.base import BaseExpertAgent
+from agents.base import BaseExpertAgent, MAX_TOOL_ROUNDS
 from agents.registry import AgentConfig
 from memory.store import MemoryStore
 from documents.store import DocumentStore
@@ -77,3 +77,32 @@ class TestBaseExpertAgent:
         with patch.object(agent, "_call_api", new_callable=AsyncMock, return_value=mock_response):
             result = await agent.execute("Hello, test agent")
             assert result == "Test response"
+
+    @pytest.mark.asyncio
+    async def test_agent_respects_max_tool_rounds(self, agent_config, memory_store, doc_store):
+        """Agent should stop after MAX_TOOL_ROUNDS to prevent infinite loops."""
+        agent = BaseExpertAgent(
+            config=agent_config,
+            memory_store=memory_store,
+            document_store=doc_store,
+        )
+        # Response that always requests another tool call
+        mock_tool_block = MagicMock(type="tool_use", name="query_memory", id="test_id")
+        mock_tool_block.input = {"query": "test"}
+        mock_response = MagicMock()
+        mock_response.content = [mock_tool_block]
+        mock_response.stop_reason = "tool_use"
+
+        with patch.object(agent, "_call_api", new_callable=AsyncMock, return_value=mock_response):
+            result = await agent.execute("Loop forever")
+            assert "maximum tool rounds" in result.lower()
+
+    def test_uses_async_client(self, agent_config, memory_store, doc_store):
+        """Agent should use AsyncAnthropic for true async execution."""
+        import anthropic
+        agent = BaseExpertAgent(
+            config=agent_config,
+            memory_store=memory_store,
+            document_store=doc_store,
+        )
+        assert isinstance(agent.client, anthropic.AsyncAnthropic)

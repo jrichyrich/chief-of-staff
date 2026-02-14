@@ -6,6 +6,8 @@ from typing import Any
 
 import anthropic
 
+MAX_TOOL_ROUNDS = 25
+
 import config as app_config
 from agents.base import BaseExpertAgent
 from agents.factory import AgentFactory
@@ -52,7 +54,7 @@ class ChiefOfStaff:
         messages = list(self.conversation_history)
         tools = get_chief_tools()
 
-        while True:
+        for _round in range(MAX_TOOL_ROUNDS):
             response = self._call_api(messages, tools)
 
             if response.stop_reason == "tool_use":
@@ -80,6 +82,10 @@ class ChiefOfStaff:
 
             self.conversation_history.append({"role": "assistant", "content": text})
             return text
+
+        fallback = "[Reached maximum tool rounds without a final response]"
+        self.conversation_history.append({"role": "assistant", "content": fallback})
+        return fallback
 
     def _call_api(self, messages: list, tools: list) -> Any:
         return self.client.messages.create(

@@ -67,6 +67,9 @@ mcp = FastMCP(
 # --- Memory Tools ---
 
 
+VALID_CATEGORIES = {"personal", "preference", "work", "relationship"}
+
+
 @mcp.tool()
 async def store_fact(category: str, key: str, value: str, confidence: float = 1.0) -> str:
     """Store a fact about the user in long-term memory. Overwrites if category+key already exists.
@@ -77,6 +80,10 @@ async def store_fact(category: str, key: str, value: str, confidence: float = 1.
         value: The fact value
         confidence: Confidence score from 0.0 to 1.0 (default 1.0)
     """
+    if category not in VALID_CATEGORIES:
+        return json.dumps({
+            "error": f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
+        })
     memory_store = _state["memory_store"]
     fact = Fact(category=category, key=key, value=value, confidence=confidence)
     stored = memory_store.store_fact(fact)
@@ -100,6 +107,10 @@ async def query_memory(query: str, category: str = "") -> str:
 
     if category:
         facts = memory_store.get_facts_by_category(category)
+        # Filter by query text within the category results
+        if query:
+            q = query.lower()
+            facts = [f for f in facts if q in f.value.lower() or q in f.key.lower()]
     else:
         facts = memory_store.search_facts(query)
 
@@ -174,7 +185,14 @@ async def ingest_documents(path: str) -> str:
         path: Absolute path to a file or directory to ingest
     """
     document_store = _state["document_store"]
-    target = Path(path)
+    target = Path(path).resolve()
+
+    # Security: prevent path traversal outside allowed directories
+    allowed_roots = _state.get("allowed_ingest_roots")
+    if allowed_roots is None:
+        allowed_roots = [Path.home().resolve()]
+    if not any(str(target).startswith(str(root)) for root in allowed_roots):
+        return f"Access denied: path must be within your home directory ({allowed_roots[0]})"
 
     if not target.exists():
         return f"Path not found: {path}"
