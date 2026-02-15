@@ -2,6 +2,8 @@ capabilities:
 - memory_read
 - memory_write
 - document_search
+- reminders_read
+- reminders_write
 description: Tracks and consolidates action items for you and your direct reports
   across Confluence agendas, email, Teams chats, and Jira, giving a unified view of
   who owes what and when.

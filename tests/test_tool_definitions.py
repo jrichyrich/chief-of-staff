@@ -21,7 +21,13 @@ class TestToolDefinitions:
         assert "dispatch_agent" in names
         assert "create_agent" in names
         assert "dispatch_parallel" in names
+        assert "list_reminder_lists" in names
+        assert "get_reminders" in names
+        assert "create_reminder" in names
+        assert "complete_reminder" in names
+        assert "search_reminders" in names
+        assert "send_notification" in names
 
     def test_tool_count(self):
         tools = get_chief_tools()
-        assert len(tools) == 13
+        assert len(tools) == 19

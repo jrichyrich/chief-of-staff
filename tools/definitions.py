@@ -197,6 +197,77 @@ CHIEF_TOOLS = [
             "required": ["title", "start_date", "end_date"],
         },
     },
+    {
+        "name": "list_reminder_lists",
+        "description": "List all reminder lists (Apple Reminders) available on this Mac.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "get_reminders",
+        "description": "Get reminders, optionally filtered by list name and completion status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "list_name": {"type": "string", "description": "Optional: filter to a specific reminder list"},
+                "completed": {"type": "boolean", "description": "Optional: true for completed only, false for incomplete only, omit for all"},
+            },
+        },
+    },
+    {
+        "name": "create_reminder",
+        "description": "Create a new reminder in Apple Reminders.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Reminder title"},
+                "list_name": {"type": "string", "description": "Which reminder list to add to (uses default if omitted)"},
+                "due_date": {"type": "string", "description": "Due date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"},
+                "priority": {"type": "integer", "description": "Priority: 0=none, 1=high, 4=medium, 9=low"},
+                "notes": {"type": "string", "description": "Notes/description for the reminder"},
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "complete_reminder",
+        "description": "Mark a reminder as completed by its ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reminder_id": {"type": "string", "description": "The ID of the reminder to complete"},
+            },
+            "required": ["reminder_id"],
+        },
+    },
+    {
+        "name": "search_reminders",
+        "description": "Search reminders by title text.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Text to search for in reminder titles"},
+                "include_completed": {"type": "boolean", "description": "Whether to include completed reminders (default: false)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "send_notification",
+        "description": "Send a macOS notification to the user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Notification title"},
+                "message": {"type": "string", "description": "Notification body text"},
+                "subtitle": {"type": "string", "description": "Optional subtitle"},
+                "sound": {"type": "string", "description": "Sound name (default: 'default')"},
+            },
+            "required": ["title", "message"],
+        },
+    },
 ]
 
 

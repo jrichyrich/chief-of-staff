@@ -59,11 +59,15 @@ class ChiefOfStaff:
         document_store: DocumentStore,
         agent_registry: AgentRegistry,
         calendar_store=None,
+        reminder_store=None,
+        notifier=None,
     ):
         self.memory_store = memory_store
         self.document_store = document_store
         self.agent_registry = agent_registry
         self.calendar_store = calendar_store
+        self.reminder_store = reminder_store
+        self.notifier = notifier
         self.dispatcher = AgentDispatcher(timeout_seconds=app_config.AGENT_TIMEOUT_SECONDS)
         self.client = anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
         self.conversation_history: list[dict] = []
@@ -235,6 +239,53 @@ class ChiefOfStaff:
                 is_all_day=tool_input.get("is_all_day", False),
             )
 
+        elif tool_name == "list_reminder_lists":
+            if self.reminder_store is None:
+                return {"error": "Reminders not available (macOS only)"}
+            return self.reminder_store.list_reminder_lists()
+
+        elif tool_name == "get_reminders":
+            if self.reminder_store is None:
+                return {"error": "Reminders not available (macOS only)"}
+            return self.reminder_store.get_reminders(
+                list_name=tool_input.get("list_name"),
+                completed=tool_input.get("completed"),
+            )
+
+        elif tool_name == "create_reminder":
+            if self.reminder_store is None:
+                return {"error": "Reminders not available (macOS only)"}
+            return self.reminder_store.create_reminder(
+                title=tool_input["title"],
+                list_name=tool_input.get("list_name"),
+                due_date=tool_input.get("due_date"),
+                priority=tool_input.get("priority"),
+                notes=tool_input.get("notes"),
+            )
+
+        elif tool_name == "complete_reminder":
+            if self.reminder_store is None:
+                return {"error": "Reminders not available (macOS only)"}
+            return self.reminder_store.complete_reminder(tool_input["reminder_id"])
+
+        elif tool_name == "search_reminders":
+            if self.reminder_store is None:
+                return {"error": "Reminders not available (macOS only)"}
+            return self.reminder_store.search_reminders(
+                query=tool_input["query"],
+                include_completed=tool_input.get("include_completed", False),
+            )
+
+        elif tool_name == "send_notification":
+            if self.notifier is None:
+                return {"error": "Notifications not available (macOS only)"}
+            return self.notifier.send(
+                title=tool_input["title"],
+                message=tool_input["message"],
+                subtitle=tool_input.get("subtitle"),
+                sound=tool_input.get("sound", "default"),
+            )
+
         return {"error": f"Unknown tool: {tool_name}"}
 
     def _handle_create_agent(self, tool_input: dict) -> Any:
@@ -270,7 +321,7 @@ class ChiefOfStaff:
                 logger.warning("Agent '%s' not found for dispatch", agent_name)
                 return {"error": f"Agent '{agent_name}' not found"}
             logger.info("Dispatching agent: %s", agent_name)
-            agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store)
+            agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store, reminder_store=self.reminder_store, notifier=self.notifier)
             results = await self.dispatcher.dispatch([(agent_name, agent, task)])
             r = results[0]
             if r.error:
@@ -287,7 +338,7 @@ class ChiefOfStaff:
                     logger.warning("Agent '%s' not found, skipping in parallel dispatch", name)
                     missing_agents.append(name)
                     continue
-                agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store)
+                agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store, reminder_store=self.reminder_store, notifier=self.notifier)
                 enriched_task = self._enrich_task(item["task"])
                 tasks_to_dispatch.append((name, agent, enriched_task))
 

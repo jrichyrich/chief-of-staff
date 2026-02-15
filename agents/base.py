@@ -79,6 +79,75 @@ CAPABILITY_TOOLS = {
             },
         },
     ],
+    "reminders_read": [
+        {
+            "name": "get_reminders",
+            "description": "Get reminders, optionally filtered by list name and completion status.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "list_name": {"type": "string", "description": "Optional: filter to a specific reminder list"},
+                    "completed": {"type": "boolean", "description": "Optional: true for completed only, false for incomplete only, omit for all"},
+                },
+            },
+        },
+        {
+            "name": "search_reminders",
+            "description": "Search reminders by title text.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Text to search for in reminder titles"},
+                    "include_completed": {"type": "boolean", "description": "Whether to include completed reminders (default: false)"},
+                },
+                "required": ["query"],
+            },
+        },
+    ],
+    "reminders_write": [
+        {
+            "name": "create_reminder",
+            "description": "Create a new reminder in Apple Reminders.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Reminder title"},
+                    "list_name": {"type": "string", "description": "Which reminder list to add to (uses default if omitted)"},
+                    "due_date": {"type": "string", "description": "Due date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"},
+                    "priority": {"type": "integer", "description": "Priority: 0=none, 1=high, 4=medium, 9=low"},
+                    "notes": {"type": "string", "description": "Notes/description for the reminder"},
+                },
+                "required": ["title"],
+            },
+        },
+        {
+            "name": "complete_reminder",
+            "description": "Mark a reminder as completed by its ID.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "string", "description": "The ID of the reminder to complete"},
+                },
+                "required": ["reminder_id"],
+            },
+        },
+    ],
+    "notifications": [
+        {
+            "name": "send_notification",
+            "description": "Send a macOS notification to the user.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Notification title"},
+                    "message": {"type": "string", "description": "Notification body text"},
+                    "subtitle": {"type": "string", "description": "Optional subtitle"},
+                    "sound": {"type": "string", "description": "Sound name (default: 'default')"},
+                },
+                "required": ["title", "message"],
+            },
+        },
+    ],
 }
 
 
@@ -90,12 +159,16 @@ class BaseExpertAgent:
         document_store: DocumentStore,
         client: Optional[anthropic.AsyncAnthropic] = None,
         calendar_store=None,
+        reminder_store=None,
+        notifier=None,
     ):
         self.config = config
         self.name = config.name
         self.memory_store = memory_store
         self.document_store = document_store
         self.calendar_store = calendar_store
+        self.reminder_store = reminder_store
+        self.notifier = notifier
         self.client = client or anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
 
     def build_system_prompt(self) -> str:
@@ -185,6 +258,21 @@ class BaseExpertAgent:
         elif tool_name == "search_calendar_events":
             return self._handle_calendar_search(tool_input)
 
+        elif tool_name == "get_reminders":
+            return self._handle_reminder_get(tool_input)
+
+        elif tool_name == "search_reminders":
+            return self._handle_reminder_search(tool_input)
+
+        elif tool_name == "create_reminder":
+            return self._handle_reminder_create(tool_input)
+
+        elif tool_name == "complete_reminder":
+            return self._handle_reminder_complete(tool_input)
+
+        elif tool_name == "send_notification":
+            return self._handle_send_notification(tool_input)
+
         return {"error": f"Unknown tool: {tool_name}"}
 
     def _handle_calendar_get_events(self, tool_input: dict) -> Any:
@@ -204,3 +292,45 @@ class BaseExpertAgent:
         start_dt = datetime.fromisoformat(tool_input["start_date"]) if tool_input.get("start_date") else now - timedelta(days=30)
         end_dt = datetime.fromisoformat(tool_input["end_date"]) if tool_input.get("end_date") else now + timedelta(days=30)
         return self.calendar_store.search_events(tool_input["query"], start_dt, end_dt)
+
+    def _handle_reminder_get(self, tool_input: dict) -> Any:
+        if self.reminder_store is None:
+            return {"error": "Reminders not available (macOS only)"}
+        return self.reminder_store.get_reminders(
+            list_name=tool_input.get("list_name"),
+            completed=tool_input.get("completed"),
+        )
+
+    def _handle_reminder_search(self, tool_input: dict) -> Any:
+        if self.reminder_store is None:
+            return {"error": "Reminders not available (macOS only)"}
+        return self.reminder_store.search_reminders(
+            query=tool_input["query"],
+            include_completed=tool_input.get("include_completed", False),
+        )
+
+    def _handle_reminder_create(self, tool_input: dict) -> Any:
+        if self.reminder_store is None:
+            return {"error": "Reminders not available (macOS only)"}
+        return self.reminder_store.create_reminder(
+            title=tool_input["title"],
+            list_name=tool_input.get("list_name"),
+            due_date=tool_input.get("due_date"),
+            priority=tool_input.get("priority"),
+            notes=tool_input.get("notes"),
+        )
+
+    def _handle_reminder_complete(self, tool_input: dict) -> Any:
+        if self.reminder_store is None:
+            return {"error": "Reminders not available (macOS only)"}
+        return self.reminder_store.complete_reminder(tool_input["reminder_id"])
+
+    def _handle_send_notification(self, tool_input: dict) -> Any:
+        if self.notifier is None:
+            return {"error": "Notifications not available (macOS only)"}
+        return self.notifier.send(
+            title=tool_input["title"],
+            message=tool_input["message"],
+            subtitle=tool_input.get("subtitle"),
+            sound=tool_input.get("sound", "default"),
+        )
