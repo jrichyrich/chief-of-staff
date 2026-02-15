@@ -28,11 +28,17 @@ def registry(tmp_path):
 
 
 @pytest.fixture
-def chief(memory_store, doc_store, registry):
+def calendar_store():
+    return MagicMock()
+
+
+@pytest.fixture
+def chief(memory_store, doc_store, registry, calendar_store):
     return ChiefOfStaff(
         memory_store=memory_store,
         document_store=doc_store,
         agent_registry=registry,
+        calendar_store=calendar_store,
     )
 
 

@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime
 from typing import Any
 
 import anthropic
@@ -57,10 +58,12 @@ class ChiefOfStaff:
         memory_store: MemoryStore,
         document_store: DocumentStore,
         agent_registry: AgentRegistry,
+        calendar_store=None,
     ):
         self.memory_store = memory_store
         self.document_store = document_store
         self.agent_registry = agent_registry
+        self.calendar_store = calendar_store
         self.dispatcher = AgentDispatcher(timeout_seconds=app_config.AGENT_TIMEOUT_SECONDS)
         self.client = anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
         self.conversation_history: list[dict] = []
@@ -201,6 +204,36 @@ class ChiefOfStaff:
                     alerts["upcoming_deadlines"].append({"id": d.id, "task": d.task, "delegated_to": d.delegated_to, "due_date": d.due_date})
             total = sum(len(v) for v in alerts.values())
             return {"total_alerts": total, "alerts": alerts}
+
+        elif tool_name == "list_calendars":
+            if self.calendar_store is None:
+                return {"error": "Calendar not available (macOS only)"}
+            return self.calendar_store.list_calendars()
+
+        elif tool_name == "get_calendar_events":
+            if self.calendar_store is None:
+                return {"error": "Calendar not available (macOS only)"}
+            start_dt = datetime.fromisoformat(tool_input["start_date"])
+            end_dt = datetime.fromisoformat(tool_input["end_date"])
+            calendar_names = None
+            if tool_input.get("calendar_name"):
+                calendar_names = [tool_input["calendar_name"]]
+            return self.calendar_store.get_events(start_dt, end_dt, calendar_names)
+
+        elif tool_name == "create_calendar_event":
+            if self.calendar_store is None:
+                return {"error": "Calendar not available (macOS only)"}
+            start_dt = datetime.fromisoformat(tool_input["start_date"])
+            end_dt = datetime.fromisoformat(tool_input["end_date"])
+            return self.calendar_store.create_event(
+                title=tool_input["title"],
+                start_dt=start_dt,
+                end_dt=end_dt,
+                calendar_name=tool_input.get("calendar_name"),
+                location=tool_input.get("location"),
+                notes=tool_input.get("notes"),
+                is_all_day=tool_input.get("is_all_day", False),
+            )
 
         return {"error": f"Unknown tool: {tool_name}"}
 

@@ -159,6 +159,44 @@ CHIEF_TOOLS = [
             "properties": {},
         },
     },
+    {
+        "name": "list_calendars",
+        "description": "List all calendars available on this Mac, including Exchange/Outlook synced calendars.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "get_calendar_events",
+        "description": "Get calendar events within a date range. Returns event details including title, time, location, attendees, and calendar name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "Start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"},
+                "end_date": {"type": "string", "description": "End date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"},
+                "calendar_name": {"type": "string", "description": "Optional: filter to a specific calendar"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "create_calendar_event",
+        "description": "Create a new calendar event.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Event title"},
+                "start_date": {"type": "string", "description": "Start date/time (YYYY-MM-DDTHH:MM:SS)"},
+                "end_date": {"type": "string", "description": "End date/time (YYYY-MM-DDTHH:MM:SS)"},
+                "calendar_name": {"type": "string", "description": "Which calendar to add to"},
+                "location": {"type": "string", "description": "Event location"},
+                "notes": {"type": "string", "description": "Event notes/description"},
+                "is_all_day": {"type": "boolean", "description": "Whether this is an all-day event"},
+            },
+            "required": ["title", "start_date", "end_date"],
+        },
+    },
 ]
 
 

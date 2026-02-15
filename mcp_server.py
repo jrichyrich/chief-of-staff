@@ -9,12 +9,14 @@ import json
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 import config as app_config
 from agents.registry import AgentConfig, AgentRegistry
+from apple_calendar.eventkit import CalendarStore
 from documents.ingestion import ingest_path as _ingest_path
 from documents.store import DocumentStore
 from memory.models import AlertRule, Decision, Delegation, Fact, Location
@@ -41,11 +43,13 @@ async def app_lifespan(server: FastMCP):
     memory_store = MemoryStore(app_config.MEMORY_DB_PATH)
     document_store = DocumentStore(persist_dir=app_config.CHROMA_PERSIST_DIR)
     agent_registry = AgentRegistry(app_config.AGENT_CONFIGS_DIR)
+    calendar_store = CalendarStore()
 
     _state.update({
         "memory_store": memory_store,
         "document_store": document_store,
         "agent_registry": agent_registry,
+        "calendar_store": calendar_store,
     })
 
     logger.info("Jarvis MCP server initialized")
@@ -683,6 +687,168 @@ async def dismiss_alert(rule_id: int) -> str:
         "name": updated.name,
         "enabled": updated.enabled,
     })
+
+
+# --- Calendar Tools ---
+
+
+def _parse_date(date_str: str) -> datetime:
+    """Parse ISO date string to datetime."""
+    try:
+        return datetime.fromisoformat(date_str)
+    except ValueError:
+        # Handle date-only format
+        return datetime.strptime(date_str, "%Y-%m-%d")
+
+
+@mcp.tool()
+async def list_calendars() -> str:
+    """List all calendars available on this Mac (including Exchange/Outlook synced ones)."""
+    calendar_store = _state["calendar_store"]
+    try:
+        calendars = calendar_store.list_calendars()
+        return json.dumps({"results": calendars})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to list calendars: {e}"})
+
+
+@mcp.tool()
+async def get_calendar_events(start_date: str, end_date: str, calendar_name: str = "") -> str:
+    """Get events in a date range. Dates in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS). Optional calendar filter.
+
+    Args:
+        start_date: Start date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+        end_date: End date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+        calendar_name: Optional calendar name to filter by
+    """
+    calendar_store = _state["calendar_store"]
+    try:
+        start_dt = _parse_date(start_date)
+        end_dt = _parse_date(end_date)
+        calendar_names = [calendar_name] if calendar_name else None
+        events = calendar_store.get_events(start_dt, end_dt, calendar_names=calendar_names)
+        return json.dumps({"results": events})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to get events: {e}"})
+
+
+@mcp.tool()
+async def create_calendar_event(
+    title: str,
+    start_date: str,
+    end_date: str,
+    calendar_name: str = "",
+    location: str = "",
+    notes: str = "",
+    is_all_day: bool = False,
+) -> str:
+    """Create a new calendar event.
+
+    Args:
+        title: Event title (required)
+        start_date: Start date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+        end_date: End date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+        calendar_name: Calendar to create the event in (uses default if empty)
+        location: Event location
+        notes: Event notes/description
+        is_all_day: Whether this is an all-day event (default: False)
+    """
+    calendar_store = _state["calendar_store"]
+    try:
+        start_dt = _parse_date(start_date)
+        end_dt = _parse_date(end_date)
+        result = calendar_store.create_event(
+            title=title,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            calendar_name=calendar_name or None,
+            location=location or None,
+            notes=notes or None,
+            is_all_day=is_all_day,
+        )
+        return json.dumps({"status": "created", "event": result})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to create event: {e}"})
+
+
+@mcp.tool()
+async def update_calendar_event(
+    event_uid: str,
+    calendar_name: str,
+    title: str = "",
+    start_date: str = "",
+    end_date: str = "",
+    location: str = "",
+    notes: str = "",
+) -> str:
+    """Update an existing calendar event by UID.
+
+    Args:
+        event_uid: The unique identifier of the event (required)
+        calendar_name: Calendar the event belongs to (required)
+        title: New event title
+        start_date: New start date in ISO format
+        end_date: New end date in ISO format
+        location: New event location
+        notes: New event notes
+    """
+    calendar_store = _state["calendar_store"]
+    try:
+        kwargs = {}
+        if title:
+            kwargs["title"] = title
+        if start_date:
+            kwargs["start_dt"] = _parse_date(start_date)
+        if end_date:
+            kwargs["end_dt"] = _parse_date(end_date)
+        if location:
+            kwargs["location"] = location
+        if notes:
+            kwargs["notes"] = notes
+        result = calendar_store.update_event(event_uid, calendar_name=calendar_name, **kwargs)
+        return json.dumps({"status": "updated", "event": result})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to update event: {e}"})
+
+
+@mcp.tool()
+async def delete_calendar_event(event_uid: str, calendar_name: str) -> str:
+    """Delete a calendar event by UID and calendar name.
+
+    Args:
+        event_uid: The unique identifier of the event (required)
+        calendar_name: Calendar the event belongs to (required)
+    """
+    calendar_store = _state["calendar_store"]
+    try:
+        result = calendar_store.delete_event(event_uid, calendar_name=calendar_name)
+        if result is True:
+            return json.dumps({"status": "deleted", "event_uid": event_uid})
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to delete event: {e}"})
+
+
+@mcp.tool()
+async def search_calendar_events(query: str, start_date: str = "", end_date: str = "") -> str:
+    """Search events by title text. Defaults to +/- 30 days if no dates provided.
+
+    Args:
+        query: Text to search for in event titles (required)
+        start_date: Start date in ISO format (defaults to 30 days ago)
+        end_date: End date in ISO format (defaults to 30 days from now)
+    """
+    from datetime import timedelta
+
+    calendar_store = _state["calendar_store"]
+    try:
+        now = datetime.now()
+        start_dt = _parse_date(start_date) if start_date else now - timedelta(days=30)
+        end_dt = _parse_date(end_date) if end_date else now + timedelta(days=30)
+        events = calendar_store.search_events(query, start_dt, end_dt)
+        return json.dumps({"results": events})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to search events: {e}"})
 
 
 # --- Resources ---
