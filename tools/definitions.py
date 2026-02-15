@@ -268,6 +268,116 @@ CHIEF_TOOLS = [
             "required": ["title", "message"],
         },
     },
+    # --- Mail tools ---
+    {
+        "name": "list_mailboxes",
+        "description": "List all mailboxes across all Apple Mail accounts with unread counts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "get_mail_messages",
+        "description": "Get recent email messages from a mailbox (headers only — subject, sender, date, read/flagged status).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mailbox": {"type": "string", "description": "Mailbox name (default: INBOX)"},
+                "account": {"type": "string", "description": "Account name filter"},
+                "limit": {"type": "integer", "description": "Max messages to return (default: 25, max: 100)"},
+            },
+        },
+    },
+    {
+        "name": "get_mail_message",
+        "description": "Get full email content including body by Message-ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "The Message-ID of the email"},
+            },
+            "required": ["message_id"],
+        },
+    },
+    {
+        "name": "search_mail",
+        "description": "Search emails by subject and sender text in a mailbox.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Text to search for in subject and sender"},
+                "mailbox": {"type": "string", "description": "Mailbox to search (default: INBOX)"},
+                "account": {"type": "string", "description": "Account name filter"},
+                "limit": {"type": "integer", "description": "Max results (default: 25, max: 100)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_unread_count",
+        "description": "Get unread email count for a mailbox by listing mailboxes and filtering.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mailbox": {"type": "string", "description": "Mailbox name (default: INBOX)"},
+                "account": {"type": "string", "description": "Account name filter"},
+            },
+        },
+    },
+    {
+        "name": "mark_mail_read",
+        "description": "Mark an email as read or unread by Message-ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "The Message-ID of the email"},
+                "read": {"type": "boolean", "description": "True to mark as read, false to mark as unread"},
+            },
+            "required": ["message_id"],
+        },
+    },
+    {
+        "name": "mark_mail_flagged",
+        "description": "Mark an email as flagged or unflagged by Message-ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "The Message-ID of the email"},
+                "flagged": {"type": "boolean", "description": "True to flag, false to unflag"},
+            },
+            "required": ["message_id"],
+        },
+    },
+    {
+        "name": "move_mail_message",
+        "description": "Move an email to a different mailbox.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "The Message-ID of the email"},
+                "target_mailbox": {"type": "string", "description": "Destination mailbox name"},
+                "target_account": {"type": "string", "description": "Destination account name (optional)"},
+            },
+            "required": ["message_id", "target_mailbox"],
+        },
+    },
+    {
+        "name": "send_email",
+        "description": "Send an email via Apple Mail. REQUIRES confirm_send=true after explicit user confirmation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Comma-separated recipient email addresses"},
+                "subject": {"type": "string", "description": "Email subject line"},
+                "body": {"type": "string", "description": "Email body text"},
+                "cc": {"type": "string", "description": "Comma-separated CC addresses"},
+                "bcc": {"type": "string", "description": "Comma-separated BCC addresses"},
+                "confirm_send": {"type": "boolean", "description": "MUST be true — confirm with user first"},
+            },
+            "required": ["to", "subject", "body", "confirm_send"],
+        },
+    },
 ]
 
 

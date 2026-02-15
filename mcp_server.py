@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 import config as app_config
 from agents.registry import AgentConfig, AgentRegistry
 from apple_calendar.eventkit import CalendarStore
+from apple_mail.mail import MailStore
 from apple_notifications.notifier import Notifier
 from apple_reminders.eventkit import ReminderStore
 from documents.ingestion import ingest_path as _ingest_path
@@ -47,6 +48,7 @@ async def app_lifespan(server: FastMCP):
     agent_registry = AgentRegistry(app_config.AGENT_CONFIGS_DIR)
     calendar_store = CalendarStore()
     reminder_store = ReminderStore()
+    mail_store = MailStore()
 
     _state.update({
         "memory_store": memory_store,
@@ -54,6 +56,7 @@ async def app_lifespan(server: FastMCP):
         "agent_registry": agent_registry,
         "calendar_store": calendar_store,
         "reminder_store": reminder_store,
+        "mail_store": mail_store,
     })
 
     logger.info("Jarvis MCP server initialized")
@@ -1001,6 +1004,153 @@ async def send_notification(
         return json.dumps(result)
     except Exception as e:
         return json.dumps({"error": f"Failed to send notification: {e}"})
+
+
+# --- Mail Tools ---
+
+
+@mcp.tool()
+async def list_mailboxes() -> str:
+    """List all mailboxes across all Mail accounts with unread counts."""
+    mail_store = _state["mail_store"]
+    try:
+        mailboxes = mail_store.list_mailboxes()
+        return json.dumps({"results": mailboxes})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def get_mail_messages(mailbox: str = "INBOX", account: str = "", limit: int = 25) -> str:
+    """Get recent messages (headers only) from a mailbox. Returns subject, sender, date, read/flagged status.
+
+    Args:
+        mailbox: Mailbox name to fetch from (default: INBOX)
+        account: Mail account name (uses first account if empty)
+        limit: Maximum number of messages to return (default: 25, max: 100)
+    """
+    mail_store = _state["mail_store"]
+    try:
+        messages = mail_store.get_messages(mailbox=mailbox, account=account, limit=limit)
+        return json.dumps({"results": messages})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def get_mail_message(message_id: str) -> str:
+    """Get full message content by message ID, including body, to, and cc fields.
+
+    Args:
+        message_id: The unique message ID (required)
+    """
+    mail_store = _state["mail_store"]
+    try:
+        message = mail_store.get_message(message_id)
+        return json.dumps(message)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def search_mail(query: str, mailbox: str = "INBOX", account: str = "", limit: int = 25) -> str:
+    """Search messages by subject or sender text in a mailbox.
+
+    Args:
+        query: Text to search for in subject and sender fields (required)
+        mailbox: Mailbox to search in (default: INBOX)
+        account: Mail account name (uses first account if empty)
+        limit: Maximum number of results (default: 25, max: 100)
+    """
+    mail_store = _state["mail_store"]
+    try:
+        messages = mail_store.search_messages(query=query, mailbox=mailbox, account=account, limit=limit)
+        return json.dumps({"results": messages})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def mark_mail_read(message_id: str, read: str = "true") -> str:
+    """Mark a message as read or unread.
+
+    Args:
+        message_id: The unique message ID (required)
+        read: Set to 'true' to mark as read, 'false' for unread (default: 'true')
+    """
+    mail_store = _state["mail_store"]
+    try:
+        read_bool = read if isinstance(read, bool) else read.lower() == "true"
+        result = mail_store.mark_read(message_id, read=read_bool)
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def mark_mail_flagged(message_id: str, flagged: str = "true") -> str:
+    """Mark a message as flagged or unflagged.
+
+    Args:
+        message_id: The unique message ID (required)
+        flagged: Set to 'true' to flag, 'false' to unflag (default: 'true')
+    """
+    mail_store = _state["mail_store"]
+    try:
+        flagged_bool = flagged if isinstance(flagged, bool) else flagged.lower() == "true"
+        result = mail_store.mark_flagged(message_id, flagged=flagged_bool)
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def move_mail_message(message_id: str, target_mailbox: str, target_account: str = "") -> str:
+    """Move a message to a different mailbox.
+
+    Args:
+        message_id: The unique message ID (required)
+        target_mailbox: Destination mailbox name (required)
+        target_account: Destination account name (uses first account if empty)
+    """
+    mail_store = _state["mail_store"]
+    try:
+        result = mail_store.move_message(message_id, target_mailbox=target_mailbox, target_account=target_account)
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", confirm_send: bool = False) -> str:
+    """Compose and send an email. REQUIRES confirm_send=True after user explicitly confirms they want to send.
+
+    WARNING: This will send a real email. Always confirm with the user before calling with confirm_send=True.
+
+    Args:
+        to: Comma-separated recipient email addresses (required)
+        subject: Email subject line (required)
+        body: Email body text (required)
+        cc: Comma-separated CC email addresses (optional)
+        bcc: Comma-separated BCC email addresses (optional)
+        confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
+    """
+    mail_store = _state["mail_store"]
+    try:
+        to_list = [addr.strip() for addr in to.split(",") if addr.strip()]
+        cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
+        bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
+        result = mail_store.send_message(
+            to=to_list,
+            subject=subject,
+            body=body,
+            cc=cc_list,
+            bcc=bcc_list,
+            confirm_send=confirm_send,
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 # --- Resources ---

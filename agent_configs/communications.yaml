@@ -1,6 +1,8 @@
 capabilities:
 - memory_read
 - memory_write
+- mail_read
+- mail_write
 description: Handles outbound communications — creates Outlook email drafts and sends
   iMessage notifications. Other agents route through this agent to deliver content.
 max_tokens: 2048

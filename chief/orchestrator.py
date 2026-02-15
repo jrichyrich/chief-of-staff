@@ -61,6 +61,7 @@ class ChiefOfStaff:
         calendar_store=None,
         reminder_store=None,
         notifier=None,
+        mail_store=None,
     ):
         self.memory_store = memory_store
         self.document_store = document_store
@@ -68,6 +69,7 @@ class ChiefOfStaff:
         self.calendar_store = calendar_store
         self.reminder_store = reminder_store
         self.notifier = notifier
+        self.mail_store = mail_store
         self.dispatcher = AgentDispatcher(timeout_seconds=app_config.AGENT_TIMEOUT_SECONDS)
         self.client = anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
         self.conversation_history: list[dict] = []
@@ -286,6 +288,88 @@ class ChiefOfStaff:
                 sound=tool_input.get("sound", "default"),
             )
 
+        elif tool_name == "list_mailboxes":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            return self.mail_store.list_mailboxes()
+
+        elif tool_name == "get_mail_messages":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            return self.mail_store.get_messages(
+                mailbox=tool_input.get("mailbox", "INBOX"),
+                account=tool_input.get("account", ""),
+                limit=tool_input.get("limit", 25),
+            )
+
+        elif tool_name == "get_mail_message":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            return self.mail_store.get_message(tool_input["message_id"])
+
+        elif tool_name == "search_mail":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            return self.mail_store.search_messages(
+                query=tool_input["query"],
+                mailbox=tool_input.get("mailbox", "INBOX"),
+                account=tool_input.get("account", ""),
+                limit=tool_input.get("limit", 25),
+            )
+
+        elif tool_name == "get_unread_count":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            mailbox = tool_input.get("mailbox", "INBOX")
+            account = tool_input.get("account", "")
+            mailboxes = self.mail_store.list_mailboxes()
+            for mb in mailboxes:
+                if isinstance(mb, dict) and mb.get("name") == mailbox:
+                    if account and mb.get("account") != account:
+                        continue
+                    return {"mailbox": mailbox, "unread_count": mb.get("unread_count", 0)}
+            return {"mailbox": mailbox, "unread_count": 0}
+
+        elif tool_name == "mark_mail_read":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            return self.mail_store.mark_read(
+                message_id=tool_input["message_id"],
+                read=tool_input.get("read", True),
+            )
+
+        elif tool_name == "mark_mail_flagged":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            return self.mail_store.mark_flagged(
+                message_id=tool_input["message_id"],
+                flagged=tool_input.get("flagged", True),
+            )
+
+        elif tool_name == "move_mail_message":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            return self.mail_store.move_message(
+                message_id=tool_input["message_id"],
+                target_mailbox=tool_input["target_mailbox"],
+                target_account=tool_input.get("target_account", ""),
+            )
+
+        elif tool_name == "send_email":
+            if self.mail_store is None:
+                return {"error": "Mail not available (macOS only)"}
+            to_list = [a.strip() for a in tool_input["to"].split(",") if a.strip()]
+            cc_list = [a.strip() for a in tool_input.get("cc", "").split(",") if a.strip()] or None
+            bcc_list = [a.strip() for a in tool_input.get("bcc", "").split(",") if a.strip()] or None
+            return self.mail_store.send_message(
+                to=to_list,
+                subject=tool_input["subject"],
+                body=tool_input["body"],
+                cc=cc_list,
+                bcc=bcc_list,
+                confirm_send=tool_input.get("confirm_send", False),
+            )
+
         return {"error": f"Unknown tool: {tool_name}"}
 
     def _handle_create_agent(self, tool_input: dict) -> Any:
@@ -321,7 +405,7 @@ class ChiefOfStaff:
                 logger.warning("Agent '%s' not found for dispatch", agent_name)
                 return {"error": f"Agent '{agent_name}' not found"}
             logger.info("Dispatching agent: %s", agent_name)
-            agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store, reminder_store=self.reminder_store, notifier=self.notifier)
+            agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store, reminder_store=self.reminder_store, notifier=self.notifier, mail_store=self.mail_store)
             results = await self.dispatcher.dispatch([(agent_name, agent, task)])
             r = results[0]
             if r.error:
@@ -338,7 +422,7 @@ class ChiefOfStaff:
                     logger.warning("Agent '%s' not found, skipping in parallel dispatch", name)
                     missing_agents.append(name)
                     continue
-                agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store, reminder_store=self.reminder_store, notifier=self.notifier)
+                agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store, reminder_store=self.reminder_store, notifier=self.notifier, mail_store=self.mail_store)
                 enriched_task = self._enrich_task(item["task"])
                 tasks_to_dispatch.append((name, agent, enriched_task))
 

@@ -1,6 +1,7 @@
 capabilities:
 - memory_read
 - memory_write
+- mail_read
 description: Classifies incoming iMessage commands and routes them to the appropriate
   agent or MCP tool. Tracks unmatched requests as missing agent suggestions.
 max_tokens: 512

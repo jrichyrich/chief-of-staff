@@ -27,7 +27,16 @@ class TestToolDefinitions:
         assert "complete_reminder" in names
         assert "search_reminders" in names
         assert "send_notification" in names
+        assert "list_mailboxes" in names
+        assert "get_mail_messages" in names
+        assert "get_mail_message" in names
+        assert "search_mail" in names
+        assert "get_unread_count" in names
+        assert "mark_mail_read" in names
+        assert "mark_mail_flagged" in names
+        assert "move_mail_message" in names
+        assert "send_email" in names
 
     def test_tool_count(self):
         tools = get_chief_tools()
-        assert len(tools) == 19
+        assert len(tools) == 28

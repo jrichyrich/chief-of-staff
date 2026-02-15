@@ -3,6 +3,7 @@ capabilities:
 - document_search
 - calendar_read
 - reminders_read
+- mail_read
 description: Runs a priority-focused weekly planning session by pulling context from
   calendar, email, Teams, and memory to surface what matters most and help set focus
   for the week ahead.

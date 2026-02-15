@@ -25,7 +25,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["memory*", "agents*", "documents*", "chief*", "tools*", "apple_calendar*", "apple_notifications*"]
+include = ["memory*", "agents*", "documents*", "chief*", "tools*", "apple_calendar*", "apple_notifications*", "apple_mail*"]
 
 [tool.setuptools.package-data]
 "agent_configs" = ["*.yaml"]
