@@ -270,7 +270,7 @@ class ChiefOfStaff:
                 logger.warning("Agent '%s' not found for dispatch", agent_name)
                 return {"error": f"Agent '{agent_name}' not found"}
             logger.info("Dispatching agent: %s", agent_name)
-            agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client)
+            agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store)
             results = await self.dispatcher.dispatch([(agent_name, agent, task)])
             r = results[0]
             if r.error:
@@ -287,7 +287,7 @@ class ChiefOfStaff:
                     logger.warning("Agent '%s' not found, skipping in parallel dispatch", name)
                     missing_agents.append(name)
                     continue
-                agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client)
+                agent = BaseExpertAgent(config, self.memory_store, self.document_store, client=self.client, calendar_store=self.calendar_store)
                 enriched_task = self._enrich_task(item["task"])
                 tasks_to_dispatch.append((name, agent, enriched_task))
 

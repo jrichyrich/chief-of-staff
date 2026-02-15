@@ -2,6 +2,7 @@ capabilities:
 - memory_read
 - memory_write
 - document_search
+- calendar_read
 description: Generates a concise, prioritized daily briefing by pulling context from
   calendar, email, Teams, Jira, and memory to surface what needs attention today and
   flag risks before they become problems.
