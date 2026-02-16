@@ -12,3 +12,25 @@ DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
 CHIEF_MODEL = DEFAULT_MODEL
 
 AGENT_TIMEOUT_SECONDS = 60
+MAX_TOOL_ROUNDS = 25
+VALID_FACT_CATEGORIES = {"personal", "preference", "work", "relationship", "backlog"}
+
+OKR_DATA_DIR = DATA_DIR / "okr"
+OKR_SPREADSHEET_DEFAULT = OKR_DATA_DIR / "2026_ISP_OKR_Master_Final.xlsx"
+
+# Unified connector routing state
+CALENDAR_ROUTING_DB_PATH = DATA_DIR / "calendar-routing.db"
+CALENDAR_REQUIRE_DUAL_READ = os.environ.get("CALENDAR_REQUIRE_DUAL_READ", "true").strip().lower() not in {"0", "false", "no"}
+
+# Claude bridge settings for Microsoft 365 MCP connector access
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+CLAUDE_MCP_CONFIG = os.environ.get("CLAUDE_MCP_CONFIG", "")
+M365_BRIDGE_MODEL = os.environ.get("M365_BRIDGE_MODEL", "sonnet")
+try:
+    M365_BRIDGE_TIMEOUT_SECONDS = int(os.environ.get("M365_BRIDGE_TIMEOUT_SECONDS", "90"))
+except ValueError:
+    M365_BRIDGE_TIMEOUT_SECONDS = 90
+try:
+    M365_BRIDGE_DETECT_TIMEOUT_SECONDS = int(os.environ.get("M365_BRIDGE_DETECT_TIMEOUT_SECONDS", "5"))
+except ValueError:
+    M365_BRIDGE_DETECT_TIMEOUT_SECONDS = 5
