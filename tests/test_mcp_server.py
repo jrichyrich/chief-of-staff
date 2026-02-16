@@ -454,6 +454,26 @@ class TestCreateAgent:
         data = json.loads(result)
         assert data["capabilities"] == []
 
+    @pytest.mark.asyncio
+    async def test_create_agent_rejects_unknown_capability(self, shared_state):
+        import mcp_server
+        from mcp_server import create_agent
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await create_agent(
+                "invalid_agent",
+                "Invalid",
+                "You are invalid.",
+                "memory_read,not_real",
+            )
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+        assert "Unknown capability" in data["error"]
+
 
 # --- Resource Tests ---
 
@@ -623,6 +643,28 @@ class TestIngestDocumentsSecurity:
         mcp_server._state.update(shared_state)
         try:
             result = await ingest_documents("/tmp/../etc/passwd")
+        finally:
+            mcp_server._state.clear()
+
+        assert "Access denied" in result
+
+    @pytest.mark.asyncio
+    async def test_rejects_sibling_directory_prefix_match(self, shared_state, tmp_path):
+        """Ensure /allowed_root_malicious doesn't match /allowed_root via string prefix."""
+        import mcp_server
+        from mcp_server import ingest_documents
+
+        allowed = tmp_path / "safe"
+        allowed.mkdir()
+        sibling = tmp_path / "safe_malicious"
+        sibling.mkdir()
+        secret = sibling / "secret.txt"
+        secret.write_text("secret data")
+
+        shared_state["allowed_ingest_roots"] = [allowed.resolve()]
+        mcp_server._state.update(shared_state)
+        try:
+            result = await ingest_documents(str(secret))
         finally:
             mcp_server._state.clear()
 
@@ -854,6 +896,37 @@ class TestListPendingDecisions:
         assert data["results"][0]["title"] == "Pending one"
 
 
+class TestDeleteDecision:
+    @pytest.mark.asyncio
+    async def test_delete_existing(self, shared_state):
+        import mcp_server
+        from mcp_server import log_decision, delete_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            created = json.loads(await log_decision("To delete"))
+            result = await delete_decision(created["id"])
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "deleted"
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent(self, shared_state):
+        import mcp_server
+        from mcp_server import delete_decision
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await delete_decision(9999)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
+
+
 # --- Delegation Tracker Tool Tests ---
 
 
@@ -1058,6 +1131,37 @@ class TestCheckOverdueDelegations:
         data = json.loads(result)
         assert len(data["results"]) == 1
         assert data["results"][0]["task"] == "Overdue task"
+
+
+class TestDeleteDelegation:
+    @pytest.mark.asyncio
+    async def test_delete_existing(self, shared_state):
+        import mcp_server
+        from mcp_server import add_delegation, delete_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            created = json.loads(await add_delegation("To delete", "Alice"))
+            result = await delete_delegation(created["id"])
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "deleted"
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent(self, shared_state):
+        import mcp_server
+        from mcp_server import delete_delegation
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await delete_delegation(9999)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert "error" in data
 
 
 # --- Alert Tool Tests ---
@@ -1273,10 +1377,3 @@ class TestNewToolsRegistered:
         for name in expected:
             assert name in tool_names, f"Tool '{name}' not registered"
 
-    def test_chief_tools_include_new_tools(self):
-        """Verify tools/definitions.py includes new orchestrator tools."""
-        from tools.definitions import get_chief_tools
-        tool_names = [t["name"] for t in get_chief_tools()]
-        assert "log_decision" in tool_names
-        assert "add_delegation" in tool_names
-        assert "check_alerts" in tool_names

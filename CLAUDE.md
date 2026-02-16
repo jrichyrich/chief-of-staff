@@ -4,9 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Chief of Staff (Jarvis) is a Python AI orchestration system where a "Chief of Staff" agent manages expert agents. It interprets user requests, routes to specialized agents, dispatches them in parallel, and synthesizes results. Three deployment modes:
+Chief of Staff (Jarvis) is a Python AI orchestration system where a "Chief of Staff" agent manages expert agents. It interprets user requests, routes to specialized agents, dispatches them in parallel, and synthesizes results. Two deployment modes:
 
-- **CLI** (`chief` / `main.py`) — interactive chat loop with Rich terminal UI
 - **MCP Server** (`jarvis-mcp` / `mcp_server.py`) — FastMCP stdio server for Claude Code/Desktop integration
 - **Desktop Extension** (`manifest.json`) — DXT package for Claude Desktop; build with `mcpb pack . jarvis.mcpb`
 
@@ -20,16 +19,13 @@ pip install -e ".[dev]"
 pytest
 
 # Run a single test file
-pytest tests/test_orchestrator.py
+pytest tests/test_mcp_server.py
 
 # Run a specific test
-pytest tests/test_orchestrator.py::test_process_text_response -v
+pytest tests/test_mcp_server.py::TestMCPTools::test_query_memory -v
 
 # Run with coverage
-pytest --cov=chief --cov=agents --cov=memory --cov=documents
-
-# Start CLI chat loop
-chief
+pytest --cov=agents --cov=memory --cov=documents
 
 # Start MCP server
 jarvis-mcp
@@ -39,20 +35,15 @@ jarvis-mcp
 
 ### Flow: User Request → Response
 
-1. **CLI (`main.py`)** or **MCP Server (`mcp_server.py`)** receives user input
-2. **ChiefOfStaff** (`chief/orchestrator.py`) calls Claude API with tools to decide what to do
-3. Tool calls execute in a loop (max 25 rounds) until Claude returns a text response:
-   - Memory/lifecycle tools → **MemoryStore** (SQLite)
-   - Document tools → **DocumentStore** (ChromaDB)
-   - Agent tools → **AgentDispatcher** runs expert agents concurrently via `asyncio.gather()`
-4. Expert agents (`agents/base.py`) run their own tool-use loops with Claude, accessing capabilities granted by their YAML config
+1. **MCP Server** (`mcp_server.py`) receives tool calls from Claude Code/Desktop
+2. Tool handlers execute directly — memory, calendar, reminders, mail, agents, etc.
+3. Expert agents (`agents/base.py`) run their own tool-use loops with Claude, accessing capabilities granted by their YAML config
 
 ### Module Map
 
 | Module | Purpose |
 |--------|---------|
-| `chief/orchestrator.py` | Decision-making loop: calls Claude API, handles tool results, maintains conversation history |
-| `chief/dispatcher.py` | Async parallel agent execution with configurable timeout (60s default) |
+| `mcp_server.py` | FastMCP server exposing 57+ tools and 3 resources via stdio transport |
 | `agents/registry.py` | Loads/saves agent configs from YAML files in `agent_configs/` |
 | `agents/base.py` | Expert agent execution: own tool-use loop with capability-gated tools |
 | `agents/factory.py` | Uses Claude to dynamically generate new agent configs |
@@ -61,10 +52,8 @@ jarvis-mcp
 | `memory/models.py` | Dataclasses: Fact, Location, ContextEntry, Decision, Delegation, AlertRule |
 | `documents/store.py` | ChromaDB vector search wrapper (all-MiniLM-L6-v2 embeddings) |
 | `documents/ingestion.py` | Text chunking (word-based, 500 words, 50 overlap) and SHA256 dedup |
-| `tools/definitions.py` | Tool schemas (JSON Schema dicts) for the Anthropic API |
 | `tools/lifecycle.py` | Execution logic for decisions, delegations, and alert rules |
 | `config.py` | All paths, model names, constants, and environment variable settings |
-| `mcp_server.py` | FastMCP server exposing 57+ tools and 3 resources via stdio transport |
 
 ### Apple Platform Integrations (macOS only)
 
@@ -104,8 +93,8 @@ Agent YAML configs declare capabilities (e.g. `calendar_read`, `mail_write`, `me
 
 ### Key Patterns
 
-- **Tool-use loop**: Both ChiefOfStaff and BaseExpertAgent loop on `response.stop_reason == "tool_use"`, executing tools and feeding results back until Claude produces a text response.
-- **Dependency injection**: ChiefOfStaff and agents receive store instances via constructors. Tests use `tmp_path` fixtures for isolation.
+- **Tool-use loop**: BaseExpertAgent loops on `response.stop_reason == "tool_use"`, executing tools and feeding results back until Claude produces a text response.
+- **Dependency injection**: Agents receive store instances via constructors. Tests use `tmp_path` fixtures for isolation.
 - **MCP state management**: `mcp_server.py` uses a module-level `_state` dict populated during FastMCP lifespan for sharing stores across tool handlers.
 - **API resilience**: `retry_api_call` decorator (`utils/`) with exponential backoff, max 3 retries.
 
@@ -113,9 +102,9 @@ Agent YAML configs declare capabilities (e.g. `calendar_read`, `mail_write`, `me
 
 All settings live in `config.py`:
 - `ANTHROPIC_API_KEY`: from environment variable
-- `DEFAULT_MODEL` / `CHIEF_MODEL`: `claude-sonnet-4-5-20250929`
+- `DEFAULT_MODEL`: `claude-sonnet-4-5-20250929`
 - `VALID_FACT_CATEGORIES`: `personal`, `preference`, `work`, `relationship`, `backlog`
-- `MAX_TOOL_ROUNDS`: 25 (orchestrator loop limit)
+- `MAX_TOOL_ROUNDS`: 25 (agent loop limit)
 - `AGENT_TIMEOUT_SECONDS`: 60
 - Agent configs: YAML files in `agent_configs/`
 - Runtime data: `data/memory.db` (SQLite), `data/chroma/` (ChromaDB), `data/okr/` (OKR snapshots)
