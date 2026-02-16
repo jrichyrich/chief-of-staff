@@ -69,9 +69,7 @@ tell application "Mail"
         repeat with mb in mailboxes of acct
             set mbName to name of mb
             set unread to unread count of mb
-            set output to output & mbName & "|||" & acctName & "|||" & (unread as text) & "
-~~~RECORD~~~
-"
+            set output to output & mbName & "|||" & acctName & "|||" & (unread as text) & return & "~~~RECORD~~~" & return
         end repeat
     end repeat
     return output
@@ -106,8 +104,10 @@ tell application "Mail"
     set mb to {mailbox_ref}
     set msgCount to count of messages of mb
     if msgCount is 0 then return ""
-    if msgCount < {limit} then set maxMsg to msgCount
-    else set maxMsg to {limit}
+    if msgCount < {limit} then
+        set maxMsg to msgCount
+    else
+        set maxMsg to {limit}
     end if
     set output to ""
     repeat with i from 1 to maxMsg
@@ -116,11 +116,9 @@ tell application "Mail"
         set subj to subject of msg
         set sndr to sender of msg
         set dt to date sent of msg as text
-        set rd to read status of msg
-        set fl to flagged status of msg
-        set output to output & mid & "|||" & subj & "|||" & sndr & "|||" & dt & "|||" & rd & "|||" & fl & "
-~~~RECORD~~~
-"
+        set isRead to (read status of msg)
+        set isFlagged to (flagged status of msg)
+        set output to output & mid & "|||" & subj & "|||" & sndr & "|||" & dt & "|||" & (isRead as text) & "|||" & (isFlagged as text) & return & "~~~RECORD~~~" & return
     end repeat
     return output
 end tell
@@ -167,8 +165,8 @@ tell application "Mail"
     set subj to subject of foundMsg
     set sndr to sender of foundMsg
     set dt to date sent of foundMsg as text
-    set rd to read status of foundMsg
-    set fl to flagged status of foundMsg
+    set isRead to (read status of foundMsg)
+    set isFlagged to (flagged status of foundMsg)
     set toList to ""
     repeat with rcpt in to recipients of foundMsg
         set toList to toList & address of rcpt & ","
@@ -179,7 +177,7 @@ tell application "Mail"
     end repeat
     set bodyText to content of foundMsg
     set b64Body to do shell script "printf '%s' " & quoted form of bodyText & " | base64"
-    return subj & "|||" & sndr & "|||" & dt & "|||" & rd & "|||" & fl & "|||" & toList & "|||" & ccList & "|||" & b64Body
+    return subj & "|||" & sndr & "|||" & dt & "|||" & isRead & "|||" & isFlagged & "|||" & toList & "|||" & ccList & "|||" & b64Body
 end tell
 '''
         result = _run_applescript(script)
@@ -224,8 +222,10 @@ tell application "Mail"
     set matchMsgs to (messages of mb whose subject contains "{query_esc}" or sender contains "{query_esc}")
     set msgCount to count of matchMsgs
     if msgCount is 0 then return ""
-    if msgCount < {limit} then set maxMsg to msgCount
-    else set maxMsg to {limit}
+    if msgCount < {limit} then
+        set maxMsg to msgCount
+    else
+        set maxMsg to {limit}
     end if
     set output to ""
     repeat with i from 1 to maxMsg
@@ -234,11 +234,9 @@ tell application "Mail"
         set subj to subject of msg
         set sndr to sender of msg
         set dt to date sent of msg as text
-        set rd to read status of msg
-        set fl to flagged status of msg
-        set output to output & mid & "|||" & subj & "|||" & sndr & "|||" & dt & "|||" & rd & "|||" & fl & "
-~~~RECORD~~~
-"
+        set isRead to (read status of msg)
+        set isFlagged to (flagged status of msg)
+        set output to output & mid & "|||" & subj & "|||" & sndr & "|||" & dt & "|||" & (isRead as text) & "|||" & (isFlagged as text) & return & "~~~RECORD~~~" & return
     end repeat
     return output
 end tell
