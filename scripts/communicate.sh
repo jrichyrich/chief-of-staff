@@ -3,12 +3,13 @@ set -euo pipefail
 
 ACTION=""
 TO=""
+CHAT_ID=""
 SUBJECT=""
 BODY=""
 
 usage() {
     cat <<'USAGE'
-Usage: communicate.sh <action> --to "recipient" --body "text" [options]
+Usage: communicate.sh <action> [--to "recipient" | --chat-id "chat_identifier"] --body "text" [options]
 
 Actions:
   email-draft    Create a draft email in Microsoft Outlook
@@ -16,7 +17,8 @@ Actions:
   reminder       Create an iCloud Reminder (syncs to iPhone with alert)
 
 Options:
-  --to "recipient"        Email address, phone number, or "self" (required for email/imessage; ignored for reminder)
+  --to "recipient"        Email address, phone number, or "self" (required for email; optional for imessage if --chat-id is provided)
+  --chat-id "id"          iMessage chat identifier for thread-aware sends (imessage only)
   --body "text"           Message body (required)
   --subject "subject"     Email subject / reminder title (email-draft, reminder)
   --help                  Show this help message
@@ -36,6 +38,9 @@ escape_applescript() {
     local text="$1"
     text="${text//\\/\\\\}"
     text="${text//\"/\\\"}"
+    text="${text//$'\n'/\\n}"
+    text="${text//$'\r'/\\r}"
+    text="${text//$'\t'/\\t}"
     printf '%s' "$text"
 }
 
@@ -62,6 +67,7 @@ esac
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --to)      TO="$2";      shift 2 ;;
+        --chat-id) CHAT_ID="$2"; shift 2 ;;
         --subject) SUBJECT="$2"; shift 2 ;;
         --body)    BODY="$2";    shift 2 ;;
         --help)    usage ;;
@@ -73,8 +79,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required args
-if [[ -z "$TO" && "$ACTION" != "reminder" ]]; then
+if [[ -z "$TO" && "$ACTION" != "reminder" && "$ACTION" != "imessage" ]]; then
     json_error "$ACTION" "--to is required"
+    exit 1
+fi
+
+if [[ "$ACTION" == "imessage" && -z "$TO" && -z "$CHAT_ID" ]]; then
+    json_error "$ACTION" "--to or --chat-id is required for imessage"
     exit 1
 fi
 
@@ -109,19 +120,27 @@ APPLESCRIPT
         ;;
 
     imessage)
-        # Resolve "self" target
-        if [[ "$TO" == "self" ]]; then
-            TO="${JARVIS_IMESSAGE_SELF:-}"
-            if [[ -z "$TO" ]]; then
-                json_error "imessage" "JARVIS_IMESSAGE_SELF not set and --to is \"self\""
-                exit 1
-            fi
-        fi
-
         escaped_body="$(escape_applescript "$BODY")"
-        escaped_to="$(escape_applescript "$TO")"
-
-        applescript=$(cat <<APPLESCRIPT
+        if [[ -n "$CHAT_ID" ]]; then
+            escaped_chat_id="$(escape_applescript "$CHAT_ID")"
+            applescript=$(cat <<APPLESCRIPT
+tell application "Messages"
+    set targetChat to first chat whose id is "${escaped_chat_id}"
+    send "${escaped_body}" to targetChat
+end tell
+APPLESCRIPT
+)
+        else
+            # Resolve "self" target
+            if [[ "$TO" == "self" ]]; then
+                TO="${JARVIS_IMESSAGE_SELF:-}"
+                if [[ -z "$TO" ]]; then
+                    json_error "imessage" "JARVIS_IMESSAGE_SELF not set and --to is \"self\""
+                    exit 1
+                fi
+            fi
+            escaped_to="$(escape_applescript "$TO")"
+            applescript=$(cat <<APPLESCRIPT
 tell application "Messages"
     set targetService to 1st account whose service type = iMessage
     set targetBuddy to participant "${escaped_to}" of targetService
@@ -129,10 +148,16 @@ tell application "Messages"
 end tell
 APPLESCRIPT
 )
+        fi
 
         if osascript -e "$applescript" 2>/dev/null; then
-            escaped_to_json="${TO//\"/\\\"}"
-            printf '{"channel": "imessage", "status": "sent", "to": "%s"}\n' "$escaped_to_json"
+            if [[ -n "$CHAT_ID" ]]; then
+                escaped_chat_json="${CHAT_ID//\"/\\\"}"
+                printf '{"channel": "imessage", "status": "sent", "chat_identifier": "%s"}\n' "$escaped_chat_json"
+            else
+                escaped_to_json="${TO//\"/\\\"}"
+                printf '{"channel": "imessage", "status": "sent", "to": "%s"}\n' "$escaped_to_json"
+            fi
         else
             json_error "imessage" "Failed to send iMessage"
             exit 1

@@ -73,7 +73,7 @@ class TestMailToolsRegistered:
 class TestListMailboxesTool:
     @pytest.mark.asyncio
     async def test_basic_call(self, mail_state):
-        from mcp_server import list_mailboxes
+        from mcp_tools.mail_tools import list_mailboxes
 
         mail_state.list_mailboxes.return_value = [
             {"name": "INBOX", "account": "Work", "unread_count": 5},
@@ -97,7 +97,7 @@ class TestListMailboxesTool:
 class TestGetMailMessagesTool:
     @pytest.mark.asyncio
     async def test_with_defaults(self, mail_state):
-        from mcp_server import get_mail_messages
+        from mcp_tools.mail_tools import get_mail_messages
 
         mail_state.get_messages.return_value = [
             {"message_id": "m1", "subject": "Test", "sender": "a@b.com"},
@@ -113,7 +113,7 @@ class TestGetMailMessagesTool:
 
     @pytest.mark.asyncio
     async def test_with_filters(self, mail_state):
-        from mcp_server import get_mail_messages
+        from mcp_tools.mail_tools import get_mail_messages
 
         mail_state.get_messages.return_value = []
 
@@ -134,7 +134,7 @@ class TestGetMailMessagesTool:
 class TestGetMailMessageTool:
     @pytest.mark.asyncio
     async def test_found(self, mail_state):
-        from mcp_server import get_mail_message
+        from mcp_tools.mail_tools import get_mail_message
 
         mail_state.get_message.return_value = {
             "message_id": "msg-1",
@@ -151,7 +151,7 @@ class TestGetMailMessageTool:
 
     @pytest.mark.asyncio
     async def test_not_found(self, mail_state):
-        from mcp_server import get_mail_message
+        from mcp_tools.mail_tools import get_mail_message
 
         mail_state.get_message.return_value = {"error": "ERROR: Message not found"}
 
@@ -169,7 +169,7 @@ class TestGetMailMessageTool:
 class TestSearchMailTool:
     @pytest.mark.asyncio
     async def test_basic_search(self, mail_state):
-        from mcp_server import search_mail
+        from mcp_tools.mail_tools import search_mail
 
         mail_state.search_messages.return_value = [
             {"message_id": "s1", "subject": "Meeting Notes"},
@@ -185,7 +185,7 @@ class TestSearchMailTool:
 
     @pytest.mark.asyncio
     async def test_with_filters(self, mail_state):
-        from mcp_server import search_mail
+        from mcp_tools.mail_tools import search_mail
 
         mail_state.search_messages.return_value = []
 
@@ -206,7 +206,7 @@ class TestSearchMailTool:
 class TestMarkMailReadTool:
     @pytest.mark.asyncio
     async def test_mark_read(self, mail_state):
-        from mcp_server import mark_mail_read
+        from mcp_tools.mail_tools import mark_mail_read
 
         mail_state.mark_read.return_value = {"status": "ok", "message_id": "m1", "read": True}
 
@@ -219,7 +219,7 @@ class TestMarkMailReadTool:
 
     @pytest.mark.asyncio
     async def test_mark_unread(self, mail_state):
-        from mcp_server import mark_mail_read
+        from mcp_tools.mail_tools import mark_mail_read
 
         mail_state.mark_read.return_value = {"status": "ok", "message_id": "m1", "read": False}
 
@@ -232,7 +232,7 @@ class TestMarkMailReadTool:
     @pytest.mark.asyncio
     async def test_string_true_false_conversion(self, mail_state):
         """Verify string 'true'/'false' is converted to bool for MailStore."""
-        from mcp_server import mark_mail_read
+        from mcp_tools.mail_tools import mark_mail_read
 
         mail_state.mark_read.return_value = {"status": "ok"}
 
@@ -251,7 +251,7 @@ class TestMarkMailReadTool:
 class TestMarkMailFlaggedTool:
     @pytest.mark.asyncio
     async def test_flag(self, mail_state):
-        from mcp_server import mark_mail_flagged
+        from mcp_tools.mail_tools import mark_mail_flagged
 
         mail_state.mark_flagged.return_value = {"status": "ok", "message_id": "m1", "flagged": True}
 
@@ -263,7 +263,7 @@ class TestMarkMailFlaggedTool:
 
     @pytest.mark.asyncio
     async def test_unflag(self, mail_state):
-        from mcp_server import mark_mail_flagged
+        from mcp_tools.mail_tools import mark_mail_flagged
 
         mail_state.mark_flagged.return_value = {"status": "ok", "message_id": "m1", "flagged": False}
 
@@ -282,7 +282,7 @@ class TestMarkMailFlaggedTool:
 class TestMoveMailMessageTool:
     @pytest.mark.asyncio
     async def test_success(self, mail_state):
-        from mcp_server import move_mail_message
+        from mcp_tools.mail_tools import move_mail_message
 
         mail_state.move_message.return_value = {"status": "ok", "moved_to": "Archive"}
 
@@ -297,7 +297,7 @@ class TestMoveMailMessageTool:
 
     @pytest.mark.asyncio
     async def test_with_account(self, mail_state):
-        from mcp_server import move_mail_message
+        from mcp_tools.mail_tools import move_mail_message
 
         mail_state.move_message.return_value = {"status": "ok", "moved_to": "Archive"}
 
@@ -320,7 +320,7 @@ class TestMoveMailMessageTool:
 class TestSendEmailTool:
     @pytest.mark.asyncio
     async def test_basic_send(self, mail_state):
-        from mcp_server import send_email
+        from mcp_tools.mail_tools import send_email
 
         mail_state.send_message.return_value = {
             "status": "sent",
@@ -346,7 +346,7 @@ class TestSendEmailTool:
 
     @pytest.mark.asyncio
     async def test_confirm_send_false(self, mail_state):
-        from mcp_server import send_email
+        from mcp_tools.mail_tools import send_email
 
         mail_state.send_message.return_value = {
             "error": "confirm_send must be True. Please confirm with the user before sending."
@@ -365,7 +365,7 @@ class TestSendEmailTool:
 
     @pytest.mark.asyncio
     async def test_send_error(self, mail_state):
-        from mcp_server import send_email
+        from mcp_tools.mail_tools import send_email
 
         mail_state.send_message.return_value = {"error": "osascript failed: send error"}
 
@@ -389,7 +389,7 @@ class TestMailToolErrorHandling:
     @pytest.mark.asyncio
     async def test_exception_propagation(self, mail_state):
         """When the store raises an exception, the tool should catch and return error JSON."""
-        from mcp_server import list_mailboxes
+        from mcp_tools.mail_tools import list_mailboxes
 
         mail_state.list_mailboxes.side_effect = RuntimeError("Connection failed")
 
@@ -401,7 +401,7 @@ class TestMailToolErrorHandling:
 
     @pytest.mark.asyncio
     async def test_get_messages_exception(self, mail_state):
-        from mcp_server import get_mail_messages
+        from mcp_tools.mail_tools import get_mail_messages
 
         mail_state.get_messages.side_effect = RuntimeError("Unexpected")
 
@@ -413,7 +413,7 @@ class TestMailToolErrorHandling:
 
     @pytest.mark.asyncio
     async def test_search_exception(self, mail_state):
-        from mcp_server import search_mail
+        from mcp_tools.mail_tools import search_mail
 
         mail_state.search_messages.side_effect = RuntimeError("Search broke")
 

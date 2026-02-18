@@ -12,23 +12,237 @@
     "entry_point": "mcp_server.py",
     "mcp_config": {
       "command": "uv",
-      "args": ["run", "mcp_server.py"]
+      "args": [
+        "run",
+        "mcp_server.py"
+      ]
     }
   },
   "tools": [
-    { "name": "store_fact", "description": "Store a fact about the user in long-term memory" },
-    { "name": "query_memory", "description": "Search stored facts about the user" },
-    { "name": "store_location", "description": "Store a named location in memory" },
-    { "name": "list_locations", "description": "List all stored locations" },
-    { "name": "search_documents", "description": "Semantic search over ingested documents" },
-    { "name": "ingest_documents", "description": "Ingest documents into the knowledge base" },
-    { "name": "list_agents", "description": "List all expert agent configurations" },
-    { "name": "get_agent", "description": "Get details for a specific expert agent" },
-    { "name": "create_agent", "description": "Create or update an expert agent configuration" }
+    {
+      "name": "store_fact",
+      "description": "Store a fact about the user in long-term memory. Overwrites if category+key already exists."
+    },
+    {
+      "name": "delete_fact",
+      "description": "Delete a fact from long-term memory."
+    },
+    {
+      "name": "query_memory",
+      "description": "Search stored facts about the user. Returns matching facts."
+    },
+    {
+      "name": "store_location",
+      "description": "Store a named location in memory."
+    },
+    {
+      "name": "list_locations",
+      "description": "List all stored locations."
+    },
+    {
+      "name": "search_documents",
+      "description": "Semantic search over ingested documents. Returns the most relevant chunks."
+    },
+    {
+      "name": "ingest_documents",
+      "description": "Ingest documents from a file or directory into the knowledge base for semantic search."
+    },
+    {
+      "name": "list_agents",
+      "description": "List all available expert agent configurations."
+    },
+    {
+      "name": "get_agent",
+      "description": "Get full details for a specific expert agent by name."
+    },
+    {
+      "name": "create_agent",
+      "description": "Create or update an expert agent configuration."
+    },
+    {
+      "name": "log_decision",
+      "description": "Log a decision for tracking and follow-up."
+    },
+    {
+      "name": "search_decisions",
+      "description": "Search decisions by text and/or filter by status."
+    },
+    {
+      "name": "update_decision",
+      "description": "Update a decision's status or add notes."
+    },
+    {
+      "name": "list_pending_decisions",
+      "description": "List all decisions with status 'pending_execution'."
+    },
+    {
+      "name": "delete_decision",
+      "description": "Delete a decision by ID."
+    },
+    {
+      "name": "add_delegation",
+      "description": "Create a new delegation to track a task assigned to someone."
+    },
+    {
+      "name": "list_delegations",
+      "description": "List delegations with optional filters."
+    },
+    {
+      "name": "update_delegation",
+      "description": "Update a delegation's status or add notes."
+    },
+    {
+      "name": "check_overdue_delegations",
+      "description": "Return all active delegations that are past their due date."
+    },
+    {
+      "name": "delete_delegation",
+      "description": "Delete a delegation by ID."
+    },
+    {
+      "name": "create_alert_rule",
+      "description": "Create or update an alert rule."
+    },
+    {
+      "name": "list_alert_rules",
+      "description": "List all alert rules."
+    },
+    {
+      "name": "check_alerts",
+      "description": "Run alert checks: overdue delegations, stale pending decisions (>7 days), and upcoming deadlines (within 3 days)."
+    },
+    {
+      "name": "dismiss_alert",
+      "description": "Disable an alert rule so it no longer triggers."
+    },
+    {
+      "name": "list_calendars",
+      "description": "List calendars from available providers (Apple and optionally Microsoft 365)."
+    },
+    {
+      "name": "get_calendar_events",
+      "description": "Get events in a date range across configured providers."
+    },
+    {
+      "name": "create_calendar_event",
+      "description": "Create a new calendar event using routing policy."
+    },
+    {
+      "name": "update_calendar_event",
+      "description": "Update an existing calendar event by UID."
+    },
+    {
+      "name": "delete_calendar_event",
+      "description": "Delete a calendar event by UID."
+    },
+    {
+      "name": "search_calendar_events",
+      "description": "Search events by title text. Defaults to +/- 30 days if no dates provided."
+    },
+    {
+      "name": "list_reminder_lists",
+      "description": "List all reminder lists available on this Mac."
+    },
+    {
+      "name": "get_reminders",
+      "description": "Get reminders, optionally filtered by list and completion status."
+    },
+    {
+      "name": "create_reminder",
+      "description": "Create a new reminder."
+    },
+    {
+      "name": "complete_reminder",
+      "description": "Mark a reminder as completed."
+    },
+    {
+      "name": "delete_reminder",
+      "description": "Delete a reminder."
+    },
+    {
+      "name": "search_reminders",
+      "description": "Search reminders by title text."
+    },
+    {
+      "name": "send_notification",
+      "description": "Send a macOS notification."
+    },
+    {
+      "name": "list_mailboxes",
+      "description": "List all mailboxes across all Mail accounts with unread counts."
+    },
+    {
+      "name": "get_mail_messages",
+      "description": "Get recent messages (headers only) from a mailbox. Returns subject, sender, date, read/flagged status."
+    },
+    {
+      "name": "get_mail_message",
+      "description": "Get full message content by message ID, including body, to, and cc fields."
+    },
+    {
+      "name": "search_mail",
+      "description": "Search messages by subject or sender text in a mailbox."
+    },
+    {
+      "name": "mark_mail_read",
+      "description": "Mark a message as read or unread."
+    },
+    {
+      "name": "mark_mail_flagged",
+      "description": "Mark a message as flagged or unflagged."
+    },
+    {
+      "name": "move_mail_message",
+      "description": "Move a message to a different mailbox."
+    },
+    {
+      "name": "send_email",
+      "description": "Compose and send an email. REQUIRES confirm_send=True after user explicitly confirms they want to send."
+    },
+    {
+      "name": "get_imessages",
+      "description": "Get recent iMessages from Messages.app chat history."
+    },
+    {
+      "name": "list_imessage_threads",
+      "description": "List active iMessage threads with persisted profile metadata."
+    },
+    {
+      "name": "get_imessage_threads",
+      "description": "Alias of list_imessage_threads for compatibility with prior plans/prompts."
+    },
+    {
+      "name": "get_imessage_thread_messages",
+      "description": "Get messages for a specific iMessage thread by chat_identifier."
+    },
+    {
+      "name": "get_thread_context",
+      "description": "Get thread profile and recent messages for an iMessage conversation."
+    },
+    {
+      "name": "search_imessages",
+      "description": "Search iMessages by text, sender, or chat identifier."
+    },
+    {
+      "name": "send_imessage_reply",
+      "description": "Send an iMessage reply. REQUIRES confirm_send=true after explicit user confirmation."
+    },
+    {
+      "name": "refresh_okr_data",
+      "description": "Parse the ISP OKR Excel spreadsheet and store a fresh snapshot."
+    },
+    {
+      "name": "query_okr_status",
+      "description": "Query the latest OKR data. Use after refresh_okr_data has been called."
+    }
   ],
   "compatibility": {
     "claude_desktop": ">=0.10.0",
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
     "runtimes": {
       "python": ">=3.11,<4.0"
     }

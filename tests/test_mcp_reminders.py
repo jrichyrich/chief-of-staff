@@ -22,10 +22,10 @@ def mock_reminder_store():
     """Return a MagicMock that quacks like ReminderStore."""
     store = MagicMock()
     store.list_reminder_lists.return_value = []
-    store.get_reminders.return_value = []
+    store.list_reminders.return_value = []
     store.create_reminder.return_value = {}
     store.complete_reminder.return_value = {}
-    store.delete_reminder.return_value = True
+    store.delete_reminder.return_value = {"status": "deleted", "reminder_id": ""}
     store.search_reminders.return_value = []
     return store
 
@@ -53,7 +53,7 @@ class TestReminderToolsRegistered:
         tool_names = [t.name for t in mcp_server.mcp._tool_manager.list_tools()]
         expected = [
             "list_reminder_lists",
-            "get_reminders",
+            "list_reminders",
             "create_reminder",
             "complete_reminder",
             "delete_reminder",
@@ -78,7 +78,7 @@ class TestReminderToolsRegistered:
 class TestListReminderListsTool:
     @pytest.mark.asyncio
     async def test_list_reminder_lists(self, reminder_state):
-        from mcp_server import list_reminder_lists
+        from mcp_tools.reminder_tools import list_reminder_lists
 
         reminder_state.list_reminder_lists.return_value = [
             {"name": "Reminders", "source": "iCloud", "color": "#0000ff"},
@@ -96,7 +96,7 @@ class TestListReminderListsTool:
 
     @pytest.mark.asyncio
     async def test_list_reminder_lists_empty(self, reminder_state):
-        from mcp_server import list_reminder_lists
+        from mcp_tools.reminder_tools import list_reminder_lists
 
         reminder_state.list_reminder_lists.return_value = []
 
@@ -114,7 +114,7 @@ class TestListReminderListsTool:
 class TestGetRemindersTool:
     @pytest.mark.asyncio
     async def test_get_all_reminders(self, reminder_state):
-        from mcp_server import get_reminders
+        from mcp_tools.reminder_tools import list_reminders as get_reminders
 
         reminder_state.get_reminders.return_value = [
             {"id": "R1", "title": "Buy milk", "completed": False, "list_name": "Reminders"},
@@ -132,7 +132,7 @@ class TestGetRemindersTool:
 
     @pytest.mark.asyncio
     async def test_get_reminders_filtered_by_list(self, reminder_state):
-        from mcp_server import get_reminders
+        from mcp_tools.reminder_tools import list_reminders as get_reminders
 
         reminder_state.get_reminders.return_value = [
             {"id": "R2", "title": "Buy bread", "completed": False, "list_name": "Shopping"},
@@ -148,7 +148,7 @@ class TestGetRemindersTool:
 
     @pytest.mark.asyncio
     async def test_get_reminders_completed_filter(self, reminder_state):
-        from mcp_server import get_reminders
+        from mcp_tools.reminder_tools import list_reminders as get_reminders
 
         reminder_state.get_reminders.return_value = [
             {"id": "R3", "title": "Done", "completed": True, "list_name": "Reminders"},
@@ -164,7 +164,7 @@ class TestGetRemindersTool:
 
     @pytest.mark.asyncio
     async def test_get_reminders_incomplete_filter(self, reminder_state):
-        from mcp_server import get_reminders
+        from mcp_tools.reminder_tools import list_reminders as get_reminders
 
         reminder_state.get_reminders.return_value = []
 
@@ -184,7 +184,7 @@ class TestGetRemindersTool:
 class TestCreateReminderTool:
     @pytest.mark.asyncio
     async def test_create_reminder_basic(self, reminder_state):
-        from mcp_server import create_reminder
+        from mcp_tools.reminder_tools import create_reminder
 
         reminder_state.create_reminder.return_value = {
             "id": "NEW-1",
@@ -203,7 +203,7 @@ class TestCreateReminderTool:
 
     @pytest.mark.asyncio
     async def test_create_reminder_with_all_fields(self, reminder_state):
-        from mcp_server import create_reminder
+        from mcp_tools.reminder_tools import create_reminder
 
         reminder_state.create_reminder.return_value = {
             "id": "NEW-2",
@@ -231,7 +231,7 @@ class TestCreateReminderTool:
 
     @pytest.mark.asyncio
     async def test_create_reminder_error_from_store(self, reminder_state):
-        from mcp_server import create_reminder
+        from mcp_tools.reminder_tools import create_reminder
 
         reminder_state.create_reminder.return_value = {
             "error": "Reminder list 'NonExistent' not found"
@@ -251,7 +251,7 @@ class TestCreateReminderTool:
 class TestCompleteReminderTool:
     @pytest.mark.asyncio
     async def test_complete_reminder(self, reminder_state):
-        from mcp_server import complete_reminder
+        from mcp_tools.reminder_tools import complete_reminder
 
         reminder_state.complete_reminder.return_value = {
             "id": "COMP-1",
@@ -268,7 +268,7 @@ class TestCompleteReminderTool:
 
     @pytest.mark.asyncio
     async def test_complete_reminder_not_found(self, reminder_state):
-        from mcp_server import complete_reminder
+        from mcp_tools.reminder_tools import complete_reminder
 
         reminder_state.complete_reminder.return_value = {
             "error": "Reminder not found: MISSING-1"
@@ -290,9 +290,9 @@ class TestCompleteReminderTool:
 class TestDeleteReminderTool:
     @pytest.mark.asyncio
     async def test_delete_reminder(self, reminder_state):
-        from mcp_server import delete_reminder
+        from mcp_tools.reminder_tools import delete_reminder
 
-        reminder_state.delete_reminder.return_value = True
+        reminder_state.delete_reminder.return_value = {"status": "deleted", "reminder_id": "DEL-1"}
 
         result = await delete_reminder(reminder_id="DEL-1")
         data = json.loads(result)
@@ -303,7 +303,7 @@ class TestDeleteReminderTool:
 
     @pytest.mark.asyncio
     async def test_delete_reminder_not_found(self, reminder_state):
-        from mcp_server import delete_reminder
+        from mcp_tools.reminder_tools import delete_reminder
 
         reminder_state.delete_reminder.return_value = {
             "error": "Reminder not found: MISSING-1"
@@ -324,7 +324,7 @@ class TestDeleteReminderTool:
 class TestSearchRemindersTool:
     @pytest.mark.asyncio
     async def test_search_reminders(self, reminder_state):
-        from mcp_server import search_reminders
+        from mcp_tools.reminder_tools import search_reminders
 
         reminder_state.search_reminders.return_value = [
             {"id": "S1", "title": "Buy groceries", "completed": False},
@@ -342,7 +342,7 @@ class TestSearchRemindersTool:
 
     @pytest.mark.asyncio
     async def test_search_reminders_include_completed(self, reminder_state):
-        from mcp_server import search_reminders
+        from mcp_tools.reminder_tools import search_reminders
 
         reminder_state.search_reminders.return_value = []
 
@@ -356,7 +356,7 @@ class TestSearchRemindersTool:
 
     @pytest.mark.asyncio
     async def test_search_reminders_no_results(self, reminder_state):
-        from mcp_server import search_reminders
+        from mcp_tools.reminder_tools import search_reminders
 
         reminder_state.search_reminders.return_value = []
 
@@ -374,9 +374,10 @@ class TestSearchRemindersTool:
 class TestSendNotificationTool:
     @pytest.mark.asyncio
     async def test_send_notification_basic(self):
-        from mcp_server import send_notification
+        import mcp_server  # Import to trigger register() calls
+        from mcp_tools.mail_tools import send_notification
 
-        with patch("mcp_server.Notifier") as mock_notifier:
+        with patch("mcp_tools.mail_tools.Notifier") as mock_notifier:
             mock_notifier.send.return_value = {
                 "status": "sent",
                 "title": "Test",
@@ -395,9 +396,10 @@ class TestSendNotificationTool:
 
     @pytest.mark.asyncio
     async def test_send_notification_with_subtitle(self):
-        from mcp_server import send_notification
+        import mcp_server  # Import to trigger register() calls
+        from mcp_tools.mail_tools import send_notification
 
-        with patch("mcp_server.Notifier") as mock_notifier:
+        with patch("mcp_tools.mail_tools.Notifier") as mock_notifier:
             mock_notifier.send.return_value = {"status": "sent", "title": "T", "message": "M"}
 
             result = await send_notification(
@@ -412,9 +414,10 @@ class TestSendNotificationTool:
 
     @pytest.mark.asyncio
     async def test_send_notification_no_sound(self):
-        from mcp_server import send_notification
+        import mcp_server  # Import to trigger register() calls
+        from mcp_tools.mail_tools import send_notification
 
-        with patch("mcp_server.Notifier") as mock_notifier:
+        with patch("mcp_tools.mail_tools.Notifier") as mock_notifier:
             mock_notifier.send.return_value = {"status": "sent", "title": "T", "message": "M"}
 
             result = await send_notification(
@@ -429,9 +432,10 @@ class TestSendNotificationTool:
 
     @pytest.mark.asyncio
     async def test_send_notification_error(self):
-        from mcp_server import send_notification
+        import mcp_server  # Import to trigger register() calls
+        from mcp_tools.mail_tools import send_notification
 
-        with patch("mcp_server.Notifier") as mock_notifier:
+        with patch("mcp_tools.mail_tools.Notifier") as mock_notifier:
             mock_notifier.send.return_value = {
                 "error": "Notifications are only available on macOS"
             }
@@ -443,9 +447,10 @@ class TestSendNotificationTool:
 
     @pytest.mark.asyncio
     async def test_send_notification_exception(self):
-        from mcp_server import send_notification
+        import mcp_server  # Import to trigger register() calls
+        from mcp_tools.mail_tools import send_notification
 
-        with patch("mcp_server.Notifier") as mock_notifier:
+        with patch("mcp_tools.mail_tools.Notifier") as mock_notifier:
             mock_notifier.send.side_effect = RuntimeError("Unexpected error")
 
             result = await send_notification(title="Test", message="Hello")
@@ -464,7 +469,7 @@ class TestReminderToolErrorHandling:
     @pytest.mark.asyncio
     async def test_reminder_tool_error_propagation(self, reminder_state):
         """When the store returns an error dict, the tool should propagate it."""
-        from mcp_server import list_reminder_lists
+        from mcp_tools.reminder_tools import list_reminder_lists
 
         reminder_state.list_reminder_lists.return_value = [
             {"error": "EventKit is only available on macOS with PyObjC installed."}
@@ -479,7 +484,7 @@ class TestReminderToolErrorHandling:
     @pytest.mark.asyncio
     async def test_reminder_tool_exception_handling(self, reminder_state):
         """When the store raises an exception, the tool should catch it."""
-        from mcp_server import get_reminders
+        from mcp_tools.reminder_tools import list_reminders as get_reminders
 
         reminder_state.get_reminders.side_effect = RuntimeError("Connection failed")
 

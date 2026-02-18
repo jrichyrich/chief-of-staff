@@ -6,6 +6,8 @@ from typing import Optional
 
 import yaml
 
+from capabilities.registry import validate_capabilities
+
 # Only allow lowercase alphanumeric, underscores, and hyphens (no path separators)
 VALID_AGENT_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -63,12 +65,14 @@ class AgentRegistry:
 
     def save_agent(self, config: AgentConfig) -> Path:
         self._validate_name(config.name)
+        normalized_capabilities = validate_capabilities(config.capabilities)
+        config.capabilities = normalized_capabilities
         path = self.configs_dir / f"{config.name}.yaml"
         data = {
             "name": config.name,
             "description": config.description,
             "system_prompt": config.system_prompt,
-            "capabilities": config.capabilities,
+            "capabilities": normalized_capabilities,
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
         }
@@ -88,15 +92,16 @@ class AgentRegistry:
     def _load_yaml(self, path: Path) -> Optional[AgentConfig]:
         try:
             data = yaml.safe_load(path.read_text())
+            capabilities = validate_capabilities(data.get("capabilities", []))
             return AgentConfig(
                 name=data["name"],
                 description=data.get("description", ""),
                 system_prompt=data.get("system_prompt", ""),
-                capabilities=data.get("capabilities", []),
+                capabilities=capabilities,
                 temperature=data.get("temperature", 0.3),
                 max_tokens=data.get("max_tokens", 4096),
                 created_by=data.get("created_by"),
                 created_at=data.get("created_at"),
             )
-        except (yaml.YAMLError, KeyError):
+        except (yaml.YAMLError, KeyError, ValueError):
             return None

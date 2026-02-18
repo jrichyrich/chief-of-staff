@@ -333,7 +333,8 @@ class TestDeleteEvent:
 
         result = calendar_store.delete_event("DEL-1")
 
-        assert result is True
+        assert result["status"] == "deleted"
+        assert result["event_uid"] == "DEL-1"
 
     def test_delete_event_not_found(self, calendar_store):
         calendar_store._find_event_by_uid = MagicMock(return_value=None)

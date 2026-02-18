@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/jarvis-backup.sh</string>
+        <string>__PROJECT_DIR__/scripts/jarvis-backup.sh</string>
     </array>
 
     <key>StartCalendarInterval</key>
@@ -20,10 +20,10 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/jasricha/Documents/GitHub/chief_of_staff/data/backup.log</string>
+    <string>__PROJECT_DIR__/data/backup.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/jasricha/Documents/GitHub/chief_of_staff/data/backup.log</string>
+    <string>__PROJECT_DIR__/data/backup.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

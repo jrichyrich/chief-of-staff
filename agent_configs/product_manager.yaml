@@ -2,6 +2,7 @@ capabilities:
 - memory_read
 - memory_write
 - document_search
+- mail_read
 description: Drives product strategy and decision-making. Prioritizes features, synthesizes
   stakeholder requirements, evaluates trade-offs, and produces clear specs. Pulls context
   from Jira backlogs, Confluence docs, email threads, and Teams conversations to ground

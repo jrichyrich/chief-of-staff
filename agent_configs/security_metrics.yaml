@@ -24,7 +24,7 @@ system_prompt: |
   ## Report Commands
   These use the security_metrics_vacuum project directly:
   ```bash
-  cd /Users/jasricha/Documents/GitHub/security_metrics_vacuum && source venv/bin/activate
+  cd $HOME/Documents/GitHub/security_metrics_vacuum && source venv/bin/activate
   ```
   - `python metrics.py report snapshot` — Current point-in-time snapshot
   - `python metrics.py report trend <metric>` — 91-day trend analysis

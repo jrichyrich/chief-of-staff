@@ -1,5 +1,5 @@
 # tests/test_memory_models.py
-from memory.models import AlertRule, Decision, Delegation, Fact, Location
+from memory.models import AlertRule, ContextEntry, Decision, Delegation, Fact, Location
 
 
 def test_fact_creation():
@@ -35,6 +35,19 @@ def test_location_creation():
     assert loc.name == "office"
     assert loc.address == "123 Main St"
     assert loc.latitude == 37.7749
+
+
+def test_context_entry_creation():
+    entry = ContextEntry(
+        topic="project planning",
+        summary="Discussed priorities for Q2",
+        session_id="sess_123",
+        agent="project_manager",
+    )
+    assert entry.topic == "project planning"
+    assert entry.summary == "Discussed priorities for Q2"
+    assert entry.session_id == "sess_123"
+    assert entry.agent == "project_manager"
 
 
 def test_decision_creation():

@@ -84,6 +84,20 @@ class TestAgentRegistry:
         registry.save_agent(config)
         assert registry.agent_exists("researcher")
 
+    def test_save_rejects_unknown_capability(self, registry):
+        config = AgentConfig(
+            name="bad_capability_agent",
+            description="Bad capability",
+            system_prompt="You are invalid.",
+            capabilities=["definitely_not_real"],
+        )
+        with pytest.raises(ValueError, match="Unknown capability"):
+            registry.save_agent(config)
+
+    def test_load_skips_invalid_capability_file(self, registry, configs_dir):
+        _write_agent_yaml(configs_dir, "invalid_cap_file", "Invalid", ["not_real"])
+        assert registry.get_agent("invalid_cap_file") is None
+
 
 class TestAgentNameValidation:
     def test_rejects_path_traversal(self, registry):

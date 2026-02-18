@@ -2,6 +2,7 @@ capabilities:
 - memory_read
 - document_search
 - calendar_read
+- reminders_read
 - mail_read
 description: Prepares talking points, agendas, and briefing notes for 1:1 meetings
   and recurring syncs by gathering context from emails, calendar, Teams chats, documents,

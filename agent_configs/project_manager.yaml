@@ -2,6 +2,7 @@ capabilities:
 - memory_read
 - memory_write
 - document_search
+- mail_read
 description: Tracks active projects against their plans, surfaces blockers, monitors
   progress, and drives accountability. Pulls status from Jira tickets, Confluence
   updates, email threads, and Teams conversations to give a real-time view of where

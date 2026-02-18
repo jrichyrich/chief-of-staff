@@ -1,10 +1,11 @@
 # memory/store.py
+import re
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from memory.models import AlertRule, Decision, Delegation, Fact, Location
+from memory.models import AlertRule, ContextEntry, Decision, Delegation, Fact, Location
 
 
 class MemoryStore:
@@ -37,6 +38,15 @@ class MemoryStore:
                 latitude REAL,
                 longitude REAL,
                 notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS context (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT,
+                topic TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                agent TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -181,6 +191,49 @@ class MemoryStore:
             created_at=row["created_at"],
         )
 
+    # --- Context ---
+
+    def store_context(self, entry: ContextEntry) -> ContextEntry:
+        cursor = self.conn.execute(
+            """INSERT INTO context (session_id, topic, summary, agent)
+               VALUES (?, ?, ?, ?)""",
+            (entry.session_id, entry.topic, entry.summary, entry.agent),
+        )
+        self.conn.commit()
+        row = self.conn.execute("SELECT * FROM context WHERE id=?", (cursor.lastrowid,)).fetchone()
+        return self._row_to_context(row)
+
+    def list_context(self, session_id: Optional[str] = None, limit: int = 20) -> list[ContextEntry]:
+        query = "SELECT * FROM context"
+        params: list = []
+        if session_id:
+            query += " WHERE session_id=?"
+            params.append(session_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = self.conn.execute(query, params).fetchall()
+        return [self._row_to_context(r) for r in rows]
+
+    def search_context(self, query: str, limit: int = 20) -> list[ContextEntry]:
+        rows = self.conn.execute(
+            """SELECT * FROM context
+               WHERE topic LIKE ? OR summary LIKE ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (f"%{query}%", f"%{query}%", limit),
+        ).fetchall()
+        return [self._row_to_context(r) for r in rows]
+
+    def _row_to_context(self, row: sqlite3.Row) -> ContextEntry:
+        return ContextEntry(
+            id=row["id"],
+            session_id=row["session_id"],
+            topic=row["topic"],
+            summary=row["summary"],
+            agent=row["agent"],
+            created_at=row["created_at"],
+        )
+
     # --- Decisions ---
 
     def store_decision(self, decision: Decision) -> Decision:
@@ -218,8 +271,18 @@ class MemoryStore:
         ).fetchall()
         return [self._row_to_decision(r) for r in rows]
 
+    _DECISION_COLUMNS = frozenset({
+        "title", "description", "context", "alternatives_considered",
+        "decided_by", "owner", "status", "follow_up_date", "tags", "source", "updated_at",
+    })
+
     def update_decision(self, decision_id: int, **kwargs) -> Optional[Decision]:
         kwargs["updated_at"] = datetime.now().isoformat()
+        invalid = set(kwargs) - self._DECISION_COLUMNS
+        if invalid:
+            raise ValueError(f"Invalid decision fields: {invalid}")
+        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
+            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [decision_id]
         self.conn.execute(
@@ -295,8 +358,18 @@ class MemoryStore:
         ).fetchall()
         return [self._row_to_delegation(r) for r in rows]
 
+    _DELEGATION_COLUMNS = frozenset({
+        "task", "description", "delegated_to", "delegated_by",
+        "due_date", "priority", "status", "source", "notes", "updated_at",
+    })
+
     def update_delegation(self, delegation_id: int, **kwargs) -> Optional[Delegation]:
         kwargs["updated_at"] = datetime.now().isoformat()
+        invalid = set(kwargs) - self._DELEGATION_COLUMNS
+        if invalid:
+            raise ValueError(f"Invalid delegation fields: {invalid}")
+        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
+            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [delegation_id]
         self.conn.execute(
@@ -367,7 +440,16 @@ class MemoryStore:
             rows = self.conn.execute("SELECT * FROM alert_rules").fetchall()
         return [self._row_to_alert_rule(r) for r in rows]
 
+    _ALERT_RULE_COLUMNS = frozenset({
+        "name", "description", "alert_type", "condition", "enabled", "last_triggered_at",
+    })
+
     def update_alert_rule(self, rule_id: int, **kwargs) -> Optional[AlertRule]:
+        invalid = set(kwargs) - self._ALERT_RULE_COLUMNS
+        if invalid:
+            raise ValueError(f"Invalid alert_rule fields: {invalid}")
+        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
+            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
         if "enabled" in kwargs:
             kwargs["enabled"] = 1 if kwargs["enabled"] else 0
         set_clause = ", ".join(f"{k}=?" for k in kwargs)

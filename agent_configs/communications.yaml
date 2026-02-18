@@ -3,6 +3,7 @@ capabilities:
 - memory_write
 - mail_read
 - mail_write
+- notifications
 description: Handles outbound communications — creates Outlook email drafts and sends
   iMessage notifications. Other agents route through this agent to deliver content.
 max_tokens: 2048
@@ -21,7 +22,7 @@ system_prompt: |
 
   Extract the subject, body, and recipient(s) from the request. Then run:
 
-  /Users/jasricha/Documents/GitHub/chief_of_staff/scripts/communicate.sh email-draft --to "recipient@email.com" --subject "Subject" --body "Body text"
+  scripts/communicate.sh email-draft --to "recipient@email.com" --subject "Subject" --body "Body text"
 
   - This creates a DRAFT in Microsoft Outlook (does NOT send automatically)
   - Always include a clear subject line
@@ -32,7 +33,7 @@ system_prompt: |
 
   Extract the message body and recipient from the request. Then run:
 
-  /Users/jasricha/Documents/GitHub/chief_of_staff/scripts/communicate.sh imessage --to "+1234567890" --body "Message text"
+  scripts/communicate.sh imessage --to "+1234567890" --body "Message text"
 
   - This sends directly via Messages.app
   - Keep messages concise and conversational

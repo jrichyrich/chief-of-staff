@@ -74,7 +74,7 @@ class TestStoreFact:
     @pytest.mark.asyncio
     async def test_store_new_fact(self, shared_state):
         import mcp_server
-        from mcp_server import store_fact
+        from mcp_tools.memory_tools import store_fact
 
         mcp_server._state.update(shared_state)
         try:
@@ -91,7 +91,7 @@ class TestStoreFact:
     @pytest.mark.asyncio
     async def test_store_fact_overwrites(self, shared_state):
         import mcp_server
-        from mcp_server import store_fact
+        from mcp_tools.memory_tools import store_fact
 
         mcp_server._state.update(shared_state)
         try:
@@ -108,7 +108,7 @@ class TestQueryMemory:
     @pytest.mark.asyncio
     async def test_query_by_search(self, shared_state):
         import mcp_server
-        from mcp_server import query_memory
+        from mcp_tools.memory_tools import query_memory
 
         shared_state["memory_store"].store_fact(
             Fact(category="personal", key="name", value="Jason")
@@ -127,7 +127,7 @@ class TestQueryMemory:
     @pytest.mark.asyncio
     async def test_query_by_category(self, shared_state):
         import mcp_server
-        from mcp_server import query_memory
+        from mcp_tools.memory_tools import query_memory
 
         shared_state["memory_store"].store_fact(
             Fact(category="work", key="title", value="Engineer")
@@ -147,7 +147,7 @@ class TestQueryMemory:
     async def test_query_category_filters_by_query_text(self, shared_state):
         """When both category and query are provided, filter by both."""
         import mcp_server
-        from mcp_server import query_memory
+        from mcp_tools.memory_tools import query_memory
 
         shared_state["memory_store"].store_fact(
             Fact(category="work", key="title", value="Engineer")
@@ -169,7 +169,7 @@ class TestQueryMemory:
     @pytest.mark.asyncio
     async def test_query_no_results(self, shared_state):
         import mcp_server
-        from mcp_server import query_memory
+        from mcp_tools.memory_tools import query_memory
 
         mcp_server._state.update(shared_state)
         try:
@@ -185,7 +185,7 @@ class TestStoreLocation:
     @pytest.mark.asyncio
     async def test_store_location(self, shared_state):
         import mcp_server
-        from mcp_server import store_location
+        from mcp_tools.memory_tools import store_location
 
         mcp_server._state.update(shared_state)
         try:
@@ -203,7 +203,7 @@ class TestListLocations:
     @pytest.mark.asyncio
     async def test_list_locations_empty(self, shared_state):
         import mcp_server
-        from mcp_server import list_locations
+        from mcp_tools.memory_tools import list_locations
 
         mcp_server._state.update(shared_state)
         try:
@@ -217,7 +217,7 @@ class TestListLocations:
     @pytest.mark.asyncio
     async def test_list_locations_with_data(self, shared_state):
         import mcp_server
-        from mcp_server import store_location, list_locations
+        from mcp_tools.memory_tools import store_location, list_locations
 
         mcp_server._state.update(shared_state)
         try:
@@ -238,7 +238,7 @@ class TestIngestDocumentsTool:
     @pytest.mark.asyncio
     async def test_ingest_single_file(self, shared_state, tmp_path):
         import mcp_server
-        from mcp_server import ingest_documents
+        from mcp_tools.document_tools import ingest_documents
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("This is a test document about machine learning.")
@@ -256,7 +256,7 @@ class TestIngestDocumentsTool:
     @pytest.mark.asyncio
     async def test_ingest_directory(self, shared_state, tmp_path):
         import mcp_server
-        from mcp_server import ingest_documents
+        from mcp_tools.document_tools import ingest_documents
 
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir()
@@ -275,7 +275,7 @@ class TestIngestDocumentsTool:
     @pytest.mark.asyncio
     async def test_ingest_nonexistent_path(self, shared_state, tmp_path):
         import mcp_server
-        from mcp_server import ingest_documents
+        from mcp_tools.document_tools import ingest_documents
 
         shared_state["allowed_ingest_roots"] = [tmp_path.resolve()]
         mcp_server._state.update(shared_state)
@@ -289,7 +289,7 @@ class TestIngestDocumentsTool:
     @pytest.mark.asyncio
     async def test_ingest_empty_directory(self, shared_state, tmp_path):
         import mcp_server
-        from mcp_server import ingest_documents
+        from mcp_tools.document_tools import ingest_documents
 
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
@@ -308,7 +308,7 @@ class TestSearchDocuments:
     @pytest.mark.asyncio
     async def test_search_empty(self, shared_state):
         import mcp_server
-        from mcp_server import search_documents
+        from mcp_tools.document_tools import search_documents
 
         mcp_server._state.update(shared_state)
         try:
@@ -322,7 +322,7 @@ class TestSearchDocuments:
     @pytest.mark.asyncio
     async def test_search_after_ingest(self, shared_state, tmp_path):
         import mcp_server
-        from mcp_server import ingest_documents, search_documents
+        from mcp_tools.document_tools import ingest_documents, search_documents
 
         test_file = tmp_path / "ml.txt"
         test_file.write_text("Deep learning is a subset of machine learning that uses neural networks.")
@@ -346,7 +346,7 @@ class TestListAgents:
     @pytest.mark.asyncio
     async def test_list_agents_empty(self, shared_state):
         import mcp_server
-        from mcp_server import list_agents
+        from mcp_tools.agent_tools import list_agents
 
         mcp_server._state.update(shared_state)
         try:
@@ -360,7 +360,7 @@ class TestListAgents:
     @pytest.mark.asyncio
     async def test_list_agents_with_data(self, shared_state):
         import mcp_server
-        from mcp_server import list_agents
+        from mcp_tools.agent_tools import list_agents
 
         shared_state["agent_registry"].save_agent(AgentConfig(
             name="researcher",
@@ -384,7 +384,7 @@ class TestGetAgent:
     @pytest.mark.asyncio
     async def test_get_existing_agent(self, shared_state):
         import mcp_server
-        from mcp_server import get_agent
+        from mcp_tools.agent_tools import get_agent
 
         shared_state["agent_registry"].save_agent(AgentConfig(
             name="researcher",
@@ -406,7 +406,7 @@ class TestGetAgent:
     @pytest.mark.asyncio
     async def test_get_nonexistent_agent(self, shared_state):
         import mcp_server
-        from mcp_server import get_agent
+        from mcp_tools.agent_tools import get_agent
 
         mcp_server._state.update(shared_state)
         try:
@@ -422,7 +422,7 @@ class TestCreateAgent:
     @pytest.mark.asyncio
     async def test_create_agent(self, shared_state):
         import mcp_server
-        from mcp_server import create_agent, get_agent
+        from mcp_tools.agent_tools import create_agent, get_agent
 
         mcp_server._state.update(shared_state)
         try:
@@ -443,7 +443,7 @@ class TestCreateAgent:
     @pytest.mark.asyncio
     async def test_create_agent_no_capabilities(self, shared_state):
         import mcp_server
-        from mcp_server import create_agent
+        from mcp_tools.agent_tools import create_agent
 
         mcp_server._state.update(shared_state)
         try:
@@ -457,7 +457,7 @@ class TestCreateAgent:
     @pytest.mark.asyncio
     async def test_create_agent_rejects_unknown_capability(self, shared_state):
         import mcp_server
-        from mcp_server import create_agent
+        from mcp_tools.agent_tools import create_agent
 
         mcp_server._state.update(shared_state)
         try:
@@ -482,7 +482,7 @@ class TestResources:
     @pytest.mark.asyncio
     async def test_get_all_facts_empty(self, shared_state):
         import mcp_server
-        from mcp_server import get_all_facts
+        from mcp_tools.resources import get_all_facts
 
         mcp_server._state.update(shared_state)
         try:
@@ -496,7 +496,7 @@ class TestResources:
     @pytest.mark.asyncio
     async def test_get_all_facts_with_data(self, shared_state):
         import mcp_server
-        from mcp_server import get_all_facts
+        from mcp_tools.resources import get_all_facts
 
         shared_state["memory_store"].store_fact(
             Fact(category="personal", key="name", value="Jason")
@@ -519,7 +519,7 @@ class TestResources:
     @pytest.mark.asyncio
     async def test_get_facts_by_category(self, shared_state):
         import mcp_server
-        from mcp_server import get_facts_by_category
+        from mcp_tools.resources import get_facts_by_category
 
         shared_state["memory_store"].store_fact(
             Fact(category="work", key="title", value="Engineer")
@@ -538,7 +538,7 @@ class TestResources:
     @pytest.mark.asyncio
     async def test_get_facts_by_category_empty(self, shared_state):
         import mcp_server
-        from mcp_server import get_facts_by_category
+        from mcp_tools.resources import get_facts_by_category
 
         mcp_server._state.update(shared_state)
         try:
@@ -552,7 +552,7 @@ class TestResources:
     @pytest.mark.asyncio
     async def test_get_agents_list_empty(self, shared_state):
         import mcp_server
-        from mcp_server import get_agents_list
+        from mcp_tools.resources import get_agents_list
 
         mcp_server._state.update(shared_state)
         try:
@@ -566,7 +566,7 @@ class TestResources:
     @pytest.mark.asyncio
     async def test_get_agents_list_with_agents(self, shared_state):
         import mcp_server
-        from mcp_server import get_agents_list
+        from mcp_tools.resources import get_agents_list
 
         shared_state["agent_registry"].save_agent(AgentConfig(
             name="researcher",
@@ -594,7 +594,7 @@ class TestStoreFactValidation:
     @pytest.mark.asyncio
     async def test_rejects_invalid_category(self, shared_state):
         import mcp_server
-        from mcp_server import store_fact
+        from mcp_tools.memory_tools import store_fact
 
         mcp_server._state.update(shared_state)
         try:
@@ -609,7 +609,7 @@ class TestStoreFactValidation:
     @pytest.mark.asyncio
     async def test_accepts_valid_categories(self, shared_state):
         import mcp_server
-        from mcp_server import store_fact
+        from mcp_tools.memory_tools import store_fact
 
         mcp_server._state.update(shared_state)
         try:
@@ -625,7 +625,7 @@ class TestIngestDocumentsSecurity:
     @pytest.mark.asyncio
     async def test_rejects_path_outside_home(self, shared_state):
         import mcp_server
-        from mcp_server import ingest_documents
+        from mcp_tools.document_tools import ingest_documents
 
         mcp_server._state.update(shared_state)
         try:
@@ -638,7 +638,7 @@ class TestIngestDocumentsSecurity:
     @pytest.mark.asyncio
     async def test_rejects_path_traversal(self, shared_state):
         import mcp_server
-        from mcp_server import ingest_documents
+        from mcp_tools.document_tools import ingest_documents
 
         mcp_server._state.update(shared_state)
         try:
@@ -652,7 +652,7 @@ class TestIngestDocumentsSecurity:
     async def test_rejects_sibling_directory_prefix_match(self, shared_state, tmp_path):
         """Ensure /allowed_root_malicious doesn't match /allowed_root via string prefix."""
         import mcp_server
-        from mcp_server import ingest_documents
+        from mcp_tools.document_tools import ingest_documents
 
         allowed = tmp_path / "safe"
         allowed.mkdir()
@@ -678,7 +678,7 @@ class TestLogDecision:
     @pytest.mark.asyncio
     async def test_log_decision_minimal(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision
+        from mcp_tools.lifecycle_tools import create_decision as log_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -695,7 +695,7 @@ class TestLogDecision:
     @pytest.mark.asyncio
     async def test_log_decision_full(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision
+        from mcp_tools.lifecycle_tools import create_decision as log_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -722,7 +722,7 @@ class TestSearchDecisions:
     @pytest.mark.asyncio
     async def test_search_empty(self, shared_state):
         import mcp_server
-        from mcp_server import search_decisions
+        from mcp_tools.lifecycle_tools import search_decisions
 
         mcp_server._state.update(shared_state)
         try:
@@ -736,7 +736,7 @@ class TestSearchDecisions:
     @pytest.mark.asyncio
     async def test_search_by_query(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, search_decisions
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, search_decisions
 
         mcp_server._state.update(shared_state)
         try:
@@ -753,7 +753,7 @@ class TestSearchDecisions:
     @pytest.mark.asyncio
     async def test_search_by_status(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, search_decisions
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, search_decisions
 
         mcp_server._state.update(shared_state)
         try:
@@ -770,7 +770,7 @@ class TestSearchDecisions:
     @pytest.mark.asyncio
     async def test_search_by_query_and_status(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, search_decisions
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, search_decisions
 
         mcp_server._state.update(shared_state)
         try:
@@ -787,7 +787,7 @@ class TestSearchDecisions:
     @pytest.mark.asyncio
     async def test_search_all(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, search_decisions
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, search_decisions
 
         mcp_server._state.update(shared_state)
         try:
@@ -805,7 +805,7 @@ class TestUpdateDecision:
     @pytest.mark.asyncio
     async def test_update_status(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, update_decision
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, update_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -821,7 +821,7 @@ class TestUpdateDecision:
     @pytest.mark.asyncio
     async def test_update_notes(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, update_decision
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, update_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -836,7 +836,7 @@ class TestUpdateDecision:
     @pytest.mark.asyncio
     async def test_update_not_found(self, shared_state):
         import mcp_server
-        from mcp_server import update_decision
+        from mcp_tools.lifecycle_tools import update_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -850,7 +850,7 @@ class TestUpdateDecision:
     @pytest.mark.asyncio
     async def test_update_no_fields(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, update_decision
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, update_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -867,7 +867,7 @@ class TestListPendingDecisions:
     @pytest.mark.asyncio
     async def test_no_pending(self, shared_state):
         import mcp_server
-        from mcp_server import list_pending_decisions
+        from mcp_tools.lifecycle_tools import list_pending_decisions
 
         mcp_server._state.update(shared_state)
         try:
@@ -881,7 +881,7 @@ class TestListPendingDecisions:
     @pytest.mark.asyncio
     async def test_with_pending(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, list_pending_decisions
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, list_pending_decisions
 
         mcp_server._state.update(shared_state)
         try:
@@ -900,7 +900,7 @@ class TestDeleteDecision:
     @pytest.mark.asyncio
     async def test_delete_existing(self, shared_state):
         import mcp_server
-        from mcp_server import log_decision, delete_decision
+        from mcp_tools.lifecycle_tools import create_decision as log_decision, delete_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -915,7 +915,7 @@ class TestDeleteDecision:
     @pytest.mark.asyncio
     async def test_delete_nonexistent(self, shared_state):
         import mcp_server
-        from mcp_server import delete_decision
+        from mcp_tools.lifecycle_tools import delete_decision
 
         mcp_server._state.update(shared_state)
         try:
@@ -934,7 +934,7 @@ class TestAddDelegation:
     @pytest.mark.asyncio
     async def test_add_delegation_minimal(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -951,7 +951,7 @@ class TestAddDelegation:
     @pytest.mark.asyncio
     async def test_add_delegation_full(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -975,7 +975,7 @@ class TestListDelegations:
     @pytest.mark.asyncio
     async def test_list_empty(self, shared_state):
         import mcp_server
-        from mcp_server import list_delegations
+        from mcp_tools.lifecycle_tools import list_delegations
 
         mcp_server._state.update(shared_state)
         try:
@@ -989,7 +989,7 @@ class TestListDelegations:
     @pytest.mark.asyncio
     async def test_list_all(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, list_delegations
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, list_delegations
 
         mcp_server._state.update(shared_state)
         try:
@@ -1005,7 +1005,7 @@ class TestListDelegations:
     @pytest.mark.asyncio
     async def test_list_by_status(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, update_delegation, list_delegations
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, update_delegation, list_delegations
 
         mcp_server._state.update(shared_state)
         try:
@@ -1023,7 +1023,7 @@ class TestListDelegations:
     @pytest.mark.asyncio
     async def test_list_by_delegated_to(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, list_delegations
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, list_delegations
 
         mcp_server._state.update(shared_state)
         try:
@@ -1042,7 +1042,7 @@ class TestUpdateDelegation:
     @pytest.mark.asyncio
     async def test_update_status(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, update_delegation
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, update_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -1058,7 +1058,7 @@ class TestUpdateDelegation:
     @pytest.mark.asyncio
     async def test_update_notes(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, update_delegation
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, update_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -1073,7 +1073,7 @@ class TestUpdateDelegation:
     @pytest.mark.asyncio
     async def test_update_not_found(self, shared_state):
         import mcp_server
-        from mcp_server import update_delegation
+        from mcp_tools.lifecycle_tools import update_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -1087,7 +1087,7 @@ class TestUpdateDelegation:
     @pytest.mark.asyncio
     async def test_update_no_fields(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, update_delegation
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, update_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -1104,7 +1104,7 @@ class TestCheckOverdueDelegations:
     @pytest.mark.asyncio
     async def test_no_overdue(self, shared_state):
         import mcp_server
-        from mcp_server import check_overdue_delegations
+        from mcp_tools.lifecycle_tools import check_overdue_delegations
 
         mcp_server._state.update(shared_state)
         try:
@@ -1118,7 +1118,7 @@ class TestCheckOverdueDelegations:
     @pytest.mark.asyncio
     async def test_with_overdue(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, check_overdue_delegations
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, check_overdue_delegations
 
         mcp_server._state.update(shared_state)
         try:
@@ -1137,7 +1137,7 @@ class TestDeleteDelegation:
     @pytest.mark.asyncio
     async def test_delete_existing(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, delete_delegation
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, delete_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -1152,7 +1152,7 @@ class TestDeleteDelegation:
     @pytest.mark.asyncio
     async def test_delete_nonexistent(self, shared_state):
         import mcp_server
-        from mcp_server import delete_delegation
+        from mcp_tools.lifecycle_tools import delete_delegation
 
         mcp_server._state.update(shared_state)
         try:
@@ -1171,7 +1171,7 @@ class TestCreateAlertRule:
     @pytest.mark.asyncio
     async def test_create_rule(self, shared_state):
         import mcp_server
-        from mcp_server import create_alert_rule
+        from mcp_tools.lifecycle_tools import create_alert_rule
 
         mcp_server._state.update(shared_state)
         try:
@@ -1188,7 +1188,7 @@ class TestCreateAlertRule:
     @pytest.mark.asyncio
     async def test_create_disabled_rule(self, shared_state):
         import mcp_server
-        from mcp_server import create_alert_rule
+        from mcp_tools.lifecycle_tools import create_alert_rule
 
         mcp_server._state.update(shared_state)
         try:
@@ -1204,7 +1204,7 @@ class TestListAlertRules:
     @pytest.mark.asyncio
     async def test_list_empty(self, shared_state):
         import mcp_server
-        from mcp_server import list_alert_rules
+        from mcp_tools.lifecycle_tools import list_alert_rules
 
         mcp_server._state.update(shared_state)
         try:
@@ -1218,7 +1218,7 @@ class TestListAlertRules:
     @pytest.mark.asyncio
     async def test_list_all(self, shared_state):
         import mcp_server
-        from mcp_server import create_alert_rule, list_alert_rules
+        from mcp_tools.lifecycle_tools import create_alert_rule, list_alert_rules
 
         mcp_server._state.update(shared_state)
         try:
@@ -1234,7 +1234,7 @@ class TestListAlertRules:
     @pytest.mark.asyncio
     async def test_list_enabled_only(self, shared_state):
         import mcp_server
-        from mcp_server import create_alert_rule, list_alert_rules
+        from mcp_tools.lifecycle_tools import create_alert_rule, list_alert_rules
 
         mcp_server._state.update(shared_state)
         try:
@@ -1253,7 +1253,7 @@ class TestCheckAlerts:
     @pytest.mark.asyncio
     async def test_check_no_alerts(self, shared_state):
         import mcp_server
-        from mcp_server import check_alerts
+        from mcp_tools.lifecycle_tools import check_alerts
 
         mcp_server._state.update(shared_state)
         try:
@@ -1267,7 +1267,7 @@ class TestCheckAlerts:
     @pytest.mark.asyncio
     async def test_check_overdue_delegation_alert(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, check_alerts
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, check_alerts
 
         mcp_server._state.update(shared_state)
         try:
@@ -1284,7 +1284,7 @@ class TestCheckAlerts:
     async def test_check_stale_decision_alert(self, shared_state):
         """Decisions pending > 7 days should show as stale."""
         import mcp_server
-        from mcp_server import check_alerts
+        from mcp_tools.lifecycle_tools import check_alerts
         from datetime import datetime, timedelta
 
         # Directly insert an old decision
@@ -1310,7 +1310,7 @@ class TestCheckAlerts:
     @pytest.mark.asyncio
     async def test_check_upcoming_deadline_alert(self, shared_state):
         import mcp_server
-        from mcp_server import add_delegation, check_alerts
+        from mcp_tools.lifecycle_tools import create_delegation as add_delegation, check_alerts
         from datetime import date, timedelta
 
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
@@ -1334,7 +1334,7 @@ class TestDismissAlert:
     @pytest.mark.asyncio
     async def test_dismiss_existing_rule(self, shared_state):
         import mcp_server
-        from mcp_server import create_alert_rule, dismiss_alert
+        from mcp_tools.lifecycle_tools import create_alert_rule, dismiss_alert
 
         mcp_server._state.update(shared_state)
         try:
@@ -1352,7 +1352,7 @@ class TestDismissAlert:
     @pytest.mark.asyncio
     async def test_dismiss_not_found(self, shared_state):
         import mcp_server
-        from mcp_server import dismiss_alert
+        from mcp_tools.lifecycle_tools import dismiss_alert
 
         mcp_server._state.update(shared_state)
         try:
@@ -1370,8 +1370,8 @@ class TestNewToolsRegistered:
         import mcp_server
         tool_names = [t.name for t in mcp_server.mcp._tool_manager.list_tools()]
         expected = [
-            "log_decision", "search_decisions", "update_decision", "list_pending_decisions",
-            "add_delegation", "list_delegations", "update_delegation", "check_overdue_delegations",
+            "create_decision", "search_decisions", "update_decision", "list_pending_decisions", "delete_decision",
+            "create_delegation", "list_delegations", "update_delegation", "check_overdue_delegations", "delete_delegation",
             "create_alert_rule", "list_alert_rules", "check_alerts", "dismiss_alert",
         ]
         for name in expected:

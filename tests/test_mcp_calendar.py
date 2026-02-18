@@ -22,7 +22,7 @@ def mock_calendar_store():
     store.get_events.return_value = []
     store.create_event.return_value = {}
     store.update_event.return_value = {}
-    store.delete_event.return_value = True
+    store.delete_event.return_value = {"status": "deleted", "event_uid": ""}
     store.search_events.return_value = []
     return store
 
@@ -68,7 +68,7 @@ class TestCalendarToolsRegistered:
 class TestListCalendarsTool:
     @pytest.mark.asyncio
     async def test_list_calendars_tool(self, calendar_state):
-        from mcp_server import list_calendars
+        from mcp_tools.calendar_tools import list_calendars
 
         calendar_state.list_calendars.return_value = [
             {"name": "Work", "type": "calDAV", "source": "iCloud", "color": "#0000ff"},
@@ -86,7 +86,7 @@ class TestListCalendarsTool:
 
     @pytest.mark.asyncio
     async def test_list_calendars_empty(self, calendar_state):
-        from mcp_server import list_calendars
+        from mcp_tools.calendar_tools import list_calendars
 
         calendar_state.list_calendars.return_value = []
 
@@ -94,6 +94,16 @@ class TestListCalendarsTool:
         data = json.loads(result)
 
         assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_calendars_with_provider_preference(self, calendar_state):
+        from mcp_tools.calendar_tools import list_calendars
+
+        await list_calendars(provider_preference="both", source_filter="icloud")
+        calendar_state.list_calendars.assert_called_once_with(
+            provider_preference="both",
+            source_filter="icloud",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +114,7 @@ class TestListCalendarsTool:
 class TestGetCalendarEventsTool:
     @pytest.mark.asyncio
     async def test_get_calendar_events_tool(self, calendar_state):
-        from mcp_server import get_calendar_events
+        from mcp_tools.calendar_tools import get_calendar_events
 
         calendar_state.get_events.return_value = [
             {
@@ -134,7 +144,7 @@ class TestGetCalendarEventsTool:
 
     @pytest.mark.asyncio
     async def test_get_calendar_events_with_filter(self, calendar_state):
-        from mcp_server import get_calendar_events
+        from mcp_tools.calendar_tools import get_calendar_events
 
         calendar_state.get_events.return_value = [
             {"uid": "E2", "title": "Lunch", "calendar": "Personal", "start": "2024-03-01T12:00:00",
@@ -154,7 +164,7 @@ class TestGetCalendarEventsTool:
     @pytest.mark.asyncio
     async def test_get_calendar_events_iso_datetime(self, calendar_state):
         """Verify full ISO datetime strings are parsed correctly."""
-        from mcp_server import get_calendar_events
+        from mcp_tools.calendar_tools import get_calendar_events
 
         calendar_state.get_events.return_value = []
 
@@ -163,6 +173,20 @@ class TestGetCalendarEventsTool:
 
         assert data["results"] == []
         calendar_state.get_events.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_calendar_events_routes_with_filters(self, calendar_state):
+        from mcp_tools.calendar_tools import get_calendar_events
+
+        await get_calendar_events(
+            "2024-03-01",
+            "2024-03-31",
+            provider_preference="both",
+            source_filter="exchange",
+        )
+        kwargs = calendar_state.get_events.call_args[1]
+        assert kwargs["provider_preference"] == "both"
+        assert kwargs["source_filter"] == "exchange"
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +197,7 @@ class TestGetCalendarEventsTool:
 class TestCreateCalendarEventTool:
     @pytest.mark.asyncio
     async def test_create_calendar_event_tool(self, calendar_state):
-        from mcp_server import create_calendar_event
+        from mcp_tools.calendar_tools import create_calendar_event
 
         calendar_state.create_event.return_value = {
             "uid": "NEW-1",
@@ -201,7 +225,7 @@ class TestCreateCalendarEventTool:
 
     @pytest.mark.asyncio
     async def test_create_calendar_event_with_all_fields(self, calendar_state):
-        from mcp_server import create_calendar_event
+        from mcp_tools.calendar_tools import create_calendar_event
 
         calendar_state.create_event.return_value = {
             "uid": "NEW-2",
@@ -238,7 +262,7 @@ class TestCreateCalendarEventTool:
 
     @pytest.mark.asyncio
     async def test_create_calendar_event_error_from_store(self, calendar_state):
-        from mcp_server import create_calendar_event
+        from mcp_tools.calendar_tools import create_calendar_event
 
         calendar_state.create_event.return_value = {
             "error": "Calendar not found: NonExistent"
@@ -264,7 +288,7 @@ class TestCreateCalendarEventTool:
 class TestUpdateCalendarEventTool:
     @pytest.mark.asyncio
     async def test_update_calendar_event_tool(self, calendar_state):
-        from mcp_server import update_calendar_event
+        from mcp_tools.calendar_tools import update_calendar_event
 
         calendar_state.update_event.return_value = {
             "uid": "UPD-1",
@@ -292,7 +316,7 @@ class TestUpdateCalendarEventTool:
 
     @pytest.mark.asyncio
     async def test_update_calendar_event_with_dates(self, calendar_state):
-        from mcp_server import update_calendar_event
+        from mcp_tools.calendar_tools import update_calendar_event
 
         calendar_state.update_event.return_value = {"uid": "UPD-2", "title": "Moved Meeting"}
 
@@ -319,9 +343,9 @@ class TestUpdateCalendarEventTool:
 class TestDeleteCalendarEventTool:
     @pytest.mark.asyncio
     async def test_delete_calendar_event_tool(self, calendar_state):
-        from mcp_server import delete_calendar_event
+        from mcp_tools.calendar_tools import delete_calendar_event
 
-        calendar_state.delete_event.return_value = True
+        calendar_state.delete_event.return_value = {"status": "deleted", "event_uid": "DEL-1"}
 
         result = await delete_calendar_event(event_uid="DEL-1", calendar_name="Work")
         data = json.loads(result)
@@ -332,7 +356,7 @@ class TestDeleteCalendarEventTool:
 
     @pytest.mark.asyncio
     async def test_delete_calendar_event_not_found(self, calendar_state):
-        from mcp_server import delete_calendar_event
+        from mcp_tools.calendar_tools import delete_calendar_event
 
         calendar_state.delete_event.return_value = {"error": "Event not found: MISSING-1"}
 
@@ -351,7 +375,7 @@ class TestDeleteCalendarEventTool:
 class TestSearchCalendarEventsTool:
     @pytest.mark.asyncio
     async def test_search_calendar_events_tool(self, calendar_state):
-        from mcp_server import search_calendar_events
+        from mcp_tools.calendar_tools import search_calendar_events
 
         calendar_state.search_events.return_value = [
             {
@@ -382,7 +406,7 @@ class TestSearchCalendarEventsTool:
 
     @pytest.mark.asyncio
     async def test_search_calendar_events_with_dates(self, calendar_state):
-        from mcp_server import search_calendar_events
+        from mcp_tools.calendar_tools import search_calendar_events
 
         calendar_state.search_events.return_value = []
 
@@ -402,7 +426,7 @@ class TestSearchCalendarEventsTool:
 
     @pytest.mark.asyncio
     async def test_search_calendar_events_no_results(self, calendar_state):
-        from mcp_server import search_calendar_events
+        from mcp_tools.calendar_tools import search_calendar_events
 
         calendar_state.search_events.return_value = []
 
@@ -421,7 +445,7 @@ class TestCalendarToolErrorHandling:
     @pytest.mark.asyncio
     async def test_calendar_tool_error_handling(self, calendar_state):
         """When the store returns an error dict, the tool should propagate it."""
-        from mcp_server import list_calendars
+        from mcp_tools.calendar_tools import list_calendars
 
         calendar_state.list_calendars.return_value = [
             {"error": "EventKit is only available on macOS with PyObjC installed."}
@@ -436,7 +460,7 @@ class TestCalendarToolErrorHandling:
     @pytest.mark.asyncio
     async def test_calendar_tool_exception_handling(self, calendar_state):
         """When the store raises an exception, the tool should catch it and return error JSON."""
-        from mcp_server import get_calendar_events
+        from mcp_tools.calendar_tools import get_calendar_events
 
         calendar_state.get_events.side_effect = RuntimeError("Connection failed")
 

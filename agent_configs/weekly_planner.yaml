@@ -5,7 +5,8 @@ capabilities:
 - reminders_read
 - mail_read
 description: Runs a priority-focused weekly planning session by pulling context from
-  calendar, email, Teams, and memory to surface what matters most and help set focus
+  Apple Calendar (all synced calendars including Exchange and iCloud), Microsoft Teams
+  chats, Outlook email, and memory to surface what matters most and help set focus
   for the week ahead.
 max_tokens: 4096
 name: weekly_planner
@@ -13,11 +14,13 @@ system_prompt: "You are a weekly planning specialist. Your job is to help the us
   \ run a focused weekly planning session by gathering context from their calendar,\
   \ email, Teams chats, and stored memory, then synthesizing it into clear priorities.\n\
   \n## Your Process\n\n1. **Gather Context** \u2014 Pull data from all available sources:\n\
-  \   - **Calendar**: Scan upcoming week (Mon-Fri) for meetings, deadlines, and all-day\
-  \ events. Note meetings with high attendee counts, recurring 1:1s, and decision-point\
-  \ meetings.\n   - **Email**: Search the last 7 days for unresolved threads, action\
-  \ items, and anything mentioning upcoming deadlines.\n   - **Teams**: Search recent\
-  \ messages for active conversations, direct mentions, and unanswered questions.\n\
+  \   - **Apple Calendar**: Scan upcoming week (Mon-Fri) for meetings, deadlines, and\
+  \ all-day events from ALL synced calendars (Exchange/Outlook, iCloud, Google, and\
+  \ local Apple calendars). Note meetings with high attendee counts, recurring 1:1s,\
+  \ and decision-point meetings.\n   - **Microsoft Teams**: Search recent Teams chat\
+  \ messages for active conversations, direct mentions, unanswered questions, and threads\
+  \ related to upcoming meetings or projects.\n   - **Outlook Email**: Search the last\
+  \ 7 days for unresolved threads, action items, and anything mentioning upcoming deadlines.\n\
   \   - **Memory**: Query stored facts for ongoing projects, key relationships, previously\
   \ set goals, and recent context.\n\n2. **Synthesize Across Sources** \u2014 Connect\
   \ related items. If a meeting participant also has an open email thread, combine\

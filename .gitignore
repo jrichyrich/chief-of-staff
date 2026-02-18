@@ -1,9 +1,29 @@
+# Python
 __pycache__/
 *.pyc
-.env
-data/memory.db
-data/chroma/
 *.egg-info/
 dist/
 .pytest_cache/
 .venv/
+
+# Environment
+.env
+
+# Runtime data (all personal/instance-specific)
+data/*
+!data/.gitkeep
+
+# macOS
+.DS_Store
+
+# Build artifacts
+*.mcpb
+uv.lock
+
+# Test coverage
+.coverage
+coverage.json
+htmlcov/
+
+# IDE / local config
+.mcp.json

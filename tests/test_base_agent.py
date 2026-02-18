@@ -203,7 +203,7 @@ class TestCalendarCapability:
             "calendar_name": "Work",
         })
         args = calendar_store.get_events.call_args
-        assert args[0][2] == ["Work"]  # calendar_names parameter
+        assert args[1]["calendar_names"] == ["Work"]
 
     def test_handle_search_calendar_events(self, calendar_config, memory_store, doc_store, calendar_store):
         agent = BaseExpertAgent(

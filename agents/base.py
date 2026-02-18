@@ -5,256 +5,14 @@ from typing import Any, Optional
 import anthropic
 
 import config as app_config
+from config import MAX_TOOL_ROUNDS
 from agents.registry import AgentConfig
+from capabilities.registry import get_tools_for_capabilities
 from documents.store import DocumentStore
 from memory.store import MemoryStore
+from tools import lifecycle as lifecycle_tools
 from tools.executor import execute_query_memory, execute_store_memory, execute_search_documents
 from utils.retry import retry_api_call
-
-MAX_TOOL_ROUNDS = 25
-
-CAPABILITY_TOOLS = {
-    "memory_read": {
-        "name": "query_memory",
-        "description": "Look up facts, locations, or personal details from shared memory",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search term to look up in memory"},
-                "category": {"type": "string", "description": "Optional category filter (personal, preference, work, relationship)"},
-            },
-            "required": ["query"],
-        },
-    },
-    "memory_write": {
-        "name": "store_memory",
-        "description": "Save a new fact to shared memory",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "category": {"type": "string", "description": "Fact category (personal, preference, work, relationship)"},
-                "key": {"type": "string", "description": "Fact key (e.g., 'name', 'favorite_food')"},
-                "value": {"type": "string", "description": "Fact value"},
-            },
-            "required": ["category", "key", "value"],
-        },
-    },
-    "document_search": {
-        "name": "search_documents",
-        "description": "Semantic search over ingested documents",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query"},
-                "top_k": {"type": "integer", "description": "Number of results to return", "default": 5},
-            },
-            "required": ["query"],
-        },
-    },
-    "calendar_read": [
-        {
-            "name": "get_calendar_events",
-            "description": "Get calendar events within a date range. Returns events from all synced calendars (Exchange/Outlook, iCloud, Google) including title, time, location, attendees, and calendar name.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "start_date": {"type": "string", "description": "Start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"},
-                    "end_date": {"type": "string", "description": "End date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"},
-                    "calendar_name": {"type": "string", "description": "Optional: filter to a specific calendar name"},
-                },
-                "required": ["start_date", "end_date"],
-            },
-        },
-        {
-            "name": "search_calendar_events",
-            "description": "Search calendar events by title text within a date range.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Text to search for in event titles"},
-                    "start_date": {"type": "string", "description": "Start date (YYYY-MM-DD), defaults to 30 days ago"},
-                    "end_date": {"type": "string", "description": "End date (YYYY-MM-DD), defaults to 30 days from now"},
-                },
-                "required": ["query"],
-            },
-        },
-    ],
-    "reminders_read": [
-        {
-            "name": "get_reminders",
-            "description": "Get reminders, optionally filtered by list name and completion status.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "list_name": {"type": "string", "description": "Optional: filter to a specific reminder list"},
-                    "completed": {"type": "boolean", "description": "Optional: true for completed only, false for incomplete only, omit for all"},
-                },
-            },
-        },
-        {
-            "name": "search_reminders",
-            "description": "Search reminders by title text.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Text to search for in reminder titles"},
-                    "include_completed": {"type": "boolean", "description": "Whether to include completed reminders (default: false)"},
-                },
-                "required": ["query"],
-            },
-        },
-    ],
-    "reminders_write": [
-        {
-            "name": "create_reminder",
-            "description": "Create a new reminder in Apple Reminders.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Reminder title"},
-                    "list_name": {"type": "string", "description": "Which reminder list to add to (uses default if omitted)"},
-                    "due_date": {"type": "string", "description": "Due date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"},
-                    "priority": {"type": "integer", "description": "Priority: 0=none, 1=high, 4=medium, 9=low"},
-                    "notes": {"type": "string", "description": "Notes/description for the reminder"},
-                },
-                "required": ["title"],
-            },
-        },
-        {
-            "name": "complete_reminder",
-            "description": "Mark a reminder as completed by its ID.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "reminder_id": {"type": "string", "description": "The ID of the reminder to complete"},
-                },
-                "required": ["reminder_id"],
-            },
-        },
-    ],
-    "notifications": [
-        {
-            "name": "send_notification",
-            "description": "Send a macOS notification to the user.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Notification title"},
-                    "message": {"type": "string", "description": "Notification body text"},
-                    "subtitle": {"type": "string", "description": "Optional subtitle"},
-                    "sound": {"type": "string", "description": "Sound name (default: 'default')"},
-                },
-                "required": ["title", "message"],
-            },
-        },
-    ],
-    "mail_read": [
-        {
-            "name": "get_mail_messages",
-            "description": "Get recent email messages from a mailbox (headers only).",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "mailbox": {"type": "string", "description": "Mailbox name (default: INBOX)"},
-                    "account": {"type": "string", "description": "Account name filter"},
-                    "limit": {"type": "integer", "description": "Max messages (default: 25)"},
-                },
-            },
-        },
-        {
-            "name": "get_mail_message",
-            "description": "Get full email content including body by Message-ID.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "message_id": {"type": "string", "description": "The Message-ID of the email"},
-                },
-                "required": ["message_id"],
-            },
-        },
-        {
-            "name": "search_mail",
-            "description": "Search emails by subject and sender text.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Text to search for"},
-                    "mailbox": {"type": "string", "description": "Mailbox to search (default: INBOX)"},
-                    "account": {"type": "string", "description": "Account name filter"},
-                    "limit": {"type": "integer", "description": "Max results (default: 25)"},
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "get_unread_count",
-            "description": "Get unread email count for a mailbox.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "mailbox": {"type": "string", "description": "Mailbox name (default: INBOX)"},
-                    "account": {"type": "string", "description": "Account name filter"},
-                },
-            },
-        },
-    ],
-    "mail_write": [
-        {
-            "name": "send_email",
-            "description": "Send an email. REQUIRES confirm_send=True after explicit user confirmation.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Comma-separated recipient addresses"},
-                    "subject": {"type": "string", "description": "Email subject"},
-                    "body": {"type": "string", "description": "Email body text"},
-                    "cc": {"type": "string", "description": "Comma-separated CC addresses"},
-                    "bcc": {"type": "string", "description": "Comma-separated BCC addresses"},
-                    "confirm_send": {"type": "boolean", "description": "MUST be true — confirm with user first"},
-                },
-                "required": ["to", "subject", "body", "confirm_send"],
-            },
-        },
-        {
-            "name": "mark_mail_read",
-            "description": "Mark an email as read or unread.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "message_id": {"type": "string", "description": "The Message-ID"},
-                    "read": {"type": "boolean", "description": "True for read, false for unread"},
-                },
-                "required": ["message_id"],
-            },
-        },
-        {
-            "name": "mark_mail_flagged",
-            "description": "Flag or unflag an email.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "message_id": {"type": "string", "description": "The Message-ID"},
-                    "flagged": {"type": "boolean", "description": "True to flag, false to unflag"},
-                },
-                "required": ["message_id"],
-            },
-        },
-        {
-            "name": "move_mail_message",
-            "description": "Move an email to a different mailbox.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "message_id": {"type": "string", "description": "The Message-ID"},
-                    "target_mailbox": {"type": "string", "description": "Target mailbox name"},
-                    "target_account": {"type": "string", "description": "Target account name"},
-                },
-                "required": ["message_id", "target_mailbox"],
-            },
-        },
-    ],
-}
-
 
 class BaseExpertAgent:
     def __init__(
@@ -282,15 +40,7 @@ class BaseExpertAgent:
         return self.config.system_prompt
 
     def get_tools(self) -> list[dict]:
-        tools = []
-        for capability in self.config.capabilities:
-            if capability in CAPABILITY_TOOLS:
-                entry = CAPABILITY_TOOLS[capability]
-                if isinstance(entry, list):
-                    tools.extend(entry)
-                else:
-                    tools.append(entry)
-        return tools
+        return get_tools_for_capabilities(self.config.capabilities)
 
     async def execute(self, task: str) -> str:
         messages = [{"role": "user", "content": task}]
@@ -359,14 +109,56 @@ class BaseExpertAgent:
                 self.document_store, tool_input["query"], tool_input.get("top_k", 5)
             )
 
+        elif tool_name == "create_decision":
+            return self._handle_create_decision(tool_input)
+
+        elif tool_name == "search_decisions":
+            return self._handle_search_decisions(tool_input)
+
+        elif tool_name == "update_decision":
+            return self._handle_update_decision(tool_input)
+
+        elif tool_name == "list_pending_decisions":
+            return self._handle_list_pending_decisions()
+
+        elif tool_name == "delete_decision":
+            return self._handle_delete_decision(tool_input)
+
+        elif tool_name == "create_delegation":
+            return self._handle_create_delegation(tool_input)
+
+        elif tool_name == "list_delegations":
+            return self._handle_list_delegations(tool_input)
+
+        elif tool_name == "update_delegation":
+            return self._handle_update_delegation(tool_input)
+
+        elif tool_name == "check_overdue_delegations":
+            return self._handle_check_overdue_delegations()
+
+        elif tool_name == "delete_delegation":
+            return self._handle_delete_delegation(tool_input)
+
+        elif tool_name == "create_alert_rule":
+            return self._handle_create_alert_rule(tool_input)
+
+        elif tool_name == "list_alert_rules":
+            return self._handle_list_alert_rules(tool_input)
+
+        elif tool_name == "check_alerts":
+            return self._handle_check_alerts()
+
+        elif tool_name == "dismiss_alert":
+            return self._handle_dismiss_alert(tool_input)
+
         elif tool_name == "get_calendar_events":
             return self._handle_calendar_get_events(tool_input)
 
         elif tool_name == "search_calendar_events":
             return self._handle_calendar_search(tool_input)
 
-        elif tool_name == "get_reminders":
-            return self._handle_reminder_get(tool_input)
+        elif tool_name == "list_reminders":
+            return self._handle_reminder_list(tool_input)
 
         elif tool_name == "search_reminders":
             return self._handle_reminder_search(tool_input)
@@ -406,6 +198,104 @@ class BaseExpertAgent:
 
         return {"error": f"Unknown tool: {tool_name}"}
 
+    def _handle_create_decision(self, tool_input: dict) -> Any:
+        return lifecycle_tools.create_decision(
+            self.memory_store,
+            title=tool_input["title"],
+            description=tool_input.get("description", ""),
+            context=tool_input.get("context", ""),
+            decided_by=tool_input.get("decided_by", ""),
+            owner=tool_input.get("owner", ""),
+            status=tool_input.get("status", "pending_execution"),
+            follow_up_date=tool_input.get("follow_up_date", ""),
+            tags=tool_input.get("tags", ""),
+            source=tool_input.get("source", self.name),
+        )
+
+    def _handle_search_decisions(self, tool_input: dict) -> Any:
+        return lifecycle_tools.search_decisions(
+            self.memory_store,
+            query=tool_input.get("query", ""),
+            status=tool_input.get("status", ""),
+        )
+
+    def _handle_update_decision(self, tool_input: dict) -> Any:
+        return lifecycle_tools.update_decision(
+            self.memory_store,
+            decision_id=tool_input["decision_id"],
+            status=tool_input.get("status", ""),
+            notes=tool_input.get("notes", ""),
+        )
+
+    def _handle_list_pending_decisions(self) -> Any:
+        return lifecycle_tools.list_pending_decisions(self.memory_store)
+
+    def _handle_delete_decision(self, tool_input: dict) -> Any:
+        return lifecycle_tools.delete_decision(
+            self.memory_store,
+            decision_id=tool_input["decision_id"],
+        )
+
+    def _handle_create_delegation(self, tool_input: dict) -> Any:
+        return lifecycle_tools.create_delegation(
+            self.memory_store,
+            task=tool_input["task"],
+            delegated_to=tool_input["delegated_to"],
+            description=tool_input.get("description", ""),
+            due_date=tool_input.get("due_date", ""),
+            priority=tool_input.get("priority", "medium"),
+            source=tool_input.get("source", self.name),
+        )
+
+    def _handle_list_delegations(self, tool_input: dict) -> Any:
+        return lifecycle_tools.list_delegations(
+            self.memory_store,
+            status=tool_input.get("status", ""),
+            delegated_to=tool_input.get("delegated_to", ""),
+        )
+
+    def _handle_update_delegation(self, tool_input: dict) -> Any:
+        return lifecycle_tools.update_delegation(
+            self.memory_store,
+            delegation_id=tool_input["delegation_id"],
+            status=tool_input.get("status", ""),
+            notes=tool_input.get("notes", ""),
+        )
+
+    def _handle_check_overdue_delegations(self) -> Any:
+        return lifecycle_tools.check_overdue_delegations(self.memory_store)
+
+    def _handle_delete_delegation(self, tool_input: dict) -> Any:
+        return lifecycle_tools.delete_delegation(
+            self.memory_store,
+            delegation_id=tool_input["delegation_id"],
+        )
+
+    def _handle_create_alert_rule(self, tool_input: dict) -> Any:
+        return lifecycle_tools.create_alert_rule(
+            self.memory_store,
+            name=tool_input["name"],
+            alert_type=tool_input["alert_type"],
+            description=tool_input.get("description", ""),
+            condition=tool_input.get("condition", ""),
+            enabled=tool_input.get("enabled", True),
+        )
+
+    def _handle_list_alert_rules(self, tool_input: dict) -> Any:
+        return lifecycle_tools.list_alert_rules(
+            self.memory_store,
+            enabled_only=tool_input.get("enabled_only", False),
+        )
+
+    def _handle_check_alerts(self) -> Any:
+        return lifecycle_tools.check_alerts(self.memory_store)
+
+    def _handle_dismiss_alert(self, tool_input: dict) -> Any:
+        return lifecycle_tools.dismiss_alert(
+            self.memory_store,
+            rule_id=tool_input["rule_id"],
+        )
+
     def _handle_calendar_get_events(self, tool_input: dict) -> Any:
         if self.calendar_store is None:
             return {"error": "Calendar not available (macOS only)"}
@@ -413,7 +303,13 @@ class BaseExpertAgent:
         start_dt = datetime.fromisoformat(tool_input["start_date"])
         end_dt = datetime.fromisoformat(tool_input["end_date"])
         calendar_names = [tool_input["calendar_name"]] if tool_input.get("calendar_name") else None
-        return self.calendar_store.get_events(start_dt, end_dt, calendar_names)
+        return self.calendar_store.get_events(
+            start_dt,
+            end_dt,
+            calendar_names=calendar_names,
+            provider_preference=tool_input.get("provider_preference", "auto"),
+            source_filter=tool_input.get("source_filter", ""),
+        )
 
     def _handle_calendar_search(self, tool_input: dict) -> Any:
         if self.calendar_store is None:
@@ -422,12 +318,18 @@ class BaseExpertAgent:
         now = datetime.now()
         start_dt = datetime.fromisoformat(tool_input["start_date"]) if tool_input.get("start_date") else now - timedelta(days=30)
         end_dt = datetime.fromisoformat(tool_input["end_date"]) if tool_input.get("end_date") else now + timedelta(days=30)
-        return self.calendar_store.search_events(tool_input["query"], start_dt, end_dt)
+        return self.calendar_store.search_events(
+            tool_input["query"],
+            start_dt,
+            end_dt,
+            provider_preference=tool_input.get("provider_preference", "auto"),
+            source_filter=tool_input.get("source_filter", ""),
+        )
 
-    def _handle_reminder_get(self, tool_input: dict) -> Any:
+    def _handle_reminder_list(self, tool_input: dict) -> Any:
         if self.reminder_store is None:
             return {"error": "Reminders not available (macOS only)"}
-        return self.reminder_store.get_reminders(
+        return self.reminder_store.list_reminders(
             list_name=tool_input.get("list_name"),
             completed=tool_input.get("completed"),
         )

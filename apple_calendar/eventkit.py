@@ -1,7 +1,10 @@
 """EventKit wrapper for macOS calendar access via PyObjC."""
 
+import logging
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import EventKit  # noqa: N811
@@ -170,7 +173,8 @@ class CalendarStore:
                     "color": color_hex,
                 })
             return result
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error listing calendars: %s", e)
             return [{"error": f"Failed to list calendars: {e}"}]
 
     def get_events(
@@ -205,7 +209,8 @@ class CalendarStore:
                 _event_to_dict(ev, str(ev.calendar().title()))
                 for ev in events
             ]
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error getting events: %s", e)
             return [{"error": f"Failed to get events: {e}"}]
 
     def create_event(
@@ -249,7 +254,8 @@ class CalendarStore:
                 return {"error": f"Failed to save event: {error}"}
 
             return _event_to_dict(event, str(event.calendar().title()))
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error creating event: %s", e)
             return {"error": f"Failed to create event: {e}"}
 
     def update_event(self, event_uid: str, calendar_name: Optional[str] = None, **kwargs) -> dict:
@@ -282,11 +288,12 @@ class CalendarStore:
                 return {"error": f"Failed to update event: {error}"}
 
             return _event_to_dict(event, str(event.calendar().title()))
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error updating event: %s", e)
             return {"error": f"Failed to update event: {e}"}
 
-    def delete_event(self, event_uid: str, calendar_name: Optional[str] = None) -> bool | dict:
-        """Delete an event by UID. Returns True on success, or an error dict."""
+    def delete_event(self, event_uid: str, calendar_name: Optional[str] = None) -> dict:
+        """Delete an event by UID. Returns status dict on success, or an error dict."""
         err = self._ensure_store()
         if err:
             return err
@@ -299,8 +306,9 @@ class CalendarStore:
             success, error = self._store.removeEvent_span_error_(event, 0, None)
             if not success:
                 return {"error": f"Failed to delete event: {error}"}
-            return True
-        except Exception as e:
+            return {"status": "deleted", "event_uid": event_uid}
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error deleting event: %s", e)
             return {"error": f"Failed to delete event: {e}"}
 
     def search_events(
@@ -329,5 +337,6 @@ class CalendarStore:
                 if query_lower in title.lower():
                     results.append(_event_to_dict(ev, str(ev.calendar().title())))
             return results
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error searching events: %s", e)
             return [{"error": f"Failed to search events: {e}"}]

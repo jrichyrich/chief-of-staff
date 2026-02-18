@@ -6,16 +6,16 @@
     <string>com.chg.inbox-monitor</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/inbox-monitor.sh</string>
+        <string>__PROJECT_DIR__/scripts/inbox-monitor.sh</string>
     </array>
     <key>StartInterval</key>
     <integer>300</integer>
     <key>WorkingDirectory</key>
-    <string>/Users/jasricha/Documents/GitHub/chief_of_staff</string>
+    <string>__PROJECT_DIR__</string>
     <key>StandardOutPath</key>
-    <string>/Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-cron.log</string>
+    <string>__PROJECT_DIR__/data/inbox-cron.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-cron.log</string>
+    <string>__PROJECT_DIR__/data/inbox-cron.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

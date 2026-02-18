@@ -14,10 +14,10 @@ set -euo pipefail
 
 # --- Configuration -----------------------------------------------------------
 
-ONEDRIVE_BASE="$HOME/Library/CloudStorage/OneDrive-CHGHealthcare"
+ONEDRIVE_BASE="${JARVIS_ONEDRIVE_BASE:-$HOME/Library/CloudStorage/OneDrive-CHGHealthcare}"
 BACKUP_DIR="$ONEDRIVE_BASE/Jarvis-Backup"
 SNAPSHOT_DIR="$BACKUP_DIR/snapshots"
-PROJECT_DIR="$HOME/Documents/GitHub/chief_of_staff"
+PROJECT_DIR="${JARVIS_PROJECT_DIR:-$HOME/Documents/GitHub/chief_of_staff}"
 JARVIS_DOCS="$HOME/Documents/Jarvis"
 LOG_FILE="$PROJECT_DIR/data/backup.log"
 DATE_STAMP=$(date '+%Y-%m-%d')

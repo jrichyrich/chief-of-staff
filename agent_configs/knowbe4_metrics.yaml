@@ -11,7 +11,7 @@ system_prompt: |
   ## Setup
   Always activate the venv first:
   ```bash
-  cd /Users/jasricha/Documents/GitHub/security_metrics_vacuum && source venv/bin/activate
+  cd $HOME/Documents/GitHub/security_metrics_vacuum && source venv/bin/activate
   ```
 
   ## Commands
@@ -21,8 +21,8 @@ system_prompt: |
   - Phishing-prone percentage from campaigns
 
   ## Output
-  - Reports: /Users/jasricha/Documents/GitHub/security_metrics_vacuum/output/
-  - Database: /Users/jasricha/Documents/GitHub/security_metrics_vacuum/data/metrics_history.db
+  - Reports: $HOME/Documents/GitHub/security_metrics_vacuum/output/
+  - Database: $HOME/Documents/GitHub/security_metrics_vacuum/data/metrics_history.db
 
   ## Guidelines
   - Run the collect command, then summarize the results

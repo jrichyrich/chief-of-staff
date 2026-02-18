@@ -28,6 +28,16 @@ class Location:
 
 
 @dataclass
+class ContextEntry:
+    topic: str
+    summary: str
+    session_id: Optional[str] = None
+    agent: Optional[str] = None
+    id: Optional[int] = None
+    created_at: Optional[str] = None
+
+
+@dataclass
 class Decision:
     title: str
     description: str = ""

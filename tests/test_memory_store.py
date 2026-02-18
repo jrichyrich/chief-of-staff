@@ -1,7 +1,7 @@
 # tests/test_memory_store.py
 import pytest
 from memory.store import MemoryStore
-from memory.models import AlertRule, Decision, Delegation, Fact, Location
+from memory.models import AlertRule, ContextEntry, Decision, Delegation, Fact, Location
 
 
 @pytest.fixture
@@ -66,6 +66,42 @@ class TestLocations:
         assert len(results) == 2
 
 
+class TestContext:
+    def test_store_and_list_context(self, memory_store):
+        memory_store.store_context(ContextEntry(
+            session_id="abc123",
+            topic="roadmap",
+            summary="Reviewed milestones and risks",
+            agent="project_manager",
+        ))
+        memory_store.store_context(ContextEntry(
+            session_id="abc123",
+            topic="hiring",
+            summary="Need two backend engineers",
+            agent="cto",
+        ))
+        results = memory_store.list_context(session_id="abc123")
+        assert len(results) == 2
+        assert results[0].session_id == "abc123"
+
+    def test_search_context(self, memory_store):
+        memory_store.store_context(ContextEntry(
+            session_id="s1",
+            topic="incident response",
+            summary="Postmortem action items assigned",
+            agent="incident_summarizer",
+        ))
+        memory_store.store_context(ContextEntry(
+            session_id="s2",
+            topic="weekly planning",
+            summary="Focus on delivery milestones",
+            agent="weekly_planner",
+        ))
+        results = memory_store.search_context("postmortem")
+        assert len(results) == 1
+        assert results[0].topic == "incident response"
+
+
 class TestDecisions:
     def test_store_and_retrieve_decision(self, memory_store):
         decision = Decision(
@@ -125,6 +161,11 @@ class TestDecisions:
 
     def test_delete_nonexistent_decision(self, memory_store):
         assert memory_store.delete_decision(999) is False
+
+    def test_update_decision_rejects_invalid_fields(self, memory_store):
+        stored = memory_store.store_decision(Decision(title="Test"))
+        with pytest.raises(ValueError, match="Invalid decision fields"):
+            memory_store.update_decision(stored.id, **{"status": "done", "id=1; DROP TABLE decisions--": "x"})
 
     def test_multiple_decisions_no_unique_constraint(self, memory_store):
         memory_store.store_decision(Decision(title="Same title"))
@@ -214,6 +255,11 @@ class TestDelegations:
     def test_delete_nonexistent_delegation(self, memory_store):
         assert memory_store.delete_delegation(999) is False
 
+    def test_update_delegation_rejects_invalid_fields(self, memory_store):
+        stored = memory_store.store_delegation(Delegation(task="Test", delegated_to="Alice"))
+        with pytest.raises(ValueError, match="Invalid delegation fields"):
+            memory_store.update_delegation(stored.id, bad_field="x")
+
     def test_multiple_delegations_same_task(self, memory_store):
         memory_store.store_delegation(Delegation(task="Same task", delegated_to="Alice"))
         memory_store.store_delegation(Delegation(task="Same task", delegated_to="Bob"))
@@ -278,3 +324,8 @@ class TestAlertRules:
 
     def test_delete_nonexistent_alert_rule(self, memory_store):
         assert memory_store.delete_alert_rule(999) is False
+
+    def test_update_alert_rule_rejects_invalid_fields(self, memory_store):
+        stored = memory_store.store_alert_rule(AlertRule(name="rule", alert_type="test"))
+        with pytest.raises(ValueError, match="Invalid alert_rule fields"):
+            memory_store.update_alert_rule(stored.id, bad_field="x")

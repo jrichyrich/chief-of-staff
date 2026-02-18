@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from documents.store import DocumentStore
 
-SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml"}
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".pdf", ".docx"}
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
@@ -24,8 +24,58 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
     return chunks
 
 
+def _load_pdf(file_path: Path) -> str:
+    """Load text from a PDF file."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise ImportError("pypdf library is required for PDF support. Install with: pip install pypdf")
+
+    reader = PdfReader(file_path)
+    text_parts = []
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text.strip():  # Only add non-empty pages
+            text_parts.append(page_text)
+
+    return "\n".join(text_parts)
+
+
+def _load_docx(file_path: Path) -> str:
+    """Load text from a DOCX file."""
+    try:
+        from docx import Document
+    except ImportError:
+        raise ImportError("python-docx library is required for DOCX support. Install with: pip install python-docx")
+
+    doc = Document(file_path)
+    text_parts = []
+
+    # Extract paragraph text
+    for paragraph in doc.paragraphs:
+        if paragraph.text.strip():
+            text_parts.append(paragraph.text)
+
+    # Extract table text
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+            if row_text:
+                text_parts.append(row_text)
+
+    return "\n".join(text_parts)
+
+
 def load_text_file(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    """Load text from a file based on its extension."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".pdf":
+        return _load_pdf(path)
+    elif suffix == ".docx":
+        return _load_docx(path)
+    else:
+        return path.read_text(encoding="utf-8")
 
 
 def content_hash(text: str) -> str:

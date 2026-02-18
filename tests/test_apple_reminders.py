@@ -168,7 +168,7 @@ class TestGetReminders:
 
         with patch("apple_reminders.eventkit.NSCalendar") as mock_ns_cal:
             mock_ns_cal.currentCalendar.return_value = MagicMock()
-            result = reminder_store.get_reminders()
+            result = reminder_store.list_reminders()
 
         assert len(result) == 1
         assert result[0]["id"] == "R1"
@@ -183,7 +183,7 @@ class TestGetReminders:
 
         with patch("apple_reminders.eventkit.NSCalendar") as mock_ns_cal:
             mock_ns_cal.currentCalendar.return_value = MagicMock()
-            result = reminder_store.get_reminders(list_name="Shopping")
+            result = reminder_store.list_reminders(list_name="Shopping")
 
         assert len(result) == 1
         assert result[0]["list_name"] == "Shopping"
@@ -195,7 +195,7 @@ class TestGetReminders:
 
         with patch("apple_reminders.eventkit.NSCalendar") as mock_ns_cal:
             mock_ns_cal.currentCalendar.return_value = MagicMock()
-            result = reminder_store.get_reminders(completed=True)
+            result = reminder_store.list_reminders(completed=True)
 
         assert len(result) == 1
         assert result[0]["completed"] is True
@@ -207,7 +207,7 @@ class TestGetReminders:
 
         with patch("apple_reminders.eventkit.NSCalendar") as mock_ns_cal:
             mock_ns_cal.currentCalendar.return_value = MagicMock()
-            result = reminder_store.get_reminders(completed=False)
+            result = reminder_store.list_reminders(completed=False)
 
         assert len(result) == 1
         assert result[0]["completed"] is False
@@ -215,7 +215,7 @@ class TestGetReminders:
     def test_get_list_not_found(self, reminder_store):
         reminder_store._get_reminder_list_by_name = MagicMock(return_value=None)
 
-        result = reminder_store.get_reminders(list_name="NonExistent")
+        result = reminder_store.list_reminders(list_name="NonExistent")
 
         assert len(result) == 1
         assert "error" in result[0]
@@ -337,7 +337,8 @@ class TestDeleteReminder:
 
         result = reminder_store.delete_reminder("DEL-1")
 
-        assert result is True
+        assert result["status"] == "deleted"
+        assert result["reminder_id"] == "DEL-1"
 
     def test_delete_not_found(self, reminder_store):
         reminder_store._find_reminder_by_id = MagicMock(return_value=None)
@@ -417,7 +418,7 @@ class TestEventKitUnavailable:
         assert "only available on macOS" in result[0]["error"]
 
     def test_get_reminders(self, unavailable_store):
-        result = unavailable_store.get_reminders()
+        result = unavailable_store.list_reminders()
         assert len(result) == 1
         assert "error" in result[0]
 

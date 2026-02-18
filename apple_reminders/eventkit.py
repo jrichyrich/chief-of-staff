@@ -1,8 +1,11 @@
 """EventKit wrapper for macOS Reminders access via PyObjC."""
 
+import logging
 import threading
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import EventKit  # noqa: N811
@@ -178,10 +181,11 @@ class ReminderStore:
                     "color": color_hex,
                 })
             return result
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error listing reminder lists: %s", e)
             return [{"error": f"Failed to list reminder lists: {e}"}]
 
-    def get_reminders(
+    def list_reminders(
         self,
         list_name: Optional[str] = None,
         completed: Optional[bool] = None,
@@ -216,7 +220,8 @@ class ReminderStore:
 
             raw_reminders = self._fetch_reminders(predicate)
             return [_reminder_to_dict(r) for r in raw_reminders]
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error getting reminders: %s", e)
             return [{"error": f"Failed to get reminders: {e}"}]
 
     def create_reminder(
@@ -273,7 +278,8 @@ class ReminderStore:
                 return {"error": f"Failed to save reminder: {error}"}
 
             return _reminder_to_dict(reminder)
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError, ValueError) as e:
+            logger.error("Error creating reminder: %s", e)
             return {"error": f"Failed to create reminder: {e}"}
 
     def complete_reminder(self, reminder_id: str) -> dict:
@@ -293,11 +299,12 @@ class ReminderStore:
                 return {"error": f"Failed to complete reminder: {error}"}
 
             return _reminder_to_dict(reminder)
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error completing reminder: %s", e)
             return {"error": f"Failed to complete reminder: {e}"}
 
-    def delete_reminder(self, reminder_id: str) -> bool | dict:
-        """Delete a reminder by its ID. Returns True on success, or an error dict."""
+    def delete_reminder(self, reminder_id: str) -> dict:
+        """Delete a reminder by its ID. Returns status dict on success, or an error dict."""
         store = self._ensure_store()
         if isinstance(store, dict):
             return store
@@ -310,8 +317,9 @@ class ReminderStore:
             success, error = store.removeReminder_commit_error_(reminder, True, None)
             if not success:
                 return {"error": f"Failed to delete reminder: {error}"}
-            return True
-        except Exception as e:
+            return {"status": "deleted", "reminder_id": reminder_id}
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error deleting reminder: %s", e)
             return {"error": f"Failed to delete reminder: {e}"}
 
     def search_reminders(
@@ -345,5 +353,6 @@ class ReminderStore:
                 if query_lower in title.lower():
                     results.append(_reminder_to_dict(r))
             return results
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.error("PyObjC error searching reminders: %s", e)
             return [{"error": f"Failed to search reminders: {e}"}]

@@ -10,6 +10,12 @@ The inbox monitor polls your iMessage (Messages.app) for messages prefixed with 
 4. Each new message is processed by invoking `claude -p` with the extracted instruction
 5. Processed message GUIDs are saved to `data/inbox-processed.json` to prevent duplicates
 6. All actions are logged to `data/inbox-log.md`
+7. On each run, connector availability is detected via `claude mcp list`.
+8. Each message gets a deterministic route decision (policy profile + preferred/fallback provider), with Microsoft 365-first for Teams/Outlook tasks and local Jarvis fallback.
+9. Pass 2 structured output now includes `provider_used` and `fallback_used`, and impossible provider claims are rejected and logged.
+10. Routing decisions and outcomes are appended to `data/inbox-routing-audit.jsonl`.
+11. High-risk write/destructive requests are held behind a hard approval gate, queued with an approval ID and TTL, and executed only after an explicit `approve`.
+12. Optional daemon mode (`scripts/imessage-daemon.py`) continuously ingests iMessage events into a SQLite queue and dispatches queued work to `inbox-monitor.sh`.
 
 ## Prerequisites
 
@@ -20,9 +26,36 @@ The inbox monitor polls your iMessage (Messages.app) for messages prefixed with 
   2. Click the **+** button
   3. Press `Cmd+Shift+G`, navigate to the project's `scripts/imessage-reader`
   4. Toggle it **on** in the list
-- **Chief of Staff MCP server** configured in `.mcp.json` (already set up in this repo)
+- **MCP connectors configured in your Claude host setup** (default mode).
+  `inbox-monitor.sh` does not force `--mcp-config` unless you explicitly pass one, so host-connected connectors (including Microsoft 365) are used automatically.
+- **Optional**: project `.mcp.json` if you want to override with `--project-mcp-config` or `--mcp-config`.
 
 ## Installation
+
+### Optional: run the iMessage daemon (recommended)
+
+The daemon keeps ingestion state in SQLite and dispatches quickly, instead of waiting on a coarse polling interval.
+
+```bash
+# Run one daemon cycle for verification
+/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/imessage-daemon.py --once
+
+# Run continuously in foreground
+/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/imessage-daemon.py
+```
+
+Install as LaunchAgent:
+
+```bash
+cp /Users/jasricha/Documents/GitHub/chief_of_staff/scripts/com.chg.imessage-daemon.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.chg.imessage-daemon.plist
+launchctl list | grep imessage-daemon
+```
+
+Daemon artifacts:
+- `data/imessage-worker.db` — ingestion and processing queue state
+- `data/imessage-daemon.log` — daemon log output
+- `data/imessage-daemon.lock` — single-instance lock file
 
 ### 1. Verify prerequisites
 
@@ -95,8 +128,33 @@ Open Messages.app and send an iMessage to yourself with the prefix `jarvis:`. Ex
 | `jarvis: agenda standup: discuss deploy timeline, review blockers` | Stores meeting agenda item |
 | `jarvis: search project architecture decisions` | Searches ingested documents |
 | `jarvis: lookup my upcoming meetings` | Queries stored memory facts |
+| `jarvis: approve apr-20260216093000-abc123ef` | Executes a previously queued high-risk request |
+| `jarvis: reject apr-20260216093000-abc123ef` | Rejects a queued high-risk request |
 
 ## Configuration
+
+### Environment variables
+
+Use env vars to avoid hardcoded paths/settings:
+
+- `JARVIS_PROJECT_DIR` — project root (default: parent directory of `scripts/`)
+- `JARVIS_DATA_DIR` — data directory (default: `${JARVIS_PROJECT_DIR}/data`)
+- `INBOX_MONITOR_PROCESSED_FILE` — processed IDs JSON file path
+- `INBOX_MONITOR_LOG_FILE` — monitor log file path
+- `INBOX_MONITOR_MCP_CONFIG` — explicit MCP config path (optional override)
+- `JARVIS_DEFAULT_EMAIL_TO` — address for generated email drafts (optional)
+- `INBOX_MONITOR_ROUTING_AUDIT_FILE` — JSONL file for per-message connector routing audit events
+- `INBOX_MONITOR_PENDING_APPROVALS_FILE` — pending hard-approval queue JSON file
+- `INBOX_MONITOR_APPROVAL_AUDIT_FILE` — JSONL audit for requested/approved/rejected/executed approvals
+- `INBOX_MONITOR_APPROVAL_TTL_MINUTES` — expiration window for pending approvals (default: `60`)
+- `IMESSAGE_DAEMON_STATE_DB` — daemon SQLite state DB path (default: `${JARVIS_DATA_DIR}/imessage-worker.db`)
+- `IMESSAGE_DAEMON_LOG_FILE` — daemon log path (default: `${JARVIS_DATA_DIR}/imessage-daemon.log`)
+- `IMESSAGE_DAEMON_LOCK_FILE` — daemon lock file (default: `${JARVIS_DATA_DIR}/imessage-daemon.lock`)
+- `IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS` — ingest/dispatch cycle interval (default: `5`)
+- `IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES` — initial lookback when no watermark exists (default: `30`)
+- `IMESSAGE_DAEMON_DISPATCH_BATCH_SIZE` — queued jobs handed off per cycle (default: `25`)
+
+If `JARVIS_DEFAULT_EMAIL_TO` is unset, email draft delivery is skipped (the run continues).
 
 ### Adjusting the polling interval
 
@@ -149,9 +207,35 @@ cat /Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-processed.json | 
 # Run with a longer lookback (e.g., last 60 minutes)
 /Users/jasricha/Documents/GitHub/chief_of_staff/scripts/inbox-monitor.sh --interval 60
 
+# Force project-local MCP config override
+/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/inbox-monitor.sh --project-mcp-config
+
+# Set explicit email draft delivery target
+/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/inbox-monitor.sh --email-to "you@example.com"
+
+# Print detected connector availability and exit
+/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/inbox-monitor.sh --print-connector-status
+
+# Override hard-approval TTL
+/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/inbox-monitor.sh --approval-ttl-minutes 120
+
+# Run one daemon cycle
+/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/imessage-daemon.py --once
+
 # Check what was processed
 cat /Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-processed.json | jq .
 tail -20 /Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-log.md
+
+# Inspect connector routing audit records
+tail -20 /Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-routing-audit.jsonl | jq .
+
+# Inspect approval queue and audit
+cat /Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-pending-approvals.json | jq .
+tail -20 /Users/jasricha/Documents/GitHub/chief_of_staff/data/inbox-approvals-audit.jsonl | jq .
+
+# Inspect daemon state and logs
+sqlite3 /Users/jasricha/Documents/GitHub/chief_of_staff/data/imessage-worker.db '.tables'
+tail -20 /Users/jasricha/Documents/GitHub/chief_of_staff/data/imessage-daemon.log
 ```
 
 ## Troubleshooting

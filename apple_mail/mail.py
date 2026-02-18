@@ -1,9 +1,12 @@
 import base64
+import logging
 import platform
 import subprocess
 from typing import Optional
 
 from apple_notifications.notifier import Notifier
+
+logger = logging.getLogger(__name__)
 
 _IS_MACOS = platform.system() == "Darwin"
 _PLATFORM_ERROR = {"error": "Mail is only available on macOS"}
@@ -104,11 +107,8 @@ tell application "Mail"
     set mb to {mailbox_ref}
     set msgCount to count of messages of mb
     if msgCount is 0 then return ""
-    if msgCount < {limit} then
-        set maxMsg to msgCount
-    else
-        set maxMsg to {limit}
-    end if
+    set maxMsg to msgCount
+    if maxMsg > {limit} then set maxMsg to {limit}
     set output to ""
     repeat with i from 1 to maxMsg
         set msg to message i of mb
@@ -192,7 +192,8 @@ end tell
         # Decode base64 body
         try:
             body = base64.b64decode(fields[7]).decode("utf-8", errors="replace")
-        except Exception:
+        except (ValueError, UnicodeDecodeError) as e:
+            logger.warning("Failed to decode base64 body: %s", e)
             body = fields[7]
         return {
             "message_id": message_id,
@@ -222,11 +223,8 @@ tell application "Mail"
     set matchMsgs to (messages of mb whose subject contains "{query_esc}" or sender contains "{query_esc}")
     set msgCount to count of matchMsgs
     if msgCount is 0 then return ""
-    if msgCount < {limit} then
-        set maxMsg to msgCount
-    else
-        set maxMsg to {limit}
-    end if
+    set maxMsg to msgCount
+    if maxMsg > {limit} then set maxMsg to {limit}
     set output to ""
     repeat with i from 1 to maxMsg
         set msg to item i of matchMsgs
@@ -403,6 +401,6 @@ end tell
                 title="Email Sent",
                 message=f"To: {', '.join(to)} — {subject}",
             )
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             pass  # Don't let notification failure mask successful send
         return {"status": "sent", "to": to, "subject": subject}
