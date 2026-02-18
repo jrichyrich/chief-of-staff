@@ -9,6 +9,35 @@ from datetime import UTC, datetime
 logger = logging.getLogger(__name__)
 
 _IS_MACOS = platform.system() == "Darwin"
+
+
+def decode_attributed_body(blob: bytes) -> str | None:
+    """Decode an attributedBody typedstream blob to plain text.
+
+    Returns None if the blob cannot be decoded.
+    """
+    if not blob or b"NSString" not in blob:
+        return None
+    try:
+        content = blob.split(b"NSString")[1][5:]  # Skip 5-byte preamble
+        indicator = content[0]
+        if indicator == 0x81:
+            length = int.from_bytes(content[1:3], "little")
+            start = 3
+        elif indicator == 0x82:
+            length = int.from_bytes(content[1:5], "little")
+            start = 5
+        elif indicator == 0x83:
+            length = int.from_bytes(content[1:9], "little")
+            start = 9
+        else:
+            length = indicator
+            start = 1
+        text = content[start : start + length].decode("utf-8", errors="replace")
+        return text if text else None
+    except (IndexError, ValueError):
+        return None
+
 _PLATFORM_ERROR = {"error": "Messages is only available on macOS"}
 _DEFAULT_TIMEOUT = 15
 _SEND_TIMEOUT = 30
@@ -226,6 +255,7 @@ class MessageStore:
             SELECT
                 m.guid AS guid,
                 COALESCE(m.text, '') AS text,
+                m.attributedBody,
                 datetime(m.date / 1000000000 + 978307200, 'unixepoch', 'localtime') AS date_local,
                 COALESCE(m.is_from_me, 0) AS is_from_me,
                 COALESCE(h.id, '') AS sender,
@@ -248,7 +278,7 @@ class MessageStore:
         results = [
             {
                 "guid": row["guid"] or "",
-                "text": row["text"] or "",
+                "text": row["text"] or decode_attributed_body(row["attributedBody"]) or "",
                 "date_local": row["date_local"] or "",
                 "is_from_me": bool(row["is_from_me"]),
                 "sender": row["sender"] or "",
@@ -279,7 +309,8 @@ class MessageStore:
             "("
             "lower(COALESCE(m.text, '')) LIKE ? "
             "OR lower(COALESCE(h.id, '')) LIKE ? "
-            "OR lower(COALESCE(c.chat_identifier, '')) LIKE ?"
+            "OR lower(COALESCE(c.chat_identifier, '')) LIKE ? "
+            "OR (m.text IS NULL AND m.attributedBody IS NOT NULL)"
             ")",
         ]
         params: list[object] = [safe_minutes]
@@ -293,6 +324,7 @@ class MessageStore:
             SELECT
                 m.guid AS guid,
                 COALESCE(m.text, '') AS text,
+                m.attributedBody,
                 datetime(m.date / 1000000000 + 978307200, 'unixepoch', 'localtime') AS date_local,
                 COALESCE(m.is_from_me, 0) AS is_from_me,
                 COALESCE(h.id, '') AS sender,
@@ -312,17 +344,30 @@ class MessageStore:
         except (sqlite3.OperationalError, sqlite3.IntegrityError) as exc:
             logger.error("SQLite error in search_messages: %s", exc)
             return [{"error": str(exc)}]
-        results = [
-            {
-                "guid": row["guid"] or "",
-                "text": row["text"] or "",
-                "date_local": row["date_local"] or "",
-                "is_from_me": bool(row["is_from_me"]),
-                "sender": row["sender"] or "",
-                "chat_identifier": row["chat_identifier"] or "",
-            }
-            for row in rows
-        ]
+        query_lower = query.lower()
+        results = []
+        for row in rows:
+            text = row["text"] or decode_attributed_body(row["attributedBody"]) or ""
+            # If text came from attributedBody decode, verify it matches the search query
+            if not row["text"] and text:
+                sender = (row["sender"] or "").lower()
+                chat_id = (row["chat_identifier"] or "").lower()
+                if (
+                    query_lower not in text.lower()
+                    and query_lower not in sender
+                    and query_lower not in chat_id
+                ):
+                    continue
+            results.append(
+                {
+                    "guid": row["guid"] or "",
+                    "text": text,
+                    "date_local": row["date_local"] or "",
+                    "is_from_me": bool(row["is_from_me"]),
+                    "sender": row["sender"] or "",
+                    "chat_identifier": row["chat_identifier"] or "",
+                }
+            )
         self._record_observations(results)
         return results
 
@@ -336,17 +381,22 @@ class MessageStore:
             SELECT
                 COALESCE(c.chat_identifier, '') AS chat_identifier,
                 datetime(MAX(m.date) / 1000000000 + 978307200, 'unixepoch', 'localtime') AS last_message_date_local,
-                COALESCE(
-                    (
-                        SELECT m2.text
-                        FROM chat_message_join cmj2
-                        JOIN message m2 ON m2.ROWID = cmj2.message_id
-                        WHERE cmj2.chat_id = c.ROWID
-                        ORDER BY m2.date DESC
-                        LIMIT 1
-                    ),
-                    ''
+                (
+                    SELECT m2.text
+                    FROM chat_message_join cmj2
+                    JOIN message m2 ON m2.ROWID = cmj2.message_id
+                    WHERE cmj2.chat_id = c.ROWID
+                    ORDER BY m2.date DESC
+                    LIMIT 1
                 ) AS last_message_text,
+                (
+                    SELECT m3.attributedBody
+                    FROM chat_message_join cmj3
+                    JOIN message m3 ON m3.ROWID = cmj3.message_id
+                    WHERE cmj3.chat_id = c.ROWID
+                    ORDER BY m3.date DESC
+                    LIMIT 1
+                ) AS last_message_attributed_body,
                 COUNT(DISTINCT m.ROWID) AS total_messages,
                 SUM(CASE WHEN COALESCE(m.is_from_me, 0) = 0 THEN 1 ELSE 0 END) AS inbound_messages,
                 COALESCE(group_concat(DISTINCT h.id), '') AS participants
@@ -369,11 +419,16 @@ class MessageStore:
         for row in rows:
             chat_identifier = row["chat_identifier"] or ""
             participants = [p for p in (row["participants"] or "").split(",") if p]
+            last_text = (
+                row["last_message_text"]
+                or decode_attributed_body(row["last_message_attributed_body"])
+                or ""
+            )
             results.append(
                 {
                     "chat_identifier": chat_identifier,
                     "last_message_date_local": row["last_message_date_local"] or "",
-                    "last_message_text": row["last_message_text"] or "",
+                    "last_message_text": last_text,
                     "total_messages": int(row["total_messages"] or 0),
                     "inbound_messages": int(row["inbound_messages"] or 0),
                     "participants": sorted(set(participants)),
@@ -418,6 +473,7 @@ class MessageStore:
             SELECT
                 m.guid AS guid,
                 COALESCE(m.text, '') AS text,
+                m.attributedBody,
                 datetime(m.date / 1000000000 + 978307200, 'unixepoch', 'localtime') AS date_local,
                 COALESCE(m.is_from_me, 0) AS is_from_me,
                 COALESCE(h.id, '') AS sender,
@@ -440,7 +496,7 @@ class MessageStore:
         results = [
             {
                 "guid": row["guid"] or "",
-                "text": row["text"] or "",
+                "text": row["text"] or decode_attributed_body(row["attributedBody"]) or "",
                 "date_local": row["date_local"] or "",
                 "is_from_me": bool(row["is_from_me"]),
                 "sender": row["sender"] or "",
