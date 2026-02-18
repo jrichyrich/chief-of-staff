@@ -49,6 +49,8 @@ ROUTE_REASON="uninitialized"
 ROUTING_VALIDATION_ERROR=""
 APPROVAL_REASON=""
 CONNECTOR_POLICY_PROMPT=""
+ALLOWED_SENDERS_FILE="${INBOX_MONITOR_ALLOWED_SENDERS:-${DATA_DIR}/inbox-allowed-senders.txt}"
+ALLOWED_SENDERS_ENV="${JARVIS_ALLOWED_SENDERS:-}"
 
 # ── Parse arguments ────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -143,6 +145,57 @@ detect_connector_state() {
     else
         HAS_LOCAL_JARVIS_CONNECTOR=false
     fi
+}
+
+sanitize_instruction() {
+    local raw="$1"
+    local max_length="${2:-2000}"
+    # Strip control characters except space/tab/newline
+    local cleaned
+    cleaned=$(printf '%s' "$raw" | tr -d '\000-\010\013\014\016-\037\177')
+    # Truncate
+    if [[ ${#cleaned} -gt $max_length ]]; then
+        cleaned="${cleaned:0:$max_length}..."
+    fi
+    printf '%s' "$cleaned"
+}
+
+is_sender_allowed() {
+    local sender="$1"
+    # If no allowlist configured, deny all (fail-closed)
+    local has_allowlist=false
+
+    # Check environment variable
+    if [[ -n "${ALLOWED_SENDERS_ENV}" ]]; then
+        has_allowlist=true
+        IFS=',' read -ra senders <<< "${ALLOWED_SENDERS_ENV}"
+        for allowed in "${senders[@]}"; do
+            allowed="$(echo "${allowed}" | tr -d '[:space:]')"
+            if [[ "${sender}" == "${allowed}" ]]; then
+                return 0
+            fi
+        done
+    fi
+
+    # Check file
+    if [[ -f "${ALLOWED_SENDERS_FILE}" ]]; then
+        has_allowlist=true
+        while IFS= read -r allowed || [[ -n "$allowed" ]]; do
+            allowed="$(echo "${allowed}" | tr -d '[:space:]')"
+            [[ -z "${allowed}" || "${allowed}" == \#* ]] && continue
+            if [[ "${sender}" == "${allowed}" ]]; then
+                return 0
+            fi
+        done < "${ALLOWED_SENDERS_FILE}"
+    fi
+
+    # If no allowlist is configured at all, log a warning but allow (backwards compat)
+    if [[ "${has_allowlist}" == "false" ]]; then
+        log_to_stderr "WARNING: No sender allowlist configured. Set JARVIS_ALLOWED_SENDERS or create ${ALLOWED_SENDERS_FILE}"
+        return 0
+    fi
+
+    return 1
 }
 
 contains_any_keyword() {
@@ -896,9 +949,18 @@ for row in $(echo "${NEW_MESSAGES}" | jq -r '.[] | @base64'); do
     MSG_GUID=$(_jq '.guid')
     MSG_TEXT=$(_jq '.text')
     MSG_DATE=$(_jq '.date_local')
+    MSG_SENDER=$(_jq '.sender // ""')
+
+    # ── Sender allowlist check ────────────────────────────────────────────
+    if [[ -n "${MSG_SENDER}" ]] && ! is_sender_allowed "${MSG_SENDER}"; then
+        log "  BLOCKED: Unauthorized sender '${MSG_SENDER}' for message ${MSG_GUID}"
+        NEW_GUIDS+=("${MSG_GUID}")
+        continue
+    fi
 
     # Extract the instruction after "jarvis:" (case-insensitive prefix strip)
     INSTRUCTION=$(echo "${MSG_TEXT}" | sed 's/^[Jj][Aa][Rr][Vv][Ii][Ss]:[[:space:]]*//')
+    INSTRUCTION=$(sanitize_instruction "${INSTRUCTION}")
 
     if [[ -z "${INSTRUCTION}" ]]; then
         log "  Skipping empty instruction from message ${MSG_GUID}"

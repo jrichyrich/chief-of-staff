@@ -6,6 +6,8 @@ import anthropic
 
 import config as app_config
 from config import MAX_TOOL_ROUNDS
+
+MAX_TOOL_RESULT_LENGTH = 10000
 from agents.registry import AgentConfig
 from capabilities.registry import get_tools_for_capabilities
 from documents.store import DocumentStore
@@ -59,10 +61,13 @@ class BaseExpertAgent:
                 for block in assistant_content:
                     if block.type == "tool_use":
                         result = self._handle_tool_call(block.name, block.input)
+                        result_str = json.dumps(result)
+                        if len(result_str) > MAX_TOOL_RESULT_LENGTH:
+                            result_str = result_str[:MAX_TOOL_RESULT_LENGTH] + "... [truncated]"
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            "content": json.dumps(result),
+                            "content": result_str,
                         })
 
                 messages.append({"role": "user", "content": tool_results})
@@ -90,6 +95,11 @@ class BaseExpertAgent:
         return await self.client.messages.create(**kwargs)
 
     def _handle_tool_call(self, tool_name: str, tool_input: dict) -> Any:
+        # Enforce capability boundaries
+        allowed_tools = {t["name"] for t in self.get_tools()}
+        if tool_name not in allowed_tools:
+            return {"error": f"Tool '{tool_name}' not permitted for agent '{self.name}'"}
+
         if tool_name == "query_memory":
             return execute_query_memory(
                 self.memory_store, tool_input["query"], tool_input.get("category")
@@ -417,7 +427,7 @@ class BaseExpertAgent:
             body=tool_input["body"],
             cc=cc_list,
             bcc=bcc_list,
-            confirm_send=tool_input.get("confirm_send", False),
+            confirm_send=False,  # Agents must never auto-send; only MCP server (human-in-loop) can confirm
         )
 
     def _handle_mail_mark_read(self, tool_input: dict) -> Any:

@@ -10,6 +10,18 @@ from typing import Callable, Optional
 class ClaudeM365Bridge:
     """Bridge that invokes Claude CLI to execute Microsoft 365 MCP operations."""
 
+    @staticmethod
+    def _sanitize_for_prompt(text: str, max_length: int = 500) -> str:
+        """Sanitize user input before embedding in a Claude prompt."""
+        if text is None:
+            return ""
+        # Strip control characters (keep only printable + space)
+        sanitized = "".join(c for c in str(text) if c.isprintable() or c == " ")
+        # Truncate
+        if len(sanitized) > max_length:
+            sanitized = sanitized[:max_length] + "..."
+        return sanitized
+
     def __init__(
         self,
         claude_bin: str = "claude",
@@ -64,7 +76,8 @@ class ClaudeM365Bridge:
             "required": ["results"],
         }
         filter_clause = (
-            f"Limit to these calendars when possible: {', '.join(calendar_names)}. "
+            "Limit to these calendars when possible: "
+            f"<user_calendar_names>{', '.join(self._sanitize_for_prompt(n) for n in calendar_names)}</user_calendar_names>. "
             if calendar_names
             else ""
         )
@@ -87,7 +100,8 @@ class ClaudeM365Bridge:
         }
         prompt = (
             "Use only Microsoft 365 MCP connector tools to search Outlook/Exchange calendar events by title text. "
-            f"query={query!r}, start={start_dt.isoformat()}, end={end_dt.isoformat()}. "
+            f"query=<user_query>{self._sanitize_for_prompt(query)}</user_query>, "
+            f"start={start_dt.isoformat()}, end={end_dt.isoformat()}. "
             "Return results with fields like uid/native_id, title, start, end, calendar/calendar_id, source_account."
         )
         data = self._invoke_structured(prompt, schema)
@@ -112,8 +126,12 @@ class ClaudeM365Bridge:
         }
         prompt = (
             "Use only Microsoft 365 MCP connector tools to create a calendar event in Outlook/Exchange. "
-            f"title={title!r}, start={start_dt.isoformat()}, end={end_dt.isoformat()}, "
-            f"calendar_name={calendar_name!r}, location={location!r}, notes={notes!r}, is_all_day={is_all_day}. "
+            f"title=<user_title>{self._sanitize_for_prompt(title)}</user_title>, "
+            f"start={start_dt.isoformat()}, end={end_dt.isoformat()}, "
+            f"calendar_name=<user_calendar_name>{self._sanitize_for_prompt(calendar_name)}</user_calendar_name>, "
+            f"location=<user_location>{self._sanitize_for_prompt(location)}</user_location>, "
+            f"notes=<user_notes>{self._sanitize_for_prompt(notes, max_length=1000)}</user_notes>, "
+            f"is_all_day={is_all_day}. "
             "Return created event fields as an object in result."
         )
         data = self._invoke_structured(prompt, schema)
@@ -133,9 +151,15 @@ class ClaudeM365Bridge:
             safe_kwargs["start_dt"] = safe_kwargs["start_dt"].isoformat()
         if isinstance(safe_kwargs.get("end_dt"), datetime):
             safe_kwargs["end_dt"] = safe_kwargs["end_dt"].isoformat()
+        # Sanitize user-supplied string values in kwargs
+        sanitized_kwargs = {}
+        for k, v in safe_kwargs.items():
+            sanitized_kwargs[k] = self._sanitize_for_prompt(v) if isinstance(v, str) else v
         prompt = (
             "Use only Microsoft 365 MCP connector tools to update an existing Outlook/Exchange calendar event. "
-            f"event_uid={event_uid!r}, calendar_name={calendar_name!r}, updates={json.dumps(safe_kwargs)}. "
+            f"event_uid=<user_event_uid>{self._sanitize_for_prompt(event_uid)}</user_event_uid>, "
+            f"calendar_name=<user_calendar_name>{self._sanitize_for_prompt(calendar_name)}</user_calendar_name>, "
+            f"updates=<user_updates>{json.dumps(sanitized_kwargs)}</user_updates>. "
             "Return updated event fields as an object in result."
         )
         data = self._invoke_structured(prompt, schema)
@@ -156,7 +180,8 @@ class ClaudeM365Bridge:
         }
         prompt = (
             "Use only Microsoft 365 MCP connector tools to delete an Outlook/Exchange calendar event. "
-            f"event_uid={event_uid!r}, calendar_name={calendar_name!r}. "
+            f"event_uid=<user_event_uid>{self._sanitize_for_prompt(event_uid)}</user_event_uid>, "
+            f"calendar_name=<user_calendar_name>{self._sanitize_for_prompt(calendar_name)}</user_calendar_name>. "
             "Return status and event_uid."
         )
         data = self._invoke_structured(prompt, schema)

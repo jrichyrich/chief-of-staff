@@ -23,6 +23,24 @@ def register(mcp, state):
 
         okr_store = state.okr_store
         path = Path(source_path) if source_path else app_config.OKR_SPREADSHEET_DEFAULT
+        path = path.resolve()
+
+        # Security: validate file extension
+        if path.suffix.lower() not in {".xlsx", ".xls"}:
+            return json.dumps({"error": f"Invalid file type: {path.suffix}. Must be .xlsx or .xls"})
+
+        # Security: reject symlinks
+        if path.is_symlink():
+            return json.dumps({"error": "Refusing to read symlink"})
+
+        # Security: restrict to allowed directories
+        allowed_roots = [
+            app_config.OKR_DATA_DIR.resolve(),
+            Path.home().resolve() / "Documents",
+            Path.home().resolve() / "Downloads",
+        ]
+        if not any(path.is_relative_to(root) for root in allowed_roots):
+            return json.dumps({"error": "Access denied: path must be within allowed directories"})
 
         if not path.exists():
             return json.dumps({

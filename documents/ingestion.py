@@ -7,6 +7,8 @@ if TYPE_CHECKING:
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".pdf", ".docx"}
 
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     words = text.split()
@@ -68,6 +70,13 @@ def _load_docx(file_path: Path) -> str:
 
 def load_text_file(path: Path) -> str:
     """Load text from a file based on its extension."""
+    if path.is_symlink():
+        raise ValueError(f"Refusing to read symlink: {path}")
+
+    file_size = path.stat().st_size
+    if file_size > MAX_FILE_SIZE_BYTES:
+        raise ValueError(f"File too large ({file_size} bytes, max {MAX_FILE_SIZE_BYTES}): {path.name}")
+
     suffix = path.suffix.lower()
 
     if suffix == ".pdf":
@@ -94,13 +103,28 @@ def ingest_path(path: Path, document_store: "DocumentStore") -> str:
     elif path.is_dir():
         for ext in SUPPORTED_EXTENSIONS:
             files.extend(path.glob(f"**/*{ext}"))
+        # Security: reject symlinks and paths that escape the target directory
+        resolved_root = path.resolve()
+        safe_files = []
+        for f in files:
+            if f.is_symlink():
+                continue
+            if not f.resolve().is_relative_to(resolved_root):
+                continue
+            safe_files.append(f)
+        files = safe_files
 
     if not files:
         return f"No supported files found at {path}"
 
     total_chunks = 0
+    skipped = 0
     for file in files:
-        text = load_text_file(file)
+        try:
+            text = load_text_file(file)
+        except ValueError:
+            skipped += 1
+            continue
         chunks = chunk_text(text)
         file_hash = content_hash(text)
 
@@ -115,4 +139,7 @@ def ingest_path(path: Path, document_store: "DocumentStore") -> str:
         document_store.add_documents(texts=texts, metadatas=metadatas, ids=ids)
         total_chunks += len(chunks)
 
-    return f"Ingested {len(files)} file(s), {total_chunks} chunks."
+    summary = f"Ingested {len(files) - skipped} file(s), {total_chunks} chunks."
+    if skipped:
+        summary += f" Skipped {skipped} file(s) due to size or security restrictions."
+    return summary

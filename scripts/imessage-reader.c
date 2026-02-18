@@ -26,8 +26,10 @@ static const char *SQL_QUERY =
     "SELECT "
     "    m.guid, "
     "    m.text, "
-    "    datetime(m.date / 1000000000 + 978307200, 'unixepoch', 'localtime') AS date_local "
+    "    datetime(m.date / 1000000000 + 978307200, 'unixepoch', 'localtime') AS date_local, "
+    "    COALESCE(h.id, '') AS sender "
     "FROM message m "
+    "LEFT JOIN handle h ON m.handle_id = h.ROWID "
     "WHERE "
     "    m.text LIKE 'jarvis:%' "
     "    AND m.date > ((strftime('%s', 'now') - 978307200 - (? * 60)) * 1000000000) "
@@ -140,6 +142,7 @@ int main(int argc, char *argv[]) {
         const char *guid       = (const char *)sqlite3_column_text(stmt, 0);
         const char *text       = (const char *)sqlite3_column_text(stmt, 1);
         const char *date_local = (const char *)sqlite3_column_text(stmt, 2);
+        const char *sender     = (const char *)sqlite3_column_text(stmt, 3);
 
         printf("{\"guid\":");
         print_json_string(guid);
@@ -147,6 +150,8 @@ int main(int argc, char *argv[]) {
         print_json_string(text);
         printf(",\"date_local\":");
         print_json_string(date_local);
+        printf(",\"sender\":");
+        print_json_string(sender);
         printf("}");
         row_count++;
     }

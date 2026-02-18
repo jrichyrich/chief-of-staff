@@ -7,7 +7,13 @@ _IS_MACOS = platform.system() == "Darwin"
 
 def _escape_osascript(text: str) -> str:
     """Escape text for safe use in AppleScript strings."""
-    return text.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
 
 
 class Notifier:

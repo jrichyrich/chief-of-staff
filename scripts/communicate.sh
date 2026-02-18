@@ -31,7 +31,8 @@ USAGE
 
 json_error() {
     local channel="$1" error="$2"
-    printf '{"channel": "%s", "status": "error", "error": "%s"}\n' "$channel" "$error"
+    jq -nc --arg channel "$channel" --arg status "error" --arg error "$error" \
+        '{"channel": $channel, "status": $status, "error": $error}'
 }
 
 escape_applescript() {
@@ -111,8 +112,8 @@ APPLESCRIPT
 )
 
         if osascript -e "$applescript" 2>/dev/null; then
-            escaped_subj_json="${SUBJECT//\"/\\\"}"
-            printf '{"channel": "email", "status": "draft_created", "subject": "%s"}\n' "$escaped_subj_json"
+            jq -nc --arg channel "email" --arg status "draft_created" --arg subject "$SUBJECT" \
+                '{"channel": $channel, "status": $status, "subject": $subject}'
         else
             json_error "email" "Failed to create email draft in Outlook"
             exit 1
@@ -152,11 +153,11 @@ APPLESCRIPT
 
         if osascript -e "$applescript" 2>/dev/null; then
             if [[ -n "$CHAT_ID" ]]; then
-                escaped_chat_json="${CHAT_ID//\"/\\\"}"
-                printf '{"channel": "imessage", "status": "sent", "chat_identifier": "%s"}\n' "$escaped_chat_json"
+                jq -nc --arg channel "imessage" --arg status "sent" --arg chat_identifier "$CHAT_ID" \
+                    '{"channel": $channel, "status": $status, "chat_identifier": $chat_identifier}'
             else
-                escaped_to_json="${TO//\"/\\\"}"
-                printf '{"channel": "imessage", "status": "sent", "to": "%s"}\n' "$escaped_to_json"
+                jq -nc --arg channel "imessage" --arg status "sent" --arg to "$TO" \
+                    '{"channel": $channel, "status": $status, "to": $to}'
             fi
         else
             json_error "imessage" "Failed to send iMessage"
@@ -182,8 +183,8 @@ APPLESCRIPT
 )
 
         if osascript -e "$applescript" >/dev/null 2>&1; then
-            escaped_title_json="${reminder_title//\"/\\\"}"
-            printf '{"channel": "reminder", "status": "created", "title": "%s"}\n' "$escaped_title_json"
+            jq -nc --arg channel "reminder" --arg status "created" --arg title "$reminder_title" \
+                '{"channel": $channel, "status": $status, "title": $title}'
         else
             json_error "reminder" "Failed to create reminder"
             exit 1

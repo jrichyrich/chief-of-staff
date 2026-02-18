@@ -86,6 +86,7 @@ class TestIngestion:
     def test_load_pdf_file(self, tmp_path):
         """Test PDF loading with mocked pypdf library."""
         test_file = tmp_path / "test.pdf"
+        test_file.write_bytes(b"%PDF-1.4\n")  # Create file so stat() works
 
         # Mock the PdfReader class
         mock_page = Mock()
@@ -166,6 +167,7 @@ class TestIngestion:
     def test_load_pdf_empty_pages(self, tmp_path):
         """Test PDF with empty pages."""
         test_file = tmp_path / "empty.pdf"
+        test_file.write_bytes(b"%PDF-1.4\n")  # Create file so stat() works
 
         # Mock a PDF with empty pages and one page with content
         mock_empty_page = Mock()

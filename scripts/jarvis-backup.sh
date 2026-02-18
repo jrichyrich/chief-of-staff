@@ -60,21 +60,37 @@ log_error() {
     ERRORS=$((ERRORS + 1))
 }
 
+escape_sql_value() {
+    printf '%s' "$1" | sed "s/'/''/g"
+}
+
+escape_osascript() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/'"$(printf '\n')"'/\\n/g' -e 's/'"$(printf '\r')"'/\\r/g' -e 's/'"$(printf '\t')"'/\\t/g'
+}
+
 notify_failure() {
     local reason="$1"
+    local escaped_reason
+    escaped_reason="$(escape_osascript "$reason")"
     # macOS notification (best-effort -- may not work from launchd on all macOS versions)
-    osascript -e "display notification \"$reason\" with title \"Jarvis Backup FAILED\" sound name \"Basso\"" 2>/dev/null || true
+    osascript -e "display notification \"$escaped_reason\" with title \"Jarvis Backup FAILED\" sound name \"Basso\"" 2>/dev/null || true
     # Store failure in Jarvis memory for later querying
+    local escaped_sql_reason
+    escaped_sql_reason="$(escape_sql_value "$reason")"
     sqlite3 "$PROJECT_DIR/data/memory.db" \
-        "INSERT OR REPLACE INTO facts (category, key, value, confidence) VALUES ('work', 'backup_last_failure', '$(date +%Y-%m-%d): $reason', 1.0);" 2>/dev/null || true
+        "INSERT OR REPLACE INTO facts (category, key, value, confidence) VALUES ('work', 'backup_last_failure', '$(date +%Y-%m-%d): $escaped_sql_reason', 1.0);" 2>/dev/null || true
 }
 
 notify_success() {
     local summary="$1"
-    osascript -e "display notification \"$summary\" with title \"Jarvis Backup\" subtitle \"Completed successfully\"" 2>/dev/null || true
+    local escaped_summary
+    escaped_summary="$(escape_osascript "$summary")"
+    osascript -e "display notification \"$escaped_summary\" with title \"Jarvis Backup\" subtitle \"Completed successfully\"" 2>/dev/null || true
     # Update last successful backup in memory
+    local escaped_sql_summary
+    escaped_sql_summary="$(escape_sql_value "$summary")"
     sqlite3 "$PROJECT_DIR/data/memory.db" \
-        "INSERT OR REPLACE INTO facts (category, key, value, confidence) VALUES ('work', 'backup_last_success', '$(date +%Y-%m-%d): $summary', 1.0);" 2>/dev/null || true
+        "INSERT OR REPLACE INTO facts (category, key, value, confidence) VALUES ('work', 'backup_last_success', '$(date +%Y-%m-%d): $escaped_sql_summary', 1.0);" 2>/dev/null || true
 }
 
 verify_sqlite() {

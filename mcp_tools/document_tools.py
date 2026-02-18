@@ -50,9 +50,15 @@ def register(mcp, state):
         # Security: prevent path traversal outside allowed directories
         allowed_roots = state.allowed_ingest_roots
         if allowed_roots is None:
-            allowed_roots = [Path.home().resolve()]
-        if not any(target.is_relative_to(root) for root in allowed_roots):
-            return f"Access denied: path must be within your home directory ({allowed_roots[0]})"
+            allowed_roots = [
+                Path.home() / "Documents",
+                Path.home() / "Desktop",
+                Path.home() / "Downloads",
+            ]
+        resolved_roots = [root.resolve() for root in allowed_roots]
+        if not any(target.is_relative_to(root) for root in resolved_roots):
+            roots_str = ", ".join(str(r) for r in resolved_roots)
+            return f"Access denied: path must be within allowed directories: {roots_str}"
 
         if not target.exists():
             return f"Path not found: {path}"

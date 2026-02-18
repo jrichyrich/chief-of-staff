@@ -8,6 +8,9 @@ import config as app_config
 from agents.registry import AgentConfig, AgentRegistry
 from capabilities.registry import capability_prompt_lines, validate_capabilities
 
+MAX_AUTO_CAPABILITIES = 8
+RESTRICTED_CAPABILITIES = {"mail_write", "notifications", "alerts_write"}
+
 _CAPABILITY_LINES = "\n".join(f"- {line}" for line in capability_prompt_lines(include_unimplemented=True))
 
 AGENT_CREATION_PROMPT = """You are an expert at creating AI agent configurations. Given a user's need, generate a JSON agent config.
@@ -41,6 +44,9 @@ class AgentFactory:
         raw = response.content[0].text
         data = json.loads(raw)
         capabilities = validate_capabilities(data.get("capabilities", ["memory_read"]))
+        # Filter out restricted capabilities and cap count for auto-generated agents
+        capabilities = [c for c in capabilities if c not in RESTRICTED_CAPABILITIES]
+        capabilities = capabilities[:MAX_AUTO_CAPABILITIES]
 
         config = AgentConfig(
             name=data["name"],
