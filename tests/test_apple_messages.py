@@ -46,7 +46,8 @@ def _make_chat_db(db_path: Path) -> None:
         );
         CREATE TABLE chat (
             ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_identifier TEXT
+            chat_identifier TEXT,
+            guid TEXT
         );
         CREATE TABLE chat_message_join (
             chat_id INTEGER,
@@ -67,6 +68,7 @@ def _insert_message(
     sender: str,
     chat_id: str,
     attributed_body: bytes | None = None,
+    chat_guid: str | None = None,
 ) -> None:
     conn = sqlite3.connect(db_path)
     sender_row = conn.execute("INSERT INTO handle(id) VALUES(?)", (sender,))
@@ -76,7 +78,10 @@ def _insert_message(
         (guid, text, attributed_body, date_ns, is_from_me, handle_id),
     )
     message_id = msg_row.lastrowid
-    chat_row = conn.execute("INSERT INTO chat(chat_identifier) VALUES(?)", (chat_id,))
+    chat_row = conn.execute(
+        "INSERT INTO chat(chat_identifier, guid) VALUES(?, ?)",
+        (chat_id, chat_guid),
+    )
     chat_rowid = chat_row.lastrowid
     conn.execute(
         "INSERT INTO chat_message_join(chat_id, message_id) VALUES(?, ?)",
@@ -99,6 +104,7 @@ def chat_db(tmp_path: Path) -> Path:
         is_from_me=0,
         sender="+15555550123",
         chat_id="chat-team",
+        chat_guid="iMessage;+;chat-team",
     )
     _insert_message(
         db_path=db_path,
@@ -108,6 +114,7 @@ def chat_db(tmp_path: Path) -> Path:
         is_from_me=1,
         sender="+15555550999",
         chat_id="chat-self",
+        chat_guid="iMessage;+;chat-self",
     )
     return db_path
 
@@ -485,3 +492,47 @@ def test_list_threads_decodes_last_message_attributed_body(tmp_path: Path, monke
     assert len(threads) == 1
     assert threads[0]["chat_identifier"] == "chat-lt-ab"
     assert threads[0]["last_message_text"] == "last msg from blob"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: chat_identifier → guid resolution tests
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_chat_guid_found(chat_db: Path, monkeypatch):
+    """_resolve_chat_guid returns the guid when chat_identifier exists."""
+    monkeypatch.setattr(messages_mod, "_IS_MACOS", True)
+    store = MessageStore(db_path=chat_db, communicate_script=Path("/tmp/missing"))
+    guid = store._resolve_chat_guid("chat-team")
+    assert guid == "iMessage;+;chat-team"
+
+
+def test_resolve_chat_guid_not_found(chat_db: Path, monkeypatch):
+    """_resolve_chat_guid returns None for unknown chat_identifier."""
+    monkeypatch.setattr(messages_mod, "_IS_MACOS", True)
+    store = MessageStore(db_path=chat_db, communicate_script=Path("/tmp/missing"))
+    guid = store._resolve_chat_guid("nonexistent-chat")
+    assert guid is None
+
+
+def test_send_message_with_chat_identifier_resolves_guid(chat_db: Path, tmp_path: Path, monkeypatch):
+    """send_message passes the resolved guid (not raw chat_identifier) to --chat-id."""
+    monkeypatch.setattr(messages_mod, "_IS_MACOS", True)
+    script = tmp_path / "communicate.sh"
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    script.chmod(0o755)
+    store = MessageStore(db_path=chat_db, communicate_script=script)
+
+    seen = {}
+
+    def fake_run(cmd, capture_output, text, timeout, check):
+        seen["cmd"] = cmd
+        payload = {"channel": "imessage", "status": "sent", "chat_identifier": "chat-team"}
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(messages_mod.subprocess, "run", fake_run)
+    result = store.send_message(body="Group reply", confirm_send=True, chat_identifier="chat-team")
+    assert result["status"] == "sent"
+    # The command should contain the resolved guid, not the raw chat_identifier
+    chat_id_idx = seen["cmd"].index("--chat-id")
+    assert seen["cmd"][chat_id_idx + 1] == "iMessage;+;chat-team"

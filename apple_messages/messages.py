@@ -557,6 +557,25 @@ class MessageStore:
             "recent_messages": messages,
         }
 
+    def _resolve_chat_guid(self, chat_identifier: str) -> str | None:
+        """Look up the Messages.app guid for a chat_identifier.
+
+        The AppleScript ``chat id`` property corresponds to the ``guid`` column
+        in chat.db (e.g. ``iMessage;+;chat336858519315148840``), not the
+        ``chat_identifier`` column.  Returns *None* when the identifier is not
+        found so the caller can fall back gracefully.
+        """
+        try:
+            with self._open_chat_db() as conn:
+                row = conn.execute(
+                    "SELECT guid FROM chat WHERE chat_identifier = ? LIMIT 1",
+                    (chat_identifier,),
+                ).fetchone()
+                return row["guid"] if row else None
+        except (sqlite3.OperationalError, sqlite3.IntegrityError) as exc:
+            logger.error("SQLite error resolving chat guid: %s", exc)
+            return None
+
     def send_message(
         self,
         to: str = "",
@@ -587,7 +606,9 @@ class MessageStore:
             return {"error": f"communicate.sh not found: {self.communicate_script}"}
         cmd = [str(self.communicate_script), "imessage", "--body", body]
         if chat_identifier:
-            cmd.extend(["--chat-id", chat_identifier])
+            # Resolve chat_identifier → guid so AppleScript can find the chat
+            resolved = self._resolve_chat_guid(chat_identifier)
+            cmd.extend(["--chat-id", resolved or chat_identifier])
         else:
             cmd.extend(["--to", to])
         try:

@@ -126,7 +126,7 @@ APPLESCRIPT
             escaped_chat_id="$(escape_applescript "$CHAT_ID")"
             applescript=$(cat <<APPLESCRIPT
 tell application "Messages"
-    set targetChat to first chat whose id is "${escaped_chat_id}"
+    set targetChat to chat id "${escaped_chat_id}"
     send "${escaped_body}" to targetChat
 end tell
 APPLESCRIPT
