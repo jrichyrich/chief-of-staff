@@ -165,7 +165,7 @@ SQLite (`data/memory.db`) with 11 tables:
 
 ## Testing Conventions
 
-- 918 tests across 49 test files
+- 1092 tests across 53 test files
 - Async tests use `@pytest.mark.asyncio` with `asyncio_mode = "Mode.STRICT"` in pyproject.toml
 - Anthropic API calls are mocked — tests never hit real APIs
 - Fixtures create isolated MemoryStore, DocumentStore, AgentRegistry instances using `tmp_path`
