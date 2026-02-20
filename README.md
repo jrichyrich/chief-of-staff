@@ -8,7 +8,7 @@
 
 Chief of Staff (Jarvis) is a Python AI orchestration system built on Anthropic's Claude. A "Chief of Staff" agent manages a roster of expert agents, each configured with YAML and granted scoped capabilities. It interprets user requests, routes to the right specialists, dispatches them in parallel when possible, and synthesizes results.
 
-The system exposes 57+ tools via the Model Context Protocol (MCP), covering persistent memory, semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, and a full decision/delegation lifecycle. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
+The system exposes 76 tools via the Model Context Protocol (MCP), covering persistent memory (with temporal decay, FTS5, and vector search), semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, a full decision/delegation lifecycle, webhook ingestion, scheduled tasks, self-authoring skills, proactive suggestions, and unified channel adapters. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
 
 Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (for Claude Desktop), making it usable from any MCP-compatible host.
 
@@ -24,6 +24,13 @@ Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (fo
 - **macOS notifications** -- Push notifications to Notification Center
 - **OKR tracking** -- Parse Excel spreadsheets into structured OKR snapshots with query/filter support
 - **Decision and delegation lifecycle** -- Log decisions, track delegations with priorities and due dates, check for overdue items
+- **Temporal decay + hybrid search** -- Facts scored by recency (90-day half-life); FTS5 full-text + LIKE + ChromaDB vector search merged with deduplication
+- **Webhook ingestion** -- File-drop inbox pattern; external automations drop JSON, ingested on schedule
+- **Built-in scheduler** -- SQLite-backed task scheduler with interval/cron/once types; handlers for alerts, webhooks, skill analysis
+- **Self-authoring skills** -- Tracks tool usage patterns, detects clusters via Jaccard similarity, suggests new agent configs
+- **Agent memory** -- Per-agent persistent memory (insights, preferences, context) injected into system prompts across runs
+- **Proactive suggestions** -- Engine that surfaces skill suggestions, overdue delegations, stale decisions, and upcoming deadlines
+- **Unified channel adapter** -- Common InboundEvent model normalizing iMessage, Mail, and Webhook sources with EventRouter dispatch
 - **Scheduled alerts** -- Configurable alert rules evaluated on a schedule (via launchd); checks for overdue delegations, stale decisions, and upcoming deadlines
 - **iMessage inbox monitor** -- Autonomous daemon that processes incoming commands via iMessage
 
@@ -168,7 +175,7 @@ chief_of_staff/
 
 - [Architecture](docs/architecture.md) -- System design, data flow, and module interactions
 - [iMessage Inbox Monitor Setup](docs/inbox-monitor-setup.md) -- Configuring the autonomous iMessage daemon
-- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 56 MCP tools
+- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 76 MCP tools
 - [Agent System](docs/agents.md) -- Agent architecture, capabilities, and configuration guide
 - [Setup Guide](docs/setup-guide.md) -- Installation, environment variables, and troubleshooting
 - [Project Review Team](docs/project-review-team.md) -- Running structured project reviews with specialist agents
@@ -189,7 +196,7 @@ pytest tests/test_mcp_server.py::TestMCPTools::test_query_memory -v
 pytest --cov=agents --cov=memory --cov=documents --cov=mcp_tools
 ```
 
-The test suite contains 825 tests across 44 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
+The test suite contains 918 tests across 49 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
 
 ## License
 

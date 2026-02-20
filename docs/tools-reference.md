@@ -2,7 +2,7 @@
 
 Complete reference for all MCP tools and resources exposed by the Chief of Staff (Jarvis) server.
 
-**Total: 70 tools across 13 modules, plus 3 MCP resources.**
+**Total: 76 tools across 14 modules, plus 3 MCP resources.**
 
 ---
 
@@ -10,7 +10,7 @@ Complete reference for all MCP tools and resources exposed by the Chief of Staff
 
 1. [Memory Tools](#memory-tools) (6 tools)
 2. [Document Tools](#document-tools) (2 tools)
-3. [Agent Tools](#agent-tools) (3 tools)
+3. [Agent Tools](#agent-tools) (5 tools)
 4. [Lifecycle Tools](#lifecycle-tools) (14 tools)
 5. [Calendar Tools](#calendar-tools) (8 tools)
 6. [Reminder Tools](#reminder-tools) (6 tools)
@@ -20,7 +20,9 @@ Complete reference for all MCP tools and resources exposed by the Chief of Staff
 10. [Webhook Tools](#webhook-tools) (3 tools)
 11. [Skill Tools](#skill-tools) (4 tools)
 12. [Scheduler Tools](#scheduler-tools) (6 tools)
-13. [Resources](#resources) (3 resources)
+13. [Channel Tools](#channel-tools) (2 tools)
+14. [Proactive Tools](#proactive-tools) (2 tools)
+15. [Resources](#resources) (3 resources)
 
 ---
 
@@ -170,6 +172,27 @@ Create or update an expert agent configuration.
 | `capabilities` | `str` | No | Comma-separated list of capabilities (e.g. `web_search,memory_read,document_search`) |
 
 **Returns:** JSON with `status: "created"`, `name`, `capabilities`.
+
+### get_agent_memory
+
+Retrieve persistent memories for an agent (insights, preferences, context retained across runs).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_name` | `str` | Yes | The agent whose memories to retrieve |
+| `memory_type` | `str` | No | Filter by type (e.g. `insight`, `preference`, `context`) |
+
+**Returns:** JSON with `agent_name`, `results` array of memories (key, value, memory_type, confidence).
+
+### clear_agent_memory
+
+Clear all persistent memories for an agent.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_name` | `str` | Yes | The agent whose memories to clear |
+
+**Returns:** JSON with `agent_name`, `deleted_count`.
 
 ---
 
@@ -961,6 +984,63 @@ Show scheduler overview with last run times and next due tasks.
 
 ---
 
+## Channel Tools
+
+**Module:** `mcp_tools/channel_tools.py`
+
+Unified inbound event handling across iMessage, Mail, and Webhook sources.
+
+### list_inbound_events
+
+List recent inbound events from all channels.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `channel` | `str` | No | Filter by channel (`imessage`, `mail`, `webhook`). Leave empty for all. |
+| `limit` | `int` | No | Maximum events to return (default 50) |
+
+**Returns:** JSON with `results` array of normalized events (channel, sender, subject, timestamp).
+
+### get_event_summary
+
+Get a summary of inbound event activity across all channels.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with per-channel event counts and recent activity summary.
+
+---
+
+## Proactive Tools
+
+**Module:** `mcp_tools/proactive_tools.py`
+
+Proactive suggestion engine that surfaces actionable items without being asked.
+
+### get_proactive_suggestions
+
+Check for proactive suggestions (skill patterns, overdue delegations, stale decisions, upcoming deadlines).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `suggestions` array (type, title, description, priority, source).
+
+### dismiss_suggestion
+
+Dismiss a proactive suggestion so it won't appear again.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `suggestion_id` | `str` | Yes | The ID of the suggestion to dismiss |
+
+**Returns:** JSON with `status: "dismissed"`.
+
+---
+
 ## Resources
 
 **Module:** `mcp_tools/resources.py`
@@ -999,7 +1079,7 @@ All available expert agents and their descriptions.
 |--------|-------|-------------|
 | Memory | 6 | Fact and location CRUD, session checkpoints |
 | Documents | 2 | Semantic search and ingestion |
-| Agents | 3 | Agent config management |
+| Agents | 5 | Agent config management + agent memory |
 | Lifecycle | 14 | Decisions, delegations, alerts |
 | Calendar | 8 | Calendar CRUD and availability |
 | Reminders | 6 | Apple Reminders CRUD |
@@ -1009,5 +1089,7 @@ All available expert agents and their descriptions.
 | Webhook | 3 | Inbound webhook event queue |
 | Skills | 4 | Pattern detection and auto agent creation |
 | Scheduler | 6 | Built-in task scheduling with cron support |
-| **Total** | **70** | |
+| Channels | 2 | Unified inbound event adapter |
+| Proactive | 2 | Proactive suggestion engine |
+| **Total** | **76** | |
 | Resources | 3 | Read-only data endpoints |
