@@ -138,6 +138,7 @@ class AgentMemory:
     key: str = ""
     value: str = ""
     confidence: float = 1.0
+    namespace: Optional[str] = None
     id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None

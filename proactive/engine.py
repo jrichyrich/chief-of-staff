@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 
 from memory.store import MemoryStore
 from proactive.models import Suggestion
+
+logger = logging.getLogger(__name__)
+
+# Priority ordering used for filtering and sorting
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 class ProactiveSuggestionEngine:
@@ -20,8 +26,7 @@ class ProactiveSuggestionEngine:
         suggestions.extend(self._check_stale_decisions())
         suggestions.extend(self._check_upcoming_deadlines())
         # Sort by priority: high first, then medium, then low
-        priority_order = {"high": 0, "medium": 1, "low": 2}
-        suggestions.sort(key=lambda s: priority_order.get(s.priority, 3))
+        suggestions.sort(key=lambda s: PRIORITY_ORDER.get(s.priority, 3))
         return suggestions
 
     def _check_skill_suggestions(self) -> list[Suggestion]:
@@ -103,3 +108,44 @@ class ProactiveSuggestionEngine:
                     created_at=d.created_at or "",
                 ))
         return results
+
+    def push_suggestions(
+        self,
+        suggestions: list[Suggestion],
+        push_threshold: str = "high",
+    ) -> list[dict]:
+        """Send macOS push notifications for suggestions at or above the threshold.
+
+        Args:
+            suggestions: List of Suggestion objects to potentially push.
+            push_threshold: Minimum priority to push ("high", "medium", or "low").
+
+        Returns:
+            List of notification result dicts for pushed suggestions.
+        """
+        from apple_notifications.notifier import Notifier
+
+        threshold_val = PRIORITY_ORDER.get(push_threshold, 0)
+        results = []
+        for s in suggestions:
+            if PRIORITY_ORDER.get(s.priority, 3) <= threshold_val:
+                result = Notifier.send(
+                    title=f"Jarvis: {s.category.title()}",
+                    message=s.title,
+                    subtitle=s.priority.upper(),
+                )
+                results.append(result)
+                logger.debug("Push notification for %s: %s", s.title, result)
+        return results
+
+    def check_all(self, push_enabled: bool = False, push_threshold: str = "high") -> dict:
+        """Generate suggestions and optionally push notifications.
+
+        Returns:
+            Dict with 'suggestions' list and optionally 'pushed' results.
+        """
+        suggestions = self.generate_suggestions()
+        result: dict = {"suggestions": suggestions}
+        if push_enabled and suggestions:
+            result["pushed"] = self.push_suggestions(suggestions, push_threshold)
+        return result

@@ -27,6 +27,7 @@ class MemoryStore:
                 metadata={"hnsw:space": "cosine"},
             )
         self._create_tables()
+        self._migrate_agent_memory_namespace()
 
     def _create_tables(self):
         self.conn.executescript("""
@@ -181,6 +182,15 @@ class MemoryStore:
         # Rebuild FTS index to pick up any pre-existing data
         self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
         self.conn.commit()
+
+    def _migrate_agent_memory_namespace(self):
+        """Add namespace column to agent_memory if it doesn't exist."""
+        try:
+            self.conn.execute("ALTER TABLE agent_memory ADD COLUMN namespace TEXT")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
 
     # --- Facts ---
 
@@ -808,6 +818,14 @@ class MemoryStore:
             return None
         return self._row_to_scheduled_task(row)
 
+    def get_scheduled_task_by_name(self, name: str) -> Optional[ScheduledTask]:
+        row = self.conn.execute(
+            "SELECT * FROM scheduled_tasks WHERE name=?", (name,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_scheduled_task(row)
+
     def list_scheduled_tasks(self, enabled_only: bool = False) -> list[ScheduledTask]:
         if enabled_only:
             rows = self.conn.execute(
@@ -1029,6 +1047,11 @@ class MemoryStore:
         return cursor.rowcount
 
     def _row_to_agent_memory(self, row: sqlite3.Row) -> AgentMemory:
+        namespace = None
+        try:
+            namespace = row["namespace"]
+        except (IndexError, KeyError):
+            pass
         return AgentMemory(
             id=row["id"],
             agent_name=row["agent_name"],
@@ -1036,9 +1059,60 @@ class MemoryStore:
             key=row["key"],
             value=row["value"],
             confidence=row["confidence"],
+            namespace=namespace,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    # --- Shared Memory (namespace-based agent collaboration) ---
+
+    @staticmethod
+    def _shared_agent_name(namespace: str) -> str:
+        return f"__shared__:{namespace}"
+
+    def store_shared_memory(
+        self, namespace: str, memory_type: str, key: str, value: str, confidence: float = 1.0
+    ) -> AgentMemory:
+        agent_name = self._shared_agent_name(namespace)
+        now = datetime.now().isoformat()
+        self.conn.execute(
+            """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, namespace, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
+                   value=excluded.value,
+                   confidence=excluded.confidence,
+                   namespace=excluded.namespace,
+                   updated_at=excluded.updated_at""",
+            (agent_name, memory_type, key, value, confidence, namespace, now, now),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? AND key=?",
+            (agent_name, memory_type, key),
+        ).fetchone()
+        return self._row_to_agent_memory(row)
+
+    def get_shared_memories(self, namespace: str, memory_type: str = "") -> list[AgentMemory]:
+        agent_name = self._shared_agent_name(namespace)
+        if memory_type:
+            rows = self.conn.execute(
+                "SELECT * FROM agent_memory WHERE agent_name=? AND namespace=? AND memory_type=? ORDER BY updated_at DESC",
+                (agent_name, namespace, memory_type),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM agent_memory WHERE agent_name=? AND namespace=? ORDER BY updated_at DESC",
+                (agent_name, namespace),
+            ).fetchall()
+        return [self._row_to_agent_memory(r) for r in rows]
+
+    def search_shared_memories(self, namespace: str, query: str) -> list[AgentMemory]:
+        agent_name = self._shared_agent_name(namespace)
+        rows = self.conn.execute(
+            "SELECT * FROM agent_memory WHERE agent_name=? AND namespace=? AND (key LIKE ? OR value LIKE ?) ORDER BY updated_at DESC",
+            (agent_name, namespace, f"%{query}%", f"%{query}%"),
+        ).fetchall()
+        return [self._row_to_agent_memory(r) for r in rows]
 
     def close(self):
         self.conn.close()

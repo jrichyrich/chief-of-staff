@@ -46,8 +46,9 @@ def _cluster_patterns(rows: list[dict], similarity_threshold: float = 0.4) -> li
 
 
 class PatternDetector:
-    def __init__(self, memory_store: MemoryStore):
+    def __init__(self, memory_store: MemoryStore, auto_create_threshold: float = 0.9):
         self.memory_store = memory_store
+        self.auto_create_threshold = auto_create_threshold
 
     def detect_patterns(
         self,
@@ -85,3 +86,26 @@ class PatternDetector:
                 "confidence": round(confidence, 3),
             })
         return results
+
+    def auto_execute(self, memory_store: MemoryStore, agent_registry) -> list[str]:
+        """Auto-create agents from pending suggestions above the auto_create_threshold.
+
+        Args:
+            memory_store: MemoryStore to read suggestions from and update status.
+            agent_registry: AgentRegistry to create agents with via AgentFactory.
+
+        Returns:
+            List of created agent names.
+        """
+        from agents.factory import AgentFactory
+
+        pending = memory_store.list_skill_suggestions(status="pending")
+        created_names: list[str] = []
+        for suggestion in pending:
+            if suggestion.confidence < self.auto_create_threshold:
+                continue
+            factory = AgentFactory(agent_registry)
+            config = factory.create_agent(suggestion.description)
+            memory_store.update_skill_suggestion_status(suggestion.id, "accepted")
+            created_names.append(config.name)
+        return created_names

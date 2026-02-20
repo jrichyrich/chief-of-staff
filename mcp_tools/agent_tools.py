@@ -103,6 +103,54 @@ def register(mcp, state):
         count = memory_store.clear_agent_memories(agent_name)
         return json.dumps({"agent_name": agent_name, "deleted_count": count})
 
+    @mcp.tool()
+    async def store_shared_memory(
+        namespace: str, memory_type: str, key: str, value: str, confidence: float = 1.0
+    ) -> str:
+        """Store a memory in a shared namespace for cross-agent collaboration.
+
+        Args:
+            namespace: The shared namespace (e.g. 'research-team', 'onboarding')
+            memory_type: Type of memory ('insight', 'preference', 'context')
+            key: A short label for this memory
+            value: The memory content
+            confidence: Confidence score from 0.0 to 1.0 (default 1.0)
+        """
+        memory_store = state.memory_store
+        result = memory_store.store_shared_memory(namespace, memory_type, key, value, confidence)
+        return json.dumps({
+            "status": "stored",
+            "namespace": namespace,
+            "memory_type": result.memory_type,
+            "key": result.key,
+            "value": result.value,
+            "confidence": result.confidence,
+        })
+
+    @mcp.tool()
+    async def get_shared_memory(namespace: str, memory_type: str = "") -> str:
+        """Retrieve shared memories from a namespace.
+
+        Args:
+            namespace: The shared namespace to query
+            memory_type: Optional filter by memory type ('insight', 'preference', 'context')
+        """
+        memory_store = state.memory_store
+        memories = memory_store.get_shared_memories(namespace, memory_type)
+        if not memories:
+            return json.dumps({"message": f"No shared memories in namespace '{namespace}'.", "results": []})
+        results = [
+            {
+                "memory_type": m.memory_type,
+                "key": m.key,
+                "value": m.value,
+                "confidence": m.confidence,
+                "updated_at": m.updated_at,
+            }
+            for m in memories
+        ]
+        return json.dumps({"namespace": namespace, "results": results})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
@@ -111,3 +159,5 @@ def register(mcp, state):
     module.create_agent = create_agent
     module.get_agent_memory = get_agent_memory
     module.clear_agent_memory = clear_agent_memory
+    module.store_shared_memory = store_shared_memory
+    module.get_shared_memory = get_shared_memory

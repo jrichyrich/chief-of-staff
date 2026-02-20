@@ -18,6 +18,7 @@ class AgentConfig:
     description: str
     system_prompt: str
     capabilities: list[str] = field(default_factory=list)
+    namespaces: list[str] = field(default_factory=list)
     temperature: float = 0.3
     max_tokens: int = 4096
     created_by: Optional[str] = None
@@ -76,6 +77,8 @@ class AgentRegistry:
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
         }
+        if config.namespaces:
+            data["namespaces"] = config.namespaces
         if config.created_by:
             data["created_by"] = config.created_by
         if config.created_at:
@@ -98,6 +101,7 @@ class AgentRegistry:
                 description=data.get("description", ""),
                 system_prompt=data.get("system_prompt", ""),
                 capabilities=capabilities,
+                namespaces=data.get("namespaces", []),
                 temperature=data.get("temperature", 0.3),
                 max_tokens=data.get("max_tokens", 4096),
                 created_by=data.get("created_by"),

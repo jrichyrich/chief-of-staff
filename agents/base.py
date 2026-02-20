@@ -49,6 +49,18 @@ class BaseExpertAgent:
             for m in memories:
                 lines.append(f"- {m.key}: {m.value}")
             prompt += "\n".join(lines)
+
+        # Inject shared namespace memories
+        for ns in getattr(self.config, "namespaces", []):
+            try:
+                shared = self.memory_store.get_shared_memories(ns)
+            except Exception:
+                shared = []
+            if shared:
+                lines = [f"\n\n## Shared Memory [{ns}]"]
+                for m in shared:
+                    lines.append(f"- {m.key}: {m.value}")
+                prompt += "\n".join(lines)
         return prompt
 
     def get_tools(self) -> list[dict]:

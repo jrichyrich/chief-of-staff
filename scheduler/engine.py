@@ -265,7 +265,49 @@ def _run_skill_analysis_handler(memory_store) -> str:
         return json.dumps({"status": "error", "handler": "skill_analysis", "error": str(e)})
 
 
-def execute_handler(handler_type: str, handler_config: str, memory_store=None) -> str:
+def _run_proactive_push_handler(memory_store) -> str:
+    """Run the proactive push notification handler."""
+    try:
+        from config import PROACTIVE_PUSH_ENABLED, PROACTIVE_PUSH_THRESHOLD
+        from proactive.engine import ProactiveSuggestionEngine
+
+        if not PROACTIVE_PUSH_ENABLED:
+            return json.dumps({"status": "skipped", "handler": "proactive_push", "message": "Push notifications disabled"})
+
+        engine = ProactiveSuggestionEngine(memory_store)
+        result = engine.check_all(push_enabled=True, push_threshold=PROACTIVE_PUSH_THRESHOLD)
+        return json.dumps({
+            "status": "ok",
+            "handler": "proactive_push",
+            "suggestions_count": len(result["suggestions"]),
+            "pushed_count": len(result.get("pushed", [])),
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "handler": "proactive_push", "error": str(e)})
+
+
+def _run_skill_auto_exec_handler(memory_store, agent_registry=None) -> str:
+    """Run the skill auto-execution handler."""
+    try:
+        from config import SKILL_AUTO_EXECUTE_ENABLED
+        from skills.pattern_detector import PatternDetector
+
+        if not SKILL_AUTO_EXECUTE_ENABLED:
+            return json.dumps({"status": "skipped", "handler": "skill_auto_exec", "message": "Skill auto-execute disabled"})
+
+        detector = PatternDetector(memory_store)
+        created = detector.auto_execute(memory_store, agent_registry)
+        return json.dumps({
+            "status": "ok",
+            "handler": "skill_auto_exec",
+            "agents_created": len(created),
+            "agent_names": created,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "handler": "skill_auto_exec", "error": str(e)})
+
+
+def execute_handler(handler_type: str, handler_config: str, memory_store=None, agent_registry=None) -> str:
     """Execute a task handler and return a JSON result string."""
     if handler_type == "alert_eval":
         return _run_alert_eval_handler()
@@ -273,6 +315,10 @@ def execute_handler(handler_type: str, handler_config: str, memory_store=None) -
         return _run_webhook_poll_handler(memory_store)
     elif handler_type == "skill_analysis":
         return _run_skill_analysis_handler(memory_store)
+    elif handler_type == "proactive_push":
+        return _run_proactive_push_handler(memory_store)
+    elif handler_type == "skill_auto_exec":
+        return _run_skill_auto_exec_handler(memory_store, agent_registry)
     elif handler_type == "custom":
         return _run_custom_handler(handler_config)
     else:

@@ -8,10 +8,22 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    env:
+      ANTHROPIC_API_KEY: sk-test-dummy-key-for-ci
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
       - run: pip install -e ".[dev]"
+
       - run: pytest --tb=short -q

@@ -453,6 +453,208 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["participants", "start_date", "end_date"],
         },
     },
+    # --- Agent memory tools ---
+    "get_agent_memory": {
+        "name": "get_agent_memory",
+        "description": "Get all memories stored by a specific agent.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "agent_name": {"type": "string", "description": "The agent name to retrieve memories for"},
+            },
+            "required": ["agent_name"],
+        },
+    },
+    "clear_agent_memory": {
+        "name": "clear_agent_memory",
+        "description": "Delete all memories for a specific agent.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "agent_name": {"type": "string", "description": "The agent name whose memories should be cleared"},
+            },
+            "required": ["agent_name"],
+        },
+    },
+    # --- Channel tools ---
+    "list_inbound_events": {
+        "name": "list_inbound_events",
+        "description": "List recent inbound events normalized across channels (iMessage, Mail, Webhook).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "description": "Filter by channel (imessage, mail, webhook)"},
+                "event_type": {"type": "string", "description": "Filter by event type (message, email, webhook_event)"},
+                "limit": {"type": "integer", "description": "Maximum events per channel (default 25, max 100)"},
+            },
+        },
+    },
+    "get_event_summary": {
+        "name": "get_event_summary",
+        "description": "Get a count of recent inbound events by channel.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    # --- Proactive tools ---
+    "get_proactive_suggestions": {
+        "name": "get_proactive_suggestions",
+        "description": "Run the proactive suggestion engine and return prioritized suggestions.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    "dismiss_suggestion": {
+        "name": "dismiss_suggestion",
+        "description": "Dismiss a proactive suggestion so it doesn't reappear.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "The suggestion category"},
+                "title": {"type": "string", "description": "The title of the suggestion to dismiss"},
+            },
+            "required": ["category", "title"],
+        },
+    },
+    # --- Webhook tools ---
+    "list_webhook_events": {
+        "name": "list_webhook_events",
+        "description": "List webhook events with optional filters.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Filter by status (pending, processed, failed)"},
+                "source": {"type": "string", "description": "Filter by event source"},
+                "limit": {"type": "integer", "description": "Maximum events to return (default 50, max 500)"},
+            },
+        },
+    },
+    "get_webhook_event": {
+        "name": "get_webhook_event",
+        "description": "Get full details of a webhook event including its payload.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "integer", "description": "The ID of the webhook event to retrieve"},
+            },
+            "required": ["event_id"],
+        },
+    },
+    "process_webhook_event": {
+        "name": "process_webhook_event",
+        "description": "Mark a webhook event as processed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "integer", "description": "The ID of the webhook event to mark as processed"},
+            },
+            "required": ["event_id"],
+        },
+    },
+    # --- Scheduler tools ---
+    "list_scheduled_tasks": {
+        "name": "list_scheduled_tasks",
+        "description": "List all scheduled tasks.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "enabled_only": {"type": "boolean", "description": "If True, only return enabled tasks"},
+            },
+        },
+    },
+    "get_scheduler_status": {
+        "name": "get_scheduler_status",
+        "description": "Get a summary of all scheduled tasks with their last and next run times.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    "create_scheduled_task": {
+        "name": "create_scheduled_task",
+        "description": "Create a new scheduled task.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Unique name for the task"},
+                "schedule_type": {"type": "string", "description": "Type of schedule: interval, cron, or once"},
+                "schedule_config": {"type": "string", "description": "JSON config for the schedule"},
+                "handler_type": {"type": "string", "description": "Type of handler: alert_eval, backup, webhook_poll, or custom"},
+                "handler_config": {"type": "string", "description": "JSON config for the handler"},
+                "description": {"type": "string", "description": "Human-readable description"},
+                "enabled": {"type": "boolean", "description": "Whether the task is active (default: True)"},
+            },
+            "required": ["name", "schedule_type", "schedule_config", "handler_type"],
+        },
+    },
+    "update_scheduled_task": {
+        "name": "update_scheduled_task",
+        "description": "Update a scheduled task's configuration.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "integer", "description": "The ID of the task to update"},
+                "enabled": {"type": "boolean", "description": "Enable or disable the task"},
+                "schedule_config": {"type": "string", "description": "New schedule config (JSON string)"},
+                "handler_config": {"type": "string", "description": "New handler config (JSON string)"},
+            },
+            "required": ["task_id"],
+        },
+    },
+    "delete_scheduled_task": {
+        "name": "delete_scheduled_task",
+        "description": "Delete a scheduled task by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "integer", "description": "The ID of the task to delete"},
+            },
+            "required": ["task_id"],
+        },
+    },
+    "run_scheduled_task": {
+        "name": "run_scheduled_task",
+        "description": "Manually trigger a scheduled task to run now.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "integer", "description": "The ID of the task to run"},
+            },
+            "required": ["task_id"],
+        },
+    },
+    # --- Skill tools ---
+    "list_skill_suggestions": {
+        "name": "list_skill_suggestions",
+        "description": "List skill suggestions filtered by status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Filter by status (pending, accepted, rejected)"},
+            },
+        },
+    },
+    "record_tool_usage": {
+        "name": "record_tool_usage",
+        "description": "Record a tool usage pattern for skill analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {"type": "string", "description": "Name of the tool that was used"},
+                "query_pattern": {"type": "string", "description": "Description of the usage pattern"},
+            },
+            "required": ["tool_name", "query_pattern"],
+        },
+    },
+    "analyze_skill_patterns": {
+        "name": "analyze_skill_patterns",
+        "description": "Analyze recorded tool usage patterns and generate skill suggestions.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    "auto_create_skill": {
+        "name": "auto_create_skill",
+        "description": "Accept a skill suggestion and create an agent from it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "suggestion_id": {"type": "integer", "description": "The ID of the skill suggestion to accept"},
+            },
+            "required": ["suggestion_id"],
+        },
+    },
 }
 
 
@@ -544,6 +746,56 @@ CAPABILITY_DEFINITIONS: dict[str, CapabilityDefinition] = {
         name="scheduling",
         description="Find available calendar slots and analyze group availability",
         tool_names=("find_my_open_slots", "find_group_availability"),
+    ),
+    "agent_memory_read": CapabilityDefinition(
+        name="agent_memory_read",
+        description="Read agent-specific memories",
+        tool_names=("get_agent_memory",),
+    ),
+    "agent_memory_write": CapabilityDefinition(
+        name="agent_memory_write",
+        description="Clear agent-specific memories",
+        tool_names=("clear_agent_memory",),
+    ),
+    "channel_read": CapabilityDefinition(
+        name="channel_read",
+        description="Read unified inbound events across channels",
+        tool_names=("list_inbound_events", "get_event_summary"),
+    ),
+    "proactive_read": CapabilityDefinition(
+        name="proactive_read",
+        description="Read and dismiss proactive suggestions",
+        tool_names=("get_proactive_suggestions", "dismiss_suggestion"),
+    ),
+    "webhook_read": CapabilityDefinition(
+        name="webhook_read",
+        description="List and inspect webhook events",
+        tool_names=("list_webhook_events", "get_webhook_event"),
+    ),
+    "webhook_write": CapabilityDefinition(
+        name="webhook_write",
+        description="Process and update webhook event status",
+        tool_names=("process_webhook_event",),
+    ),
+    "scheduler_read": CapabilityDefinition(
+        name="scheduler_read",
+        description="List scheduled tasks and view scheduler status",
+        tool_names=("list_scheduled_tasks", "get_scheduler_status"),
+    ),
+    "scheduler_write": CapabilityDefinition(
+        name="scheduler_write",
+        description="Create, update, delete, and run scheduled tasks",
+        tool_names=("create_scheduled_task", "update_scheduled_task", "delete_scheduled_task", "run_scheduled_task"),
+    ),
+    "skill_read": CapabilityDefinition(
+        name="skill_read",
+        description="List skill suggestions from pattern analysis",
+        tool_names=("list_skill_suggestions",),
+    ),
+    "skill_write": CapabilityDefinition(
+        name="skill_write",
+        description="Record tool usage, analyze patterns, and auto-create skills",
+        tool_names=("record_tool_usage", "analyze_skill_patterns", "auto_create_skill"),
     ),
     # Accepted legacy/non-runtime capabilities kept for compatibility.
     "web_search": CapabilityDefinition(

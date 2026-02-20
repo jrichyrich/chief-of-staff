@@ -27,6 +27,11 @@ SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() 
 # Skill auto-creation settings
 SKILL_SUGGESTION_THRESHOLD = 0.7
 SKILL_MIN_OCCURRENCES = 5
+SKILL_AUTO_EXECUTE_ENABLED = os.environ.get("SKILL_AUTO_EXECUTE_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+
+# Proactive push notification settings
+PROACTIVE_PUSH_ENABLED = os.environ.get("PROACTIVE_PUSH_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+PROACTIVE_PUSH_THRESHOLD = os.environ.get("PROACTIVE_PUSH_THRESHOLD", "high").strip().lower()
 
 # Unified connector routing state
 CALENDAR_ROUTING_DB_PATH = DATA_DIR / "calendar-routing.db"

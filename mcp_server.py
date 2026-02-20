@@ -24,6 +24,7 @@ from connectors.claude_m365_bridge import ClaudeM365Bridge
 from connectors.providers import AppleCalendarProvider, Microsoft365CalendarProvider
 from connectors.router import ProviderRouter
 from documents.store import DocumentStore
+from memory.models import ScheduledTask
 from memory.store import MemoryStore
 from okr.store import OKRStore
 from mcp_tools.state import ServerState
@@ -107,6 +108,39 @@ async def app_lifespan(server: FastMCP):
     _state.mail_store = mail_store
     _state.messages_store = messages_store
     _state.okr_store = okr_store
+
+    # Seed default scheduled tasks if they don't already exist
+    _default_tasks = [
+        ScheduledTask(
+            name="alert_eval",
+            handler_type="alert_eval",
+            schedule_type="interval",
+            schedule_config='{"hours": 2}',
+            description="Evaluate alert rules every 2 hours",
+        ),
+        ScheduledTask(
+            name="webhook_poll",
+            handler_type="webhook_poll",
+            schedule_type="interval",
+            schedule_config='{"minutes": 5}',
+            description="Poll for new webhook events every 5 minutes",
+        ),
+        ScheduledTask(
+            name="skill_analysis",
+            handler_type="skill_analysis",
+            schedule_type="interval",
+            schedule_config='{"hours": 24}',
+            description="Analyze skill usage patterns daily",
+        ),
+    ]
+    for default_task in _default_tasks:
+        if memory_store.get_scheduled_task_by_name(default_task.name) is None:
+            from scheduler.engine import calculate_next_run
+            default_task.next_run_at = calculate_next_run(
+                default_task.schedule_type, default_task.schedule_config
+            )
+            memory_store.store_scheduled_task(default_task)
+            logger.info("Seeded default scheduled task: %s", default_task.name)
 
     logger.info("Jarvis MCP server initialized")
 

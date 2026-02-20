@@ -129,6 +129,30 @@ def register(mcp, state):
             logger.exception("Error auto-creating skill")
             return json.dumps({"error": f"Failed to create skill: {e}"})
 
+    @mcp.tool()
+    async def auto_execute_skills() -> str:
+        """Auto-create agents from high-confidence pending skill suggestions.
+
+        Uses the PatternDetector's auto_create_threshold (default: 0.9) to
+        filter suggestions. Only runs if SKILL_AUTO_EXECUTE_ENABLED is True.
+        Returns list of created agent names.
+        """
+        from config import SKILL_AUTO_EXECUTE_ENABLED
+        from skills.pattern_detector import PatternDetector
+
+        if not SKILL_AUTO_EXECUTE_ENABLED:
+            return json.dumps({"status": "disabled", "message": "Skill auto-execute is disabled. Set SKILL_AUTO_EXECUTE_ENABLED=true to enable."})
+
+        memory_store = state.memory_store
+        agent_registry = state.agent_registry
+        try:
+            detector = PatternDetector(memory_store)
+            created = detector.auto_execute(memory_store, agent_registry)
+            return json.dumps({"status": "ok", "agents_created": len(created), "agent_names": created})
+        except Exception as e:
+            logger.exception("Error auto-executing skills")
+            return json.dumps({"error": f"Failed to auto-execute skills: {e}"})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
@@ -136,3 +160,4 @@ def register(mcp, state):
     module.analyze_skill_patterns = analyze_skill_patterns
     module.list_skill_suggestions = list_skill_suggestions
     module.auto_create_skill = auto_create_skill
+    module.auto_execute_skills = auto_execute_skills
