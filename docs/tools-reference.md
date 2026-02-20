@@ -2,7 +2,7 @@
 
 Complete reference for all MCP tools and resources exposed by the Chief of Staff (Jarvis) server.
 
-**Total: 57 tools across 10 modules, plus 3 MCP resources.**
+**Total: 70 tools across 13 modules, plus 3 MCP resources.**
 
 ---
 
@@ -17,7 +17,10 @@ Complete reference for all MCP tools and resources exposed by the Chief of Staff
 7. [Mail Tools](#mail-tools) (9 tools)
 8. [iMessage Tools](#imessage-tools) (7 tools)
 9. [OKR Tools](#okr-tools) (2 tools)
-10. [Resources](#resources) (3 resources)
+10. [Webhook Tools](#webhook-tools) (3 tools)
+11. [Skill Tools](#skill-tools) (4 tools)
+12. [Scheduler Tools](#scheduler-tools) (6 tools)
+13. [Resources](#resources) (3 resources)
 
 ---
 
@@ -792,6 +795,172 @@ Query the latest OKR data. Use after `refresh_okr_data` has been called.
 
 ---
 
+## Webhook Tools
+
+**Module:** `mcp_tools/webhook_tools.py`
+
+Tools for managing inbound webhook events. Events are received by the HTTP webhook server (`webhook/server.py`) and queued in SQLite for processing.
+
+### list_webhook_events
+
+List webhook events with optional filters.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | `str` | No | Filter by status (`pending`, `processed`, `failed`). Leave empty for all. |
+| `source` | `str` | No | Filter by event source. Leave empty for all. |
+| `limit` | `int` | No | Maximum number of events to return (default: 50, max: 500) |
+
+**Returns:** JSON with `results` array and `count`.
+
+### get_webhook_event
+
+Get full details of a webhook event including its payload.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `event_id` | `int` | Yes | The ID of the webhook event to retrieve |
+
+**Returns:** JSON with full event details including parsed payload.
+
+### process_webhook_event
+
+Mark a webhook event as processed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `event_id` | `int` | Yes | The ID of the webhook event to mark as processed |
+
+**Returns:** JSON with `status: "processed"` and `processed_at` timestamp.
+
+---
+
+## Skill Tools
+
+**Module:** `mcp_tools/skill_tools.py`
+
+Tools for automatic pattern detection and agent creation. Tracks tool usage patterns and suggests new specialized agents when repeated patterns emerge.
+
+### record_tool_usage
+
+Record a tool usage pattern for future analysis.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tool_name` | `str` | Yes | Name of the tool being used |
+| `query_pattern` | `str` | Yes | The query or pattern associated with this usage |
+
+**Returns:** JSON with `status: "recorded"` and usage count.
+
+### analyze_skill_patterns
+
+Scan usage data and generate suggestions for new agents based on detected patterns.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `suggestions` array of detected patterns with confidence scores.
+
+### list_skill_suggestions
+
+List auto-generated agent suggestions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | `str` | No | Filter by status (`pending`, `accepted`, `rejected`). Leave empty for all. |
+
+**Returns:** JSON with `results` array of suggestions.
+
+### auto_create_skill
+
+Accept a suggestion and create a new agent configuration using AgentFactory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `suggestion_id` | `int` | Yes | The ID of the skill suggestion to accept |
+
+**Returns:** JSON with `status: "created"` and agent details.
+
+---
+
+## Scheduler Tools
+
+**Module:** `mcp_tools/scheduler_tools.py`
+
+Tools for managing the built-in task scheduler. Supports interval, cron, and one-time schedules with handler types for alert evaluation, backups, and custom commands.
+
+### create_scheduled_task
+
+Create a new scheduled task.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `str` | Yes | Unique name for the scheduled task |
+| `description` | `str` | No | Human-readable description |
+| `schedule_type` | `str` | Yes | Schedule type: `interval`, `cron`, or `once` |
+| `schedule_config` | `str` | Yes | JSON config (e.g. `{"minutes": 120}`, `{"expression": "0 8 * * 1-5"}`, `{"run_at": "..."}`) |
+| `handler_type` | `str` | Yes | Handler: `alert_eval`, `backup`, `webhook_poll`, `custom` |
+| `handler_config` | `str` | No | JSON config for the handler (e.g. command for custom handler) |
+| `enabled` | `bool` | No | Whether the task is active (default: `True`) |
+
+**Returns:** JSON with `status: "created"` and task details.
+
+### list_scheduled_tasks
+
+List all scheduled tasks.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `enabled_only` | `bool` | No | If `True`, only return enabled tasks (default: `False`) |
+
+**Returns:** JSON with `results` array of tasks.
+
+### update_scheduled_task
+
+Update a scheduled task's configuration.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | `int` | Yes | The ID of the task to update |
+| `enabled` | `bool` | No | Enable or disable the task |
+| `schedule_config` | `str` | No | New schedule configuration (JSON) |
+| `handler_config` | `str` | No | New handler configuration (JSON) |
+
+**Returns:** JSON with the updated task.
+
+### delete_scheduled_task
+
+Delete a scheduled task.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | `int` | Yes | The ID of the task to delete |
+
+**Returns:** JSON with deletion status.
+
+### run_scheduled_task
+
+Manually trigger a scheduled task immediately.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | `int` | Yes | The ID of the task to run |
+
+**Returns:** JSON with execution result.
+
+### get_scheduler_status
+
+Show scheduler overview with last run times and next due tasks.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with task summaries including `last_run_at`, `next_run_at`, `enabled` status.
+
+---
+
 ## Resources
 
 **Module:** `mcp_tools/resources.py`
@@ -837,5 +1006,8 @@ All available expert agents and their descriptions.
 | Mail | 9 | Mail read/search/send + notifications |
 | iMessage | 7 | iMessage read/search/send |
 | OKR | 2 | OKR tracking and queries |
-| **Total** | **57** | |
+| Webhook | 3 | Inbound webhook event queue |
+| Skills | 4 | Pattern detection and auto agent creation |
+| Scheduler | 6 | Built-in task scheduling with cron support |
+| **Total** | **70** | |
 | Resources | 3 | Read-only data endpoints |

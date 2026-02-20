@@ -55,6 +55,9 @@ jarvis-mcp
 | `mcp_tools/mail_tools.py` | send_notification, list_mailboxes, get_mail_messages, get_mail_message, search_mail, mark_mail_read, mark_mail_flagged, move_mail_message, send_email |
 | `mcp_tools/imessage_tools.py` | get_imessages, list_imessage_threads, get_imessage_threads, get_imessage_thread_messages, get_thread_context, search_imessages, send_imessage_reply |
 | `mcp_tools/okr_tools.py` | refresh_okr_data, query_okr_status |
+| `mcp_tools/webhook_tools.py` | list_webhook_events, get_webhook_event, process_webhook_event |
+| `mcp_tools/skill_tools.py` | record_tool_usage, analyze_skill_patterns, list_skill_suggestions, auto_create_skill |
+| `mcp_tools/scheduler_tools.py` | create_scheduled_task, list_scheduled_tasks, update_scheduled_task, delete_scheduled_task, run_scheduled_task, get_scheduler_status |
 | `mcp_tools/resources.py` | MCP resources: facts://all, memory://facts/{category}, agents://list |
 
 Each module exports a `register(mcp, state)` function. Tools are defined inside `register()` using `@mcp.tool()` decorators and access stores via `state.memory_store`, `state.calendar_store`, etc. Tool functions are also exposed at module level via `sys.modules` for test imports.
@@ -69,12 +72,15 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `agents/registry.py` | Loads/saves agent configs from YAML files in `agent_configs/` |
 | `agents/factory.py` | Uses Claude to dynamically generate new agent configs |
 | `capabilities/registry.py` | Maps capability names (e.g. `calendar_read`) to tool schemas; validates agent configs |
-| `memory/store.py` | SQLite backend: facts (with FTS5 full-text index), locations, context, decisions, delegations, alert_rules |
-| `memory/models.py` | Dataclasses: Fact, Location, ContextEntry, Decision, Delegation, AlertRule |
+| `memory/store.py` | SQLite backend: facts (with FTS5 full-text index), locations, context, decisions, delegations, alert_rules, webhook_events, scheduled_tasks, skill_usage, skill_suggestions |
+| `memory/models.py` | Dataclasses: Fact, Location, ContextEntry, Decision, Delegation, AlertRule, WebhookEvent, ScheduledTask, SkillUsage, SkillSuggestion |
 | `documents/store.py` | ChromaDB vector search wrapper (all-MiniLM-L6-v2 embeddings) |
 | `documents/ingestion.py` | Text/PDF/DOCX chunking (word-based, 500 words, 50 overlap) and SHA256 dedup |
 | `tools/lifecycle.py` | Execution logic for decisions, delegations, and alert rules |
 | `scheduler/alert_evaluator.py` | Standalone alert rule evaluator (runs via launchd every 2 hours) |
+| `scheduler/engine.py` | Built-in scheduler engine with cron parser, evaluates due tasks from SQLite |
+| `skills/pattern_detector.py` | Detects repeated usage patterns and suggests new agent configurations |
+| `webhook/server.py` | Async HTTP webhook receiver with HMAC-SHA256 signature verification |
 | `config.py` | All paths, model names, constants, and environment variable settings |
 
 ### Apple Platform Integrations (macOS only)
@@ -136,20 +142,25 @@ All settings live in `config.py`:
 
 ## Memory Store Schema
 
-SQLite (`data/memory.db`) with 6 tables:
+SQLite (`data/memory.db`) with 10 tables:
 
 | Table | Key Constraints | Notable Fields |
 |-------|----------------|----------------|
 | `facts` | `UNIQUE(category, key)` | category, key, value, confidence (0.0-1.0) |
+| `facts_fts` | FTS5 virtual table | Synced via triggers, BM25 ranking |
 | `locations` | `name UNIQUE` | address, latitude, longitude |
 | `context` | — | session_id, topic, summary, agent |
 | `decisions` | — | status: `pending_execution\|executed\|deferred\|reversed`, follow_up_date, tags |
 | `delegations` | — | delegated_to, priority: `low\|medium\|high\|critical`, status: `active\|completed\|cancelled` |
 | `alert_rules` | `name UNIQUE` | alert_type, condition (JSON), enabled (0/1) |
+| `webhook_events` | — | source, event_type, payload (JSON), status: `pending\|processed\|failed` |
+| `scheduled_tasks` | `name UNIQUE` | schedule_type: `interval\|cron\|once`, handler_type, enabled, next_run_at |
+| `skill_usage` | `UNIQUE(tool_name, query_pattern)` | count, last_used |
+| `skill_suggestions` | — | suggested_name, confidence, status: `pending\|accepted\|rejected` |
 
 ## Testing Conventions
 
-- 698 tests across 38 test files
+- 825 tests across 44 test files
 - Async tests use `@pytest.mark.asyncio` with `asyncio_mode = "Mode.STRICT"` in pyproject.toml
 - Anthropic API calls are mocked — tests never hit real APIs
 - Fixtures create isolated MemoryStore, DocumentStore, AgentRegistry instances using `tmp_path`
