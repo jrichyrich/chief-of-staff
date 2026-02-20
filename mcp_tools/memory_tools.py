@@ -3,8 +3,9 @@
 import json
 import logging
 import sqlite3
+from datetime import datetime
 
-from memory.models import Fact, Location
+from memory.models import ContextEntry, Fact, Location
 from .state import _retry_on_transient
 
 logger = logging.getLogger("jarvis-mcp")
@@ -64,7 +65,7 @@ def register(mcp, state):
 
     @mcp.tool()
     async def query_memory(query: str, category: str = "") -> str:
-        """Search stored facts about the user. Returns matching facts.
+        """Search stored facts about the user. Returns matching facts ranked by relevance (recency + confidence).
 
         Args:
             query: Search term to match against fact keys and values
@@ -75,17 +76,27 @@ def register(mcp, state):
         try:
             if category:
                 facts = _retry_on_transient(memory_store.get_facts_by_category, category)
-                # Filter by query text within the category results
                 if query:
                     q = query.lower()
                     facts = [f for f in facts if q in f.value.lower() or q in f.key.lower()]
+                scored = memory_store.rank_facts(facts)
             else:
-                facts = _retry_on_transient(memory_store.search_facts, query)
+                scored = _retry_on_transient(memory_store.search_facts_ranked, query)
 
-            if not facts:
+            if not scored:
                 return json.dumps({"message": f"No facts found for query '{query}'.", "results": []})
 
-            results = [{"category": f.category, "key": f.key, "value": f.value, "confidence": f.confidence} for f in facts]
+            results = [
+                {
+                    "category": f.category,
+                    "key": f.key,
+                    "value": f.value,
+                    "confidence": f.confidence,
+                    "relevance_score": round(score, 3),
+                    "updated_at": f.updated_at,
+                }
+                for f, score in scored
+            ]
             return json.dumps({"results": results})
         except (sqlite3.OperationalError, ValueError, KeyError) as e:
             return json.dumps({"error": f"Database error querying memory: {e}"})
@@ -126,6 +137,62 @@ def register(mcp, state):
         results = [{"name": l.name, "address": l.address, "notes": l.notes} for l in locations]
         return json.dumps({"results": results})
 
+    @mcp.tool()
+    async def checkpoint_session(summary: str, key_facts: str = "", session_id: str = "") -> str:
+        """Save important session context to persistent memory before context compaction.
+
+        Call this when important decisions, facts, or context have emerged during
+        a conversation that should persist across sessions. Recommended before
+        long conversations approach context limits.
+
+        Args:
+            summary: Concise summary of the current session's key context and outcomes
+            key_facts: Optional comma-separated key facts to persist as individual memory facts
+            session_id: Optional session identifier for organizing context entries
+        """
+        if not summary or not summary.strip():
+            return json.dumps({"error": "Summary must not be empty."})
+
+        memory_store = state.memory_store
+        try:
+            entry = ContextEntry(
+                topic="session_checkpoint",
+                summary=summary.strip(),
+                session_id=session_id or None,
+                agent="jarvis",
+            )
+            stored_entry = _retry_on_transient(memory_store.store_context, entry)
+
+            facts_stored = 0
+            if key_facts and key_facts.strip():
+                now = datetime.now()
+                timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
+                for i, raw_fact in enumerate(key_facts.split(",")):
+                    fact_value = raw_fact.strip()
+                    if not fact_value:
+                        continue
+                    fact_key = f"checkpoint_{timestamp}_{i}"
+                    fact = Fact(
+                        category="work",
+                        key=fact_key,
+                        value=fact_value,
+                        confidence=0.8,
+                        source="session_checkpoint",
+                    )
+                    _retry_on_transient(memory_store.store_fact, fact)
+                    facts_stored += 1
+
+            return json.dumps({
+                "status": "checkpoint_saved",
+                "context_id": stored_entry.id,
+                "facts_stored": facts_stored,
+            })
+        except (sqlite3.OperationalError, ValueError, KeyError) as e:
+            return json.dumps({"error": f"Database error saving checkpoint: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in checkpoint_session")
+            return json.dumps({"error": f"Unexpected error: {e}"})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
@@ -134,3 +201,4 @@ def register(mcp, state):
     module.query_memory = query_memory
     module.store_location = store_location
     module.list_locations = list_locations
+    module.checkpoint_session = checkpoint_session

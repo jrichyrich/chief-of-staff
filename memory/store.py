@@ -1,4 +1,5 @@
 # memory/store.py
+import math
 import re
 import sqlite3
 from datetime import date, datetime
@@ -91,7 +92,26 @@ class MemoryStore:
                 last_triggered_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
+                key, value, category,
+                content='facts', content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
+                INSERT INTO facts_fts(rowid, key, value, category) VALUES (new.id, new.key, new.value, new.category);
+            END;
+            CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
+                INSERT INTO facts_fts(facts_fts, rowid, key, value, category) VALUES('delete', old.id, old.key, old.value, old.category);
+            END;
+            CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
+                INSERT INTO facts_fts(facts_fts, rowid, key, value, category) VALUES('delete', old.id, old.key, old.value, old.category);
+                INSERT INTO facts_fts(rowid, key, value, category) VALUES (new.id, new.key, new.value, new.category);
+            END;
         """)
+        self.conn.commit()
+        # Rebuild FTS index to pick up any pre-existing data
+        self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
         self.conn.commit()
 
     # --- Facts ---
@@ -131,6 +151,100 @@ class MemoryStore:
             (f"%{query}%", f"%{query}%"),
         ).fetchall()
         return [self._row_to_fact(r) for r in rows]
+
+    def rank_facts(self, facts: list[Fact], half_life_days: float = 90.0) -> list[tuple[Fact, float]]:
+        """Apply temporal decay scoring to a list of facts.
+
+        Score = confidence * exp(-ln(2) * age_days / half_life_days)
+        Returns list of (Fact, score) tuples sorted by score descending.
+        """
+        half_life_days = max(half_life_days, 0.001)
+        now = datetime.now()
+        ln2 = math.log(2)
+        scored: list[tuple[Fact, float]] = []
+        for fact in facts:
+            timestamp = fact.updated_at or fact.created_at
+            if timestamp:
+                dt = datetime.fromisoformat(str(timestamp))
+                age_days = (now - dt).total_seconds() / 86400.0
+            else:
+                age_days = 0.0
+            score = fact.confidence * math.exp(-ln2 * age_days / half_life_days)
+            scored.append((fact, score))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored
+
+    def search_facts_ranked(self, query: str, half_life_days: float = 90.0) -> list[tuple[Fact, float]]:
+        """Search facts with temporal decay scoring.
+
+        Score = confidence * exp(-ln(2) * age_days / half_life_days)
+        Returns list of (Fact, score) tuples sorted by score descending.
+        """
+        return self.rank_facts(self.search_facts(query), half_life_days)
+
+    # FTS5 special characters/operators to strip from user queries
+    _FTS5_SPECIAL = re.compile(r'[*"^\-():,]|\b(?:OR|AND|NOT|NEAR)\b')
+
+    def search_facts_fts(self, query: str) -> list[Fact]:
+        """Full-text search over facts using FTS5.
+
+        Falls back to LIKE-based search_facts() if the FTS query fails.
+        """
+        if not query or not query.strip():
+            return []
+        try:
+            sanitized = self._FTS5_SPECIAL.sub(" ", query)
+            tokens = sanitized.split()
+            if not tokens:
+                return []
+            fts_query = " ".join(f'"{t}"' for t in tokens)
+            rows = self.conn.execute(
+                "SELECT f.* FROM facts f JOIN facts_fts fts ON f.id = fts.rowid "
+                "WHERE facts_fts MATCH ? ORDER BY rank",
+                (fts_query,),
+            ).fetchall()
+            return [self._row_to_fact(r) for r in rows]
+        except Exception:
+            return self.search_facts(query)
+
+    def search_facts_hybrid(self, query: str) -> list[tuple[Fact, float]]:
+        """Hybrid search combining FTS5 BM25 ranking with LIKE fallback.
+
+        Returns (Fact, score) tuples sorted by score descending.
+        """
+        if not query or not query.strip():
+            return []
+
+        merged: dict[int, tuple[Fact, float]] = {}
+
+        # FTS5 results with BM25 rank (rank is negative; negate for a positive score)
+        try:
+            sanitized = self._FTS5_SPECIAL.sub(" ", query)
+            tokens = sanitized.split()
+            if tokens:
+                fts_query = " ".join(f'"{t}"' for t in tokens)
+                rows = self.conn.execute(
+                    "SELECT f.*, fts.rank FROM facts f "
+                    "JOIN facts_fts fts ON f.id = fts.rowid "
+                    "WHERE facts_fts MATCH ? ORDER BY rank",
+                    (fts_query,),
+                ).fetchall()
+                for row in rows:
+                    fact = self._row_to_fact(row)
+                    score = -float(row["rank"])  # BM25 rank is negative
+                    merged[fact.id] = (fact, score)
+        except Exception:
+            pass
+
+        # LIKE results with a fixed score
+        like_results = self.search_facts(query)
+        for fact in like_results:
+            if fact.id not in merged:
+                merged[fact.id] = (fact, 0.5)
+
+        results = list(merged.values())
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
 
     def delete_fact(self, category: str, key: str) -> bool:
         cursor = self.conn.execute(
