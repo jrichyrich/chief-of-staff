@@ -6,7 +6,10 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from memory.models import AlertRule, ContextEntry, Decision, Delegation, Fact, Location
+from memory.models import (
+    AlertRule, ContextEntry, Decision, Delegation, Fact, Location,
+    ScheduledTask, SkillSuggestion, SkillUsage, WebhookEvent,
+)
 
 
 class MemoryStore:
@@ -90,6 +93,52 @@ class MemoryStore:
                 condition TEXT DEFAULT '',
                 enabled INTEGER DEFAULT 1,
                 last_triggered_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT DEFAULT '',
+                schedule_type TEXT NOT NULL,
+                schedule_config TEXT DEFAULT '',
+                handler_type TEXT DEFAULT '',
+                handler_config TEXT DEFAULT '',
+                enabled INTEGER DEFAULT 1,
+                last_run_at TIMESTAMP,
+                next_run_at TIMESTAMP,
+                last_result TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS skill_usage (
+                id INTEGER PRIMARY KEY,
+                tool_name TEXT NOT NULL,
+                query_pattern TEXT NOT NULL,
+                count INTEGER DEFAULT 1,
+                last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(tool_name, query_pattern)
+            );
+
+            CREATE TABLE IF NOT EXISTS skill_suggestions (
+                id INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                suggested_name TEXT DEFAULT '',
+                suggested_capabilities TEXT DEFAULT '',
+                confidence REAL DEFAULT 0.0,
+                status TEXT DEFAULT 'pending',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -590,6 +639,255 @@ class MemoryStore:
             condition=row["condition"],
             enabled=bool(row["enabled"]),
             last_triggered_at=row["last_triggered_at"],
+            created_at=row["created_at"],
+        )
+
+    # --- Webhook Events ---
+
+    def store_webhook_event(self, event: WebhookEvent) -> WebhookEvent:
+        now = datetime.now().isoformat()
+        cursor = self.conn.execute(
+            """INSERT INTO webhook_events (source, event_type, payload, status, received_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (event.source, event.event_type, event.payload, event.status or "pending", now),
+        )
+        self.conn.commit()
+        return self.get_webhook_event(cursor.lastrowid)
+
+    def get_webhook_event(self, event_id: int) -> Optional[WebhookEvent]:
+        row = self.conn.execute(
+            "SELECT * FROM webhook_events WHERE id=?", (event_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_webhook_event(row)
+
+    def list_webhook_events(
+        self, status: Optional[str] = None, source: Optional[str] = None, limit: int = 50
+    ) -> list[WebhookEvent]:
+        query = "SELECT * FROM webhook_events WHERE 1=1"
+        params: list = []
+        if status is not None:
+            query += " AND status=?"
+            params.append(status)
+        if source is not None:
+            query += " AND source=?"
+            params.append(source)
+        query += " ORDER BY received_at DESC LIMIT ?"
+        params.append(limit)
+        rows = self.conn.execute(query, params).fetchall()
+        return [self._row_to_webhook_event(r) for r in rows]
+
+    def update_webhook_event_status(self, event_id: int, status: str) -> Optional[WebhookEvent]:
+        now = datetime.now().isoformat() if status in ("processed", "failed") else None
+        self.conn.execute(
+            "UPDATE webhook_events SET status=?, processed_at=? WHERE id=?",
+            (status, now, event_id),
+        )
+        self.conn.commit()
+        return self.get_webhook_event(event_id)
+
+    def _row_to_webhook_event(self, row: sqlite3.Row) -> WebhookEvent:
+        return WebhookEvent(
+            id=row["id"],
+            source=row["source"],
+            event_type=row["event_type"],
+            payload=row["payload"],
+            status=row["status"],
+            received_at=row["received_at"],
+            processed_at=row["processed_at"],
+        )
+
+    # --- Scheduled Tasks ---
+
+    def store_scheduled_task(self, task: ScheduledTask) -> ScheduledTask:
+        now = datetime.now().isoformat()
+        cursor = self.conn.execute(
+            """INSERT INTO scheduled_tasks (name, description, schedule_type, schedule_config,
+               handler_type, handler_config, enabled, next_run_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(name) DO UPDATE SET
+                   description=excluded.description,
+                   schedule_type=excluded.schedule_type,
+                   schedule_config=excluded.schedule_config,
+                   handler_type=excluded.handler_type,
+                   handler_config=excluded.handler_config,
+                   enabled=excluded.enabled,
+                   next_run_at=excluded.next_run_at,
+                   updated_at=excluded.updated_at""",
+            (task.name, task.description, task.schedule_type, task.schedule_config,
+             task.handler_type, task.handler_config, 1 if task.enabled else 0,
+             task.next_run_at, now, now),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT * FROM scheduled_tasks WHERE name=?", (task.name,)
+        ).fetchone()
+        return self._row_to_scheduled_task(row)
+
+    def get_scheduled_task(self, task_id: int) -> Optional[ScheduledTask]:
+        row = self.conn.execute(
+            "SELECT * FROM scheduled_tasks WHERE id=?", (task_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_scheduled_task(row)
+
+    def list_scheduled_tasks(self, enabled_only: bool = False) -> list[ScheduledTask]:
+        if enabled_only:
+            rows = self.conn.execute(
+                "SELECT * FROM scheduled_tasks WHERE enabled=1"
+            ).fetchall()
+        else:
+            rows = self.conn.execute("SELECT * FROM scheduled_tasks").fetchall()
+        return [self._row_to_scheduled_task(r) for r in rows]
+
+    def get_due_tasks(self, now: Optional[str] = None) -> list[ScheduledTask]:
+        if now is None:
+            now = datetime.now().isoformat()
+        rows = self.conn.execute(
+            "SELECT * FROM scheduled_tasks WHERE enabled=1 AND next_run_at IS NOT NULL AND next_run_at <= ?",
+            (now,),
+        ).fetchall()
+        return [self._row_to_scheduled_task(r) for r in rows]
+
+    _SCHEDULED_TASK_COLUMNS = frozenset({
+        "name", "description", "schedule_type", "schedule_config",
+        "handler_type", "handler_config", "enabled",
+        "last_run_at", "next_run_at", "last_result", "updated_at",
+    })
+
+    def update_scheduled_task(self, task_id: int, **kwargs) -> Optional[ScheduledTask]:
+        kwargs["updated_at"] = datetime.now().isoformat()
+        invalid = set(kwargs) - self._SCHEDULED_TASK_COLUMNS
+        if invalid:
+            raise ValueError(f"Invalid scheduled_task fields: {invalid}")
+        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
+            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
+        if "enabled" in kwargs:
+            kwargs["enabled"] = 1 if kwargs["enabled"] else 0
+        set_clause = ", ".join(f"{k}=?" for k in kwargs)
+        values = list(kwargs.values()) + [task_id]
+        self.conn.execute(
+            f"UPDATE scheduled_tasks SET {set_clause} WHERE id=?", values
+        )
+        self.conn.commit()
+        return self.get_scheduled_task(task_id)
+
+    def delete_scheduled_task(self, task_id: int) -> bool:
+        cursor = self.conn.execute(
+            "DELETE FROM scheduled_tasks WHERE id=?", (task_id,)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def _row_to_scheduled_task(self, row: sqlite3.Row) -> ScheduledTask:
+        return ScheduledTask(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            schedule_type=row["schedule_type"],
+            schedule_config=row["schedule_config"],
+            handler_type=row["handler_type"],
+            handler_config=row["handler_config"],
+            enabled=bool(row["enabled"]),
+            last_run_at=row["last_run_at"],
+            next_run_at=row["next_run_at"],
+            last_result=row["last_result"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    # --- Skill Usage ---
+
+    def record_skill_usage(self, tool_name: str, query_pattern: str) -> SkillUsage:
+        now = datetime.now().isoformat()
+        self.conn.execute(
+            """INSERT INTO skill_usage (tool_name, query_pattern, count, last_used, created_at)
+               VALUES (?, ?, 1, ?, ?)
+               ON CONFLICT(tool_name, query_pattern) DO UPDATE SET
+                   count = count + 1,
+                   last_used = excluded.last_used""",
+            (tool_name, query_pattern, now, now),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT * FROM skill_usage WHERE tool_name=? AND query_pattern=?",
+            (tool_name, query_pattern),
+        ).fetchone()
+        return self._row_to_skill_usage(row)
+
+    def get_skill_usage_patterns(self, min_count: int = 1) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT tool_name, query_pattern, count, last_used FROM skill_usage "
+            "WHERE count >= ? ORDER BY count DESC",
+            (min_count,),
+        ).fetchall()
+        return [
+            {
+                "tool_name": row["tool_name"],
+                "query_pattern": row["query_pattern"],
+                "count": row["count"],
+                "last_used": row["last_used"],
+            }
+            for row in rows
+        ]
+
+    def _row_to_skill_usage(self, row: sqlite3.Row) -> SkillUsage:
+        return SkillUsage(
+            id=row["id"],
+            tool_name=row["tool_name"],
+            query_pattern=row["query_pattern"],
+            count=row["count"],
+            last_used=row["last_used"],
+            created_at=row["created_at"],
+        )
+
+    # --- Skill Suggestions ---
+
+    def store_skill_suggestion(self, suggestion: SkillSuggestion) -> SkillSuggestion:
+        cursor = self.conn.execute(
+            """INSERT INTO skill_suggestions (description, suggested_name, suggested_capabilities,
+               confidence, status)
+               VALUES (?, ?, ?, ?, ?)""",
+            (suggestion.description, suggestion.suggested_name,
+             suggestion.suggested_capabilities, suggestion.confidence,
+             suggestion.status or "pending"),
+        )
+        self.conn.commit()
+        return self.get_skill_suggestion(cursor.lastrowid)
+
+    def get_skill_suggestion(self, suggestion_id: int) -> Optional[SkillSuggestion]:
+        row = self.conn.execute(
+            "SELECT * FROM skill_suggestions WHERE id=?", (suggestion_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_skill_suggestion(row)
+
+    def list_skill_suggestions(self, status: str = "pending") -> list[SkillSuggestion]:
+        rows = self.conn.execute(
+            "SELECT * FROM skill_suggestions WHERE status=? ORDER BY confidence DESC",
+            (status,),
+        ).fetchall()
+        return [self._row_to_skill_suggestion(r) for r in rows]
+
+    def update_skill_suggestion_status(self, suggestion_id: int, status: str) -> Optional[SkillSuggestion]:
+        self.conn.execute(
+            "UPDATE skill_suggestions SET status=? WHERE id=?",
+            (status, suggestion_id),
+        )
+        self.conn.commit()
+        return self.get_skill_suggestion(suggestion_id)
+
+    def _row_to_skill_suggestion(self, row: sqlite3.Row) -> SkillSuggestion:
+        return SkillSuggestion(
+            id=row["id"],
+            description=row["description"],
+            suggested_name=row["suggested_name"],
+            suggested_capabilities=row["suggested_capabilities"],
+            confidence=row["confidence"],
+            status=row["status"],
             created_at=row["created_at"],
         )
 

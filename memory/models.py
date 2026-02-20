@@ -80,3 +80,52 @@ class AlertRule:
     last_triggered_at: Optional[str] = None
     id: Optional[int] = None
     created_at: Optional[str] = None
+
+
+@dataclass
+class WebhookEvent:
+    source: str
+    event_type: str
+    payload: str = ""
+    status: str = "pending"
+    id: Optional[int] = None
+    received_at: Optional[str] = None
+    processed_at: Optional[str] = None
+
+
+@dataclass
+class ScheduledTask:
+    name: str
+    schedule_type: str  # interval, cron, once
+    schedule_config: str = ""  # JSON string
+    handler_type: str = ""  # alert_eval, backup, webhook_poll, custom
+    handler_config: str = ""  # JSON string
+    description: str = ""
+    enabled: bool = True
+    last_run_at: Optional[str] = None
+    next_run_at: Optional[str] = None
+    last_result: Optional[str] = None
+    id: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass
+class SkillUsage:
+    tool_name: str
+    query_pattern: str
+    count: int = 1
+    last_used: Optional[str] = None
+    id: Optional[int] = None
+    created_at: Optional[str] = None
+
+
+@dataclass
+class SkillSuggestion:
+    description: str
+    suggested_name: str = ""
+    suggested_capabilities: str = ""
+    confidence: float = 0.0
+    status: str = "pending"
+    id: Optional[int] = None
+    created_at: Optional[str] = None

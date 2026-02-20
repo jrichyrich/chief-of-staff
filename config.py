@@ -17,6 +17,17 @@ VALID_FACT_CATEGORIES = {"personal", "preference", "work", "relationship", "back
 OKR_DATA_DIR = DATA_DIR / "okr"
 OKR_SPREADSHEET_DEFAULT = OKR_DATA_DIR / "2026_ISP_OKR_Master_Final.xlsx"
 
+# Webhook server settings
+WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "8765"))
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
+
+# Scheduler settings
+SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+
+# Skill auto-creation settings
+SKILL_SUGGESTION_THRESHOLD = 0.7
+SKILL_MIN_OCCURRENCES = 5
+
 # Unified connector routing state
 CALENDAR_ROUTING_DB_PATH = DATA_DIR / "calendar-routing.db"
 CALENDAR_REQUIRE_DUAL_READ = os.environ.get("CALENDAR_REQUIRE_DUAL_READ", "true").strip().lower() not in {"0", "false", "no"}

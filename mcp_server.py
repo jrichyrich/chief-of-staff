@@ -143,6 +143,9 @@ from mcp_tools import (
     mail_tools,
     imessage_tools,
     okr_tools,
+    webhook_tools,
+    skill_tools,
+    scheduler_tools,
     resources,
 )
 
@@ -156,6 +159,9 @@ reminder_tools.register(mcp, _state)
 mail_tools.register(mcp, _state)
 imessage_tools.register(mcp, _state)
 okr_tools.register(mcp, _state)
+webhook_tools.register(mcp, _state)
+skill_tools.register(mcp, _state)
+scheduler_tools.register(mcp, _state)
 resources.register(mcp, _state)
 
 
