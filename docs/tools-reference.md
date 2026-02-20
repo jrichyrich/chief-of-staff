@@ -2,13 +2,13 @@
 
 Complete reference for all MCP tools and resources exposed by the Chief of Staff (Jarvis) server.
 
-**Total: 56 tools across 10 modules, plus 3 MCP resources.**
+**Total: 57 tools across 10 modules, plus 3 MCP resources.**
 
 ---
 
 ## Table of Contents
 
-1. [Memory Tools](#memory-tools) (5 tools)
+1. [Memory Tools](#memory-tools) (6 tools)
 2. [Document Tools](#document-tools) (2 tools)
 3. [Agent Tools](#agent-tools) (3 tools)
 4. [Lifecycle Tools](#lifecycle-tools) (14 tools)
@@ -53,14 +53,14 @@ Delete a fact from long-term memory.
 
 ### query_memory
 
-Search stored facts about the user. Returns matching facts.
+Search stored facts about the user. Returns matching facts ranked by relevance using temporal decay scoring (recent facts score higher). Uses FTS5 full-text search when no category filter is specified, with LIKE fallback.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | `str` | Yes | Search term to match against fact keys and values |
 | `category` | `str` | No | Filter to a specific category. Leave empty to search all. |
 
-**Returns:** JSON with `results` array of matching facts (category, key, value, confidence).
+**Returns:** JSON with `results` array of matching facts (category, key, value, confidence, relevance_score, updated_at).
 
 ### store_location
 
@@ -85,6 +85,18 @@ List all stored locations.
 | *(none)* | | | |
 
 **Returns:** JSON with `results` array of locations (name, address, notes).
+
+### checkpoint_session
+
+Save important session context to persistent memory before context compaction. Call this when important decisions, facts, or context have emerged during a conversation that should persist across sessions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `summary` | `str` | Yes | Concise summary of the current session's key context and outcomes |
+| `key_facts` | `str` | No | Comma-separated key facts to persist as individual memory facts |
+| `session_id` | `str` | No | Optional session identifier for organizing context entries |
+
+**Returns:** JSON with `status: "checkpoint_saved"`, `context_id`, `facts_stored` count.
 
 ---
 
@@ -816,7 +828,7 @@ All available expert agents and their descriptions.
 
 | Module | Tools | Description |
 |--------|-------|-------------|
-| Memory | 5 | Fact and location CRUD |
+| Memory | 6 | Fact and location CRUD, session checkpoints |
 | Documents | 2 | Semantic search and ingestion |
 | Agents | 3 | Agent config management |
 | Lifecycle | 14 | Decisions, delegations, alerts |
@@ -825,5 +837,5 @@ All available expert agents and their descriptions.
 | Mail | 9 | Mail read/search/send + notifications |
 | iMessage | 7 | iMessage read/search/send |
 | OKR | 2 | OKR tracking and queries |
-| **Total** | **56** | |
+| **Total** | **57** | |
 | Resources | 3 | Read-only data endpoints |

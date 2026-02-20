@@ -189,7 +189,7 @@ pytest tests/test_mcp_server.py::TestMCPTools::test_query_memory -v
 pytest --cov=agents --cov=memory --cov=documents --cov=mcp_tools
 ```
 
-The test suite contains 666 tests across 35 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
+The test suite contains 698 tests across 38 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
 
 ## License
 

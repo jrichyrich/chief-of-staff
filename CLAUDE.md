@@ -46,7 +46,7 @@ jarvis-mcp
 | Module | Tools |
 |--------|-------|
 | `mcp_tools/state.py` | `ServerState` dataclass, `_retry_on_transient` helper |
-| `mcp_tools/memory_tools.py` | store_fact, delete_fact, query_memory, store_location, list_locations |
+| `mcp_tools/memory_tools.py` | store_fact, delete_fact, query_memory, store_location, list_locations, checkpoint_session |
 | `mcp_tools/document_tools.py` | search_documents, ingest_documents (supports .txt, .md, .py, .json, .yaml, .pdf, .docx) |
 | `mcp_tools/agent_tools.py` | list_agents, get_agent, create_agent |
 | `mcp_tools/lifecycle_tools.py` | create_decision, search_decisions, update_decision, delete_decision, list_pending_decisions, create_delegation, list_delegations, update_delegation, delete_delegation, check_overdue_delegations, create_alert_rule, list_alert_rules, check_alerts, dismiss_alert |
@@ -69,7 +69,7 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `agents/registry.py` | Loads/saves agent configs from YAML files in `agent_configs/` |
 | `agents/factory.py` | Uses Claude to dynamically generate new agent configs |
 | `capabilities/registry.py` | Maps capability names (e.g. `calendar_read`) to tool schemas; validates agent configs |
-| `memory/store.py` | SQLite backend: facts, locations, context, decisions, delegations, alert_rules |
+| `memory/store.py` | SQLite backend: facts (with FTS5 full-text index), locations, context, decisions, delegations, alert_rules |
 | `memory/models.py` | Dataclasses: Fact, Location, ContextEntry, Decision, Delegation, AlertRule |
 | `documents/store.py` | ChromaDB vector search wrapper (all-MiniLM-L6-v2 embeddings) |
 | `documents/ingestion.py` | Text/PDF/DOCX chunking (word-based, 500 words, 50 overlap) and SHA256 dedup |
@@ -149,7 +149,7 @@ SQLite (`data/memory.db`) with 6 tables:
 
 ## Testing Conventions
 
-- 666 tests across 35 test files
+- 698 tests across 38 test files
 - Async tests use `@pytest.mark.asyncio` with `asyncio_mode = "Mode.STRICT"` in pyproject.toml
 - Anthropic API calls are mocked — tests never hit real APIs
 - Fixtures create isolated MemoryStore, DocumentStore, AgentRegistry instances using `tmp_path`
