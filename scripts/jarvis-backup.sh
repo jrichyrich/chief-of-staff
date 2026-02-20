@@ -213,9 +213,15 @@ fi
 # --- Pre-flight checks -------------------------------------------------------
 
 if [ ! -d "$ONEDRIVE_BASE" ]; then
-    log_error "OneDrive not found at $ONEDRIVE_BASE"
-    notify_failure "OneDrive not mounted"
-    exit 1
+    # OneDrive may not be mounted yet after wake — wait and retry once
+    log "OneDrive not found at $ONEDRIVE_BASE -- waiting 60s for mount..."
+    sleep 60
+    if [ ! -d "$ONEDRIVE_BASE" ]; then
+        log_error "OneDrive still not found at $ONEDRIVE_BASE after retry"
+        notify_failure "OneDrive not mounted"
+        exit 1
+    fi
+    log "OneDrive mounted after retry"
 fi
 
 # --- Log rotation (keep under 1000 lines) ------------------------------------
