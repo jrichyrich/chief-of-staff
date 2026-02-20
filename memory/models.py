@@ -129,3 +129,15 @@ class SkillSuggestion:
     status: str = "pending"
     id: Optional[int] = None
     created_at: Optional[str] = None
+
+
+@dataclass
+class AgentMemory:
+    agent_name: str = ""
+    memory_type: str = ""  # "insight", "preference", "context"
+    key: str = ""
+    value: str = ""
+    confidence: float = 1.0
+    id: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None

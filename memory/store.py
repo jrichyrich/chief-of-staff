@@ -7,18 +7,25 @@ from pathlib import Path
 from typing import Optional
 
 from memory.models import (
-    AlertRule, ContextEntry, Decision, Delegation, Fact, Location,
+    AgentMemory, AlertRule, ContextEntry, Decision, Delegation, Fact, Location,
     ScheduledTask, SkillSuggestion, SkillUsage, WebhookEvent,
 )
 
 
 class MemoryStore:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, chroma_client=None):
         self.db_path = db_path
         self.conn = sqlite3.connect(str(db_path))
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.row_factory = sqlite3.Row
+        self._chroma_client = chroma_client
+        self._facts_collection = None
+        if chroma_client is not None:
+            self._facts_collection = chroma_client.get_or_create_collection(
+                "facts_vectors",
+                metadata={"hnsw:space": "cosine"},
+            )
         self._create_tables()
 
     def _create_tables(self):
@@ -142,6 +149,18 @@ class MemoryStore:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS agent_memory (
+                id INTEGER PRIMARY KEY,
+                agent_name TEXT NOT NULL,
+                memory_type TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                confidence REAL DEFAULT 1.0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(agent_name, memory_type, key)
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
                 key, value, category,
                 content='facts', content_rowid='id'
@@ -178,6 +197,15 @@ class MemoryStore:
             (fact.category, fact.key, fact.value, fact.confidence, fact.source, now, now),
         )
         self.conn.commit()
+        if self._facts_collection is not None:
+            try:
+                self._facts_collection.upsert(
+                    ids=[f"{fact.category}:{fact.key}"],
+                    documents=[f"{fact.key}: {fact.value}"],
+                    metadatas=[{"category": fact.category, "key": fact.key}],
+                )
+            except Exception:
+                pass
         return self.get_fact(fact.category, fact.key)
 
     def get_fact(self, category: str, key: str) -> Optional[Fact]:
@@ -256,8 +284,41 @@ class MemoryStore:
         except Exception:
             return self.search_facts(query)
 
+    def search_facts_vector(self, query: str, top_k: int = 20) -> list[tuple[Fact, float]]:
+        """Semantic vector search over facts using ChromaDB.
+
+        Returns (Fact, score) tuples where score = 1.0 - cosine_distance.
+        """
+        if not self._facts_collection or not query or not query.strip():
+            return []
+        try:
+            count = self._facts_collection.count()
+            if count == 0:
+                return []
+            n = min(top_k, count)
+            results = self._facts_collection.query(
+                query_texts=[query], n_results=n,
+            )
+        except Exception:
+            return []
+        scored: list[tuple[Fact, float]] = []
+        ids = results.get("ids", [[]])[0]
+        distances = results.get("distances", [[]])[0]
+        for i, doc_id in enumerate(ids):
+            parts = doc_id.split(":", 1)
+            if len(parts) != 2:
+                continue
+            category, key = parts
+            fact = self.get_fact(category, key)
+            if fact is None:
+                continue
+            distance = distances[i] if i < len(distances) else 1.0
+            score = max(0.0, 1.0 - distance)
+            scored.append((fact, score))
+        return scored
+
     def search_facts_hybrid(self, query: str) -> list[tuple[Fact, float]]:
-        """Hybrid search combining FTS5 BM25 ranking with LIKE fallback.
+        """Hybrid search combining FTS5 BM25, LIKE, and vector search.
 
         Returns (Fact, score) tuples sorted by score descending.
         """
@@ -291,6 +352,15 @@ class MemoryStore:
             if fact.id not in merged:
                 merged[fact.id] = (fact, 0.5)
 
+        # Vector results (ChromaDB semantic search)
+        vector_results = self.search_facts_vector(query)
+        for fact, score in vector_results:
+            if fact.id not in merged:
+                merged[fact.id] = (fact, score)
+            else:
+                if score > merged[fact.id][1]:
+                    merged[fact.id] = (fact, score)
+
         results = list(merged.values())
         results.sort(key=lambda x: x[1], reverse=True)
         return results
@@ -300,6 +370,11 @@ class MemoryStore:
             "DELETE FROM facts WHERE category=? AND key=?", (category, key)
         )
         self.conn.commit()
+        if self._facts_collection is not None:
+            try:
+                self._facts_collection.delete(ids=[f"{category}:{key}"])
+            except Exception:
+                pass
         return cursor.rowcount > 0
 
     def _row_to_fact(self, row: sqlite3.Row) -> Fact:
@@ -889,6 +964,80 @@ class MemoryStore:
             confidence=row["confidence"],
             status=row["status"],
             created_at=row["created_at"],
+        )
+
+    # --- Agent Memory ---
+
+    def store_agent_memory(self, memory: AgentMemory) -> AgentMemory:
+        now = datetime.now().isoformat()
+        self.conn.execute(
+            """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
+                   value=excluded.value,
+                   confidence=excluded.confidence,
+                   updated_at=excluded.updated_at""",
+            (memory.agent_name, memory.memory_type, memory.key, memory.value,
+             memory.confidence, now, now),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? AND key=?",
+            (memory.agent_name, memory.memory_type, memory.key),
+        ).fetchone()
+        return self._row_to_agent_memory(row)
+
+    def get_agent_memories(self, agent_name: str, memory_type: str = "") -> list[AgentMemory]:
+        if memory_type:
+            rows = self.conn.execute(
+                "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? ORDER BY updated_at DESC",
+                (agent_name, memory_type),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM agent_memory WHERE agent_name=? ORDER BY updated_at DESC",
+                (agent_name,),
+            ).fetchall()
+        return [self._row_to_agent_memory(r) for r in rows]
+
+    def search_agent_memories(self, agent_name: str, query: str) -> list[AgentMemory]:
+        rows = self.conn.execute(
+            "SELECT * FROM agent_memory WHERE agent_name=? AND (key LIKE ? OR value LIKE ?) ORDER BY updated_at DESC",
+            (agent_name, f"%{query}%", f"%{query}%"),
+        ).fetchall()
+        return [self._row_to_agent_memory(r) for r in rows]
+
+    def delete_agent_memory(self, agent_name: str, key: str, memory_type: str = "") -> bool:
+        if memory_type:
+            cursor = self.conn.execute(
+                "DELETE FROM agent_memory WHERE agent_name=? AND key=? AND memory_type=?",
+                (agent_name, key, memory_type),
+            )
+        else:
+            cursor = self.conn.execute(
+                "DELETE FROM agent_memory WHERE agent_name=? AND key=?",
+                (agent_name, key),
+            )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def clear_agent_memories(self, agent_name: str) -> int:
+        cursor = self.conn.execute(
+            "DELETE FROM agent_memory WHERE agent_name=?", (agent_name,)
+        )
+        self.conn.commit()
+        return cursor.rowcount
+
+    def _row_to_agent_memory(self, row: sqlite3.Row) -> AgentMemory:
+        return AgentMemory(
+            id=row["id"],
+            agent_name=row["agent_name"],
+            memory_type=row["memory_type"],
+            key=row["key"],
+            value=row["value"],
+            confidence=row["confidence"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
     def close(self):

@@ -244,12 +244,35 @@ def _run_webhook_poll_handler(memory_store) -> str:
         return json.dumps({"status": "error", "handler": "webhook_poll", "error": str(e)})
 
 
+def _run_skill_analysis_handler(memory_store) -> str:
+    """Run the skill pattern analysis handler."""
+    try:
+        from skills.pattern_detector import PatternDetector
+        from memory.models import SkillSuggestion
+
+        detector = PatternDetector(memory_store)
+        patterns = detector.detect_patterns()
+        for pattern in patterns:
+            suggestion = SkillSuggestion(
+                description=pattern["description"],
+                suggested_name=pattern["tool_name"].replace(" ", "_") + "_specialist",
+                suggested_capabilities=pattern["tool_name"],
+                confidence=pattern["confidence"],
+            )
+            memory_store.store_skill_suggestion(suggestion)
+        return json.dumps({"status": "ok", "handler": "skill_analysis", "patterns_found": len(patterns)})
+    except Exception as e:
+        return json.dumps({"status": "error", "handler": "skill_analysis", "error": str(e)})
+
+
 def execute_handler(handler_type: str, handler_config: str, memory_store=None) -> str:
     """Execute a task handler and return a JSON result string."""
     if handler_type == "alert_eval":
         return _run_alert_eval_handler()
     elif handler_type == "webhook_poll":
         return _run_webhook_poll_handler(memory_store)
+    elif handler_type == "skill_analysis":
+        return _run_skill_analysis_handler(memory_store)
     elif handler_type == "custom":
         return _run_custom_handler(handler_config)
     else:

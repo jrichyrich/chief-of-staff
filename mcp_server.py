@@ -60,8 +60,11 @@ async def app_lifespan(server: FastMCP):
     detect_timeout_candidate = getattr(app_config, "M365_BRIDGE_DETECT_TIMEOUT_SECONDS", 5)
     m365_detect_timeout = detect_timeout_candidate if isinstance(detect_timeout_candidate, int) and detect_timeout_candidate > 0 else 5
 
-    memory_store = MemoryStore(app_config.MEMORY_DB_PATH)
     document_store = DocumentStore(persist_dir=app_config.CHROMA_PERSIST_DIR)
+    memory_store = MemoryStore(
+        app_config.MEMORY_DB_PATH,
+        chroma_client=document_store.client,
+    )
     agent_registry = AgentRegistry(app_config.AGENT_CONFIGS_DIR)
     apple_calendar_store = CalendarStore()
     m365_bridge = ClaudeM365Bridge(
@@ -146,6 +149,8 @@ from mcp_tools import (
     webhook_tools,
     skill_tools,
     scheduler_tools,
+    proactive_tools,
+    channel_tools,
     resources,
 )
 
@@ -162,6 +167,8 @@ okr_tools.register(mcp, _state)
 webhook_tools.register(mcp, _state)
 skill_tools.register(mcp, _state)
 scheduler_tools.register(mcp, _state)
+proactive_tools.register(mcp, _state)
+channel_tools.register(mcp, _state)
 resources.register(mcp, _state)
 
 

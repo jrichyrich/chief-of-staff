@@ -69,9 +69,45 @@ def register(mcp, state):
             return json.dumps({"error": str(exc)})
         return json.dumps({"status": "created", "name": name, "capabilities": caps})
 
+    @mcp.tool()
+    async def get_agent_memory(agent_name: str) -> str:
+        """Get all memories stored by a specific agent.
+
+        Args:
+            agent_name: The agent name to retrieve memories for
+        """
+        memory_store = state.memory_store
+        memories = memory_store.get_agent_memories(agent_name)
+        if not memories:
+            return json.dumps({"message": f"No memories found for agent '{agent_name}'.", "results": []})
+        results = [
+            {
+                "memory_type": m.memory_type,
+                "key": m.key,
+                "value": m.value,
+                "confidence": m.confidence,
+                "updated_at": m.updated_at,
+            }
+            for m in memories
+        ]
+        return json.dumps({"agent_name": agent_name, "results": results})
+
+    @mcp.tool()
+    async def clear_agent_memory(agent_name: str) -> str:
+        """Delete all memories for a specific agent.
+
+        Args:
+            agent_name: The agent name whose memories should be cleared
+        """
+        memory_store = state.memory_store
+        count = memory_store.clear_agent_memories(agent_name)
+        return json.dumps({"agent_name": agent_name, "deleted_count": count})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
     module.list_agents = list_agents
     module.get_agent = get_agent
     module.create_agent = create_agent
+    module.get_agent_memory = get_agent_memory
+    module.clear_agent_memory = clear_agent_memory

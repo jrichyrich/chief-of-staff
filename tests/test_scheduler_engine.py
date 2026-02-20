@@ -459,3 +459,63 @@ class TestSchedulerEngine:
         updated = memory_store.get_scheduled_task(stored.id)
         assert updated.last_run_at == now.isoformat()
         assert updated.last_result is not None
+
+
+# --- Skill Analysis Handler Tests ---
+
+
+class TestSkillAnalysisHandler:
+    def test_skill_analysis_no_patterns(self, memory_store):
+        result = json.loads(execute_handler("skill_analysis", "", memory_store=memory_store))
+        assert result["status"] == "ok"
+        assert result["handler"] == "skill_analysis"
+        assert result["patterns_found"] == 0
+
+    def test_skill_analysis_with_patterns(self, memory_store):
+        # Seed enough usage data to trigger pattern detection
+        for i in range(10):
+            memory_store.record_skill_usage("query_memory", "weekly meeting notes")
+        result = json.loads(execute_handler("skill_analysis", "", memory_store=memory_store))
+        assert result["status"] == "ok"
+        assert result["handler"] == "skill_analysis"
+        assert result["patterns_found"] >= 1
+
+        # Verify suggestions were stored
+        suggestions = memory_store.list_skill_suggestions(status="pending")
+        assert len(suggestions) >= 1
+
+    def test_skill_analysis_stores_suggestions(self, memory_store):
+        for i in range(10):
+            memory_store.record_skill_usage("search_calendar_events", "team standup")
+        execute_handler("skill_analysis", "", memory_store=memory_store)
+
+        suggestions = memory_store.list_skill_suggestions(status="pending")
+        assert len(suggestions) >= 1
+        assert any("search_calendar_events" in s.description for s in suggestions)
+
+    def test_skill_analysis_handler_error(self):
+        # Pass None as memory_store to trigger an error
+        result = json.loads(execute_handler("skill_analysis", "", memory_store=None))
+        assert result["status"] == "error"
+        assert result["handler"] == "skill_analysis"
+
+    def test_skill_analysis_via_scheduler(self, memory_store):
+        task = ScheduledTask(
+            name="daily-skill-analysis",
+            schedule_type="interval",
+            schedule_config=json.dumps({"hours": 24}),
+            handler_type="skill_analysis",
+            enabled=True,
+            next_run_at="2026-02-20T09:00:00",
+        )
+        stored = memory_store.store_scheduled_task(task)
+
+        engine = SchedulerEngine(memory_store)
+        now = datetime(2026, 2, 20, 10, 0, 0)
+        results = engine.evaluate_due_tasks(now=now)
+
+        assert len(results) == 1
+        assert results[0]["status"] == "executed"
+        result_data = json.loads(results[0]["result"])
+        assert result_data["handler"] == "skill_analysis"
+        assert "patterns_found" in result_data

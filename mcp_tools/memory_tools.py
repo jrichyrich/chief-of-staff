@@ -81,7 +81,7 @@ def register(mcp, state):
                     facts = [f for f in facts if q in f.value.lower() or q in f.key.lower()]
                 scored = memory_store.rank_facts(facts)
             else:
-                scored = _retry_on_transient(memory_store.search_facts_ranked, query)
+                scored = _retry_on_transient(memory_store.search_facts_hybrid, query)
 
             if not scored:
                 return json.dumps({"message": f"No facts found for query '{query}'.", "results": []})

@@ -39,7 +39,17 @@ class BaseExpertAgent:
         self.client = client or anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
 
     def build_system_prompt(self) -> str:
-        return self.config.system_prompt
+        prompt = self.config.system_prompt
+        try:
+            memories = self.memory_store.get_agent_memories(self.name)
+        except Exception:
+            memories = []
+        if memories:
+            lines = ["\n\n## Agent Memory (retained from previous runs)"]
+            for m in memories:
+                lines.append(f"- {m.key}: {m.value}")
+            prompt += "\n".join(lines)
+        return prompt
 
     def get_tools(self) -> list[dict]:
         return get_tools_for_capabilities(self.config.capabilities)

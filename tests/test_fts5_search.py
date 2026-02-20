@@ -176,3 +176,120 @@ class TestFTS5Rebuild:
         assert len(results) == 1
         assert results[0].key == "name"
         store.close()
+
+
+class TestVectorSearch:
+    """Tests for ChromaDB vector search integration."""
+
+    @pytest.fixture
+    def chroma_client(self):
+        import chromadb
+        return chromadb.Client()
+
+    @pytest.fixture
+    def vector_store(self, tmp_path, chroma_client):
+        db_path = tmp_path / "test_vector.db"
+        store = MemoryStore(db_path, chroma_client=chroma_client)
+        yield store
+        store.close()
+
+    def test_no_chroma_backward_compat(self, memory_store):
+        """MemoryStore without chroma_client still works for all operations."""
+        assert memory_store._facts_collection is None
+        memory_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        result = memory_store.get_fact("personal", "name")
+        assert result is not None
+        assert result.value == "Jason"
+        # Vector search returns empty when no chroma
+        assert memory_store.search_facts_vector("Jason") == []
+        # Hybrid still works (FTS + LIKE only)
+        results = memory_store.search_facts_hybrid("Jason")
+        assert len(results) == 1
+
+    def test_store_fact_upserts_to_chroma(self, vector_store):
+        """store_fact should upsert the fact into ChromaDB."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason Richardson"))
+        count = vector_store._facts_collection.count()
+        assert count == 1
+
+    def test_store_fact_updates_chroma_on_overwrite(self, vector_store):
+        """Updating a fact should upsert (not duplicate) in ChromaDB."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jay"))
+        count = vector_store._facts_collection.count()
+        assert count == 1  # Same id, so upserted not duplicated
+
+    def test_delete_fact_removes_from_chroma(self, vector_store):
+        """delete_fact should remove the vector from ChromaDB."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        assert vector_store._facts_collection.count() == 1
+        vector_store.delete_fact("personal", "name")
+        assert vector_store._facts_collection.count() == 0
+
+    def test_delete_nonexistent_fact_no_chroma_error(self, vector_store):
+        """Deleting a fact not in ChromaDB should not raise."""
+        vector_store.delete_fact("personal", "nonexistent")
+        # Should not raise
+
+    def test_search_facts_vector_returns_results(self, vector_store):
+        """Vector search should return semantically relevant facts."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason Richardson"))
+        vector_store.store_fact(Fact(category="work", key="title", value="Software Engineer"))
+        vector_store.store_fact(Fact(category="preference", key="color", value="blue"))
+        results = vector_store.search_facts_vector("engineer")
+        assert len(results) >= 1
+        facts = [f for f, _ in results]
+        keys = [f.key for f in facts]
+        assert "title" in keys
+
+    def test_search_facts_vector_empty_query(self, vector_store):
+        """Empty queries return no results."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        assert vector_store.search_facts_vector("") == []
+        assert vector_store.search_facts_vector("   ") == []
+
+    def test_search_facts_vector_no_facts(self, vector_store):
+        """Vector search on empty collection returns empty."""
+        results = vector_store.search_facts_vector("anything")
+        assert results == []
+
+    def test_search_facts_vector_score_range(self, vector_store):
+        """Scores should be between 0 and 1 (1.0 - cosine_distance)."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason Richardson"))
+        results = vector_store.search_facts_vector("Jason")
+        assert len(results) == 1
+        _, score = results[0]
+        assert 0.0 <= score <= 1.0
+
+    def test_hybrid_includes_vector_results(self, vector_store):
+        """Hybrid search should merge vector results with FTS + LIKE."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason Richardson"))
+        vector_store.store_fact(Fact(category="work", key="role", value="software developer"))
+        results = vector_store.search_facts_hybrid("engineer")
+        # "engineer" won't match LIKE or FTS on "software developer",
+        # but vector search should find it semantically
+        fact_keys = [f.key for f, _ in results]
+        assert "role" in fact_keys
+
+    def test_hybrid_dedup_keeps_highest_score(self, vector_store):
+        """When a fact appears in multiple sources, the highest score wins."""
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        results = vector_store.search_facts_hybrid("Jason")
+        # Should appear exactly once (deduped across FTS + LIKE + vector)
+        assert len(results) == 1
+
+    def test_hybrid_merges_all_three_sources(self, vector_store):
+        """Hybrid search merges FTS5, LIKE, and vector results."""
+        # This fact will match FTS5 and LIKE on "Jason"
+        vector_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        # This fact will match LIKE on "email" substring but not FTS token "Jason"
+        vector_store.store_fact(Fact(category="work", key="email", value="jason@example.com"))
+        # This fact should only be found by vector search (semantic match)
+        vector_store.store_fact(Fact(category="work", key="role", value="software developer"))
+
+        results = vector_store.search_facts_hybrid("Jason")
+        fact_keys = [f.key for f, _ in results]
+        # FTS + LIKE should find "name"
+        assert "name" in fact_keys
+        # LIKE should find "email" (substring match on "jason")
+        assert "email" in fact_keys
