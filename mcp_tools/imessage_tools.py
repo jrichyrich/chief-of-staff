@@ -132,6 +132,10 @@ def register(mcp, state):
                 limit=limit,
                 include_from_me=include_from_me,
             )
+            try:
+                state.memory_store.record_skill_usage("search_imessages", query)
+            except Exception:
+                pass
             return json.dumps({"results": messages})
         except Exception as e:
             return json.dumps({"error": str(e)})

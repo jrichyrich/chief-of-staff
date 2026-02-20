@@ -29,6 +29,10 @@ def register(mcp, state):
             if not results:
                 return json.dumps({"message": "No documents found. Ingest documents first.", "results": []})
 
+            try:
+                state.memory_store.record_skill_usage("search_documents", query)
+            except Exception:
+                pass
             return json.dumps({"results": results})
         except (sqlite3.OperationalError, ValueError, KeyError) as e:
             return json.dumps({"error": f"Database error searching documents: {e}"})

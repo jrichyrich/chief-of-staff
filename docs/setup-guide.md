@@ -64,6 +64,10 @@ All settings are read from environment variables. The `.env.example` file docume
 | `M365_BRIDGE_DETECT_TIMEOUT_SECONDS` | No | `5` | Timeout for detecting whether the M365 connector is available |
 | `CALENDAR_REQUIRE_DUAL_READ` | No | `true` | When true, calendar reads query both Apple and M365 providers |
 | `JARVIS_ONEDRIVE_BASE` | No | -- | OneDrive path for backup script (e.g. `$HOME/Library/CloudStorage/OneDrive-YourOrg`) |
+| `WEBHOOK_INBOX_DIR` | No | `$JARVIS_DATA_DIR/webhook-inbox` | Webhook file-drop inbox directory |
+| `SCHEDULER_ENABLED` | No | `true` | Enable built-in task scheduler |
+| `SKILL_SUGGESTION_THRESHOLD` | No | `0.7` | Minimum confidence for skill auto-suggestions |
+| `SKILL_MIN_OCCURRENCES` | No | `5` | Minimum usage count before suggesting a skill |
 
 The inbox monitor and iMessage daemon have additional env vars documented in [docs/inbox-monitor-setup.md](inbox-monitor-setup.md).
 
@@ -152,6 +156,7 @@ The script replaces `__PROJECT_DIR__` placeholders in the plist templates with y
 | `com.chg.jarvis-backup` | Periodic backup of runtime data |
 | `com.chg.alert-evaluator` | Evaluates alert rules (overdue delegations, stale decisions, upcoming deadlines) |
 | `com.chg.imessage-daemon` | Continuously ingests iMessage events into a SQLite queue and dispatches to the inbox monitor |
+| `com.chg.scheduler-engine` | Evaluates due scheduled tasks every 5 minutes |
 
 ### Verify LaunchAgents are running
 

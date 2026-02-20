@@ -242,6 +242,10 @@ def register(mcp, state):
             if source_filter:
                 kwargs["source_filter"] = source_filter
             events = calendar_store.search_events(query, start_dt, end_dt, **kwargs)
+            try:
+                state.memory_store.record_skill_usage("search_calendar_events", query)
+            except Exception:
+                pass
             return json.dumps({"results": events})
         except Exception as e:
             return json.dumps({"error": f"Failed to search events: {e}"})

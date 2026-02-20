@@ -441,3 +441,103 @@ graph LR
 | `planning` | -- | Legacy |
 | `file_operations` | -- | Legacy |
 | `code_execution` | -- | Legacy |
+
+---
+
+## 5. Webhook Ingest System
+
+External automations (CI/CD pipelines, monitoring, third-party services) push events into Jarvis by dropping JSON files into a file-drop inbox directory (`data/webhook-inbox/` by default, controlled by `WEBHOOK_INBOX_DIR`).
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `webhook/ingest.py` | CLI that scans the inbox, validates JSON payloads, and stores them to the `webhook_events` table |
+| `mcp_tools/webhook_tools.py` | MCP tools (`list_webhook_events`, `get_webhook_event`, `process_webhook_event`) for querying and processing queued events |
+| `memory/store.py` | SQLite `webhook_events` table storing source, event type, payload, and status |
+
+### Flow
+
+```
+External system  -->  drops JSON file to data/webhook-inbox/
+                        |
+                        v
+webhook/ingest.py  -->  validates & stores to webhook_events table
+                        |
+                        v
+MCP tools          -->  list / get / process events via Claude
+```
+
+The scheduler's `webhook_poll` handler can trigger periodic ingestion so events are picked up automatically.
+
+---
+
+## 6. Self-Authoring Skills
+
+The self-authoring skills system detects repeated tool usage patterns and suggests new agent configurations automatically.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `mcp_tools/skill_tools.py` | MCP tools: `record_tool_usage`, `analyze_skill_patterns`, `list_skill_suggestions`, `auto_create_skill` |
+| `skills/pattern_detector.py` | `PatternDetector` class that clusters usage rows using Jaccard similarity to find repeated patterns |
+| `memory/store.py` | SQLite tables: `skill_usage` (raw usage records) and `skill_suggestions` (detected patterns with confidence scores) |
+| `agents/factory.py` | `AgentFactory` creates YAML agent configs from natural-language descriptions via Claude |
+
+### Flow
+
+```
+Tool usage  -->  record_tool_usage (stores to skill_usage table)
+                        |
+                        v
+analyze_skill_patterns  -->  PatternDetector clusters by tool + Jaccard similarity
+                        |
+                        v
+Suggestions stored  -->  skill_suggestions table (confidence >= SKILL_SUGGESTION_THRESHOLD)
+                        |
+                        v
+auto_create_skill   -->  AgentFactory generates YAML config --> agent_configs/
+```
+
+Key configuration (from `config.py`):
+- `SKILL_SUGGESTION_THRESHOLD` (default `0.7`) -- minimum confidence to surface a suggestion
+- `SKILL_MIN_OCCURRENCES` (default `5`) -- minimum usage count before a pattern is considered
+
+---
+
+## 7. Built-in Scheduler
+
+A lightweight task scheduler backed by SQLite, supporting interval, cron, and one-shot schedules.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `scheduler/engine.py` | `SchedulerEngine` class and `CronExpression` parser (stdlib only, no external cron libraries) |
+| `memory/store.py` | SQLite `scheduled_tasks` table with schedule type, config, next/last run times, and handler config |
+| `mcp_tools/scheduler_tools.py` | MCP tools for creating, listing, and managing scheduled tasks |
+
+### Schedule Types
+
+| Type | Config Format | Example |
+|------|--------------|---------|
+| `interval` | `{"minutes": N}` or `{"hours": N}` | Run every 30 minutes |
+| `cron` | `{"expression": "*/15 * * * *"}` | Standard 5-field cron (minute hour day month weekday) |
+| `once` | `{"run_at": "2026-03-01T09:00:00"}` | Single future execution |
+
+### Handler Types
+
+| Handler | Behavior |
+|---------|----------|
+| `alert_eval` | Runs the alert rule evaluator (`scheduler/alert_evaluator.py`) |
+| `webhook_poll` | Triggers webhook inbox ingestion |
+| `custom` | Runs a subprocess command (with a blocklist of dangerous commands and shell metacharacter checks) |
+
+### Standalone Entry Point
+
+```bash
+python -m scheduler.engine
+```
+
+Reads `scheduled_tasks` from `data/memory.db`, evaluates all due tasks, executes their handlers, and updates next-run times. Intended to run via launchd (`com.chg.scheduler-engine`) every 5 minutes. Complements (does not replace) existing launchd plists for specific tasks like alert evaluation.

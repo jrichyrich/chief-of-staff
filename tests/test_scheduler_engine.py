@@ -282,9 +282,39 @@ class TestExecuteHandler:
         assert result["status"] == "skipped"
         assert "not yet implemented" in result["message"]
 
-    def test_webhook_poll_not_implemented(self):
-        result = json.loads(execute_handler("webhook_poll", ""))
-        assert result["status"] == "skipped"
+    def test_webhook_poll_calls_ingest(self):
+        mock_store = MagicMock()
+        with patch("scheduler.engine.Path") as mock_path_cls:
+            mock_path_instance = MagicMock()
+            mock_path_instance.exists.return_value = True
+            mock_path_cls.return_value = mock_path_instance
+            with patch("webhook.ingest.ingest_events", return_value={"ingested": 2, "failed": 0, "skipped": 0}) as mock_ingest:
+                result = json.loads(execute_handler("webhook_poll", "", memory_store=mock_store))
+                assert result["status"] == "ok"
+                assert result["handler"] == "webhook_poll"
+                assert result["ingested"] == 2
+                mock_ingest.assert_called_once()
+
+    def test_webhook_poll_inbox_missing(self):
+        mock_store = MagicMock()
+        with patch("scheduler.engine.Path") as mock_path_cls:
+            mock_path_instance = MagicMock()
+            mock_path_instance.exists.return_value = False
+            mock_path_cls.return_value = mock_path_instance
+            result = json.loads(execute_handler("webhook_poll", "", memory_store=mock_store))
+            assert result["status"] == "ok"
+            assert "does not exist" in result["message"]
+
+    def test_webhook_poll_error(self):
+        mock_store = MagicMock()
+        with patch("scheduler.engine.Path") as mock_path_cls:
+            mock_path_instance = MagicMock()
+            mock_path_instance.exists.return_value = True
+            mock_path_cls.return_value = mock_path_instance
+            with patch("webhook.ingest.ingest_events", side_effect=RuntimeError("ingest boom")):
+                result = json.loads(execute_handler("webhook_poll", "", memory_store=mock_store))
+                assert result["status"] == "error"
+                assert "ingest boom" in result["error"]
 
 
 # --- SchedulerEngine Tests ---

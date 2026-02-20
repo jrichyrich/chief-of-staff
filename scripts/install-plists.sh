@@ -20,6 +20,7 @@ PLIST_LABELS=(
     com.chg.jarvis-backup
     com.chg.alert-evaluator
     com.chg.imessage-daemon
+    com.chg.scheduler-engine
 )
 
 if [[ "${1:-}" == "--uninstall" ]]; then

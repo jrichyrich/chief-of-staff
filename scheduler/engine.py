@@ -224,10 +224,32 @@ def _run_custom_handler(handler_config: str) -> str:
         return json.dumps({"status": "error", "handler": "custom", "error": str(e)})
 
 
-def execute_handler(handler_type: str, handler_config: str) -> str:
+def _run_webhook_poll_handler(memory_store) -> str:
+    """Run the webhook poll handler to ingest queued webhook events."""
+    try:
+        from webhook.ingest import ingest_events
+        from config import WEBHOOK_INBOX_DIR
+
+        inbox_dir = Path(WEBHOOK_INBOX_DIR)
+        if not inbox_dir.exists():
+            return json.dumps({
+                "status": "ok",
+                "handler": "webhook_poll",
+                "message": "Inbox directory does not exist yet, nothing to ingest",
+            })
+
+        result = ingest_events(memory_store, inbox_dir)
+        return json.dumps({"status": "ok", "handler": "webhook_poll", **result})
+    except Exception as e:
+        return json.dumps({"status": "error", "handler": "webhook_poll", "error": str(e)})
+
+
+def execute_handler(handler_type: str, handler_config: str, memory_store=None) -> str:
     """Execute a task handler and return a JSON result string."""
     if handler_type == "alert_eval":
         return _run_alert_eval_handler()
+    elif handler_type == "webhook_poll":
+        return _run_webhook_poll_handler(memory_store)
     elif handler_type == "custom":
         return _run_custom_handler(handler_config)
     else:
@@ -269,7 +291,7 @@ class SchedulerEngine:
         }
 
         try:
-            handler_result = execute_handler(task.handler_type, task.handler_config)
+            handler_result = execute_handler(task.handler_type, task.handler_config, memory_store=self.memory_store)
             task_result["result"] = handler_result
 
             # Calculate next run

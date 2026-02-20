@@ -97,6 +97,10 @@ def register(mcp, state):
                 }
                 for f, score in scored
             ]
+            try:
+                memory_store.record_skill_usage("query_memory", query)
+            except Exception:
+                pass
             return json.dumps({"results": results})
         except (sqlite3.OperationalError, ValueError, KeyError) as e:
             return json.dumps({"error": f"Database error querying memory: {e}"})

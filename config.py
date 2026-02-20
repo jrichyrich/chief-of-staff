@@ -17,8 +17,8 @@ VALID_FACT_CATEGORIES = {"personal", "preference", "work", "relationship", "back
 OKR_DATA_DIR = DATA_DIR / "okr"
 OKR_SPREADSHEET_DEFAULT = OKR_DATA_DIR / "2026_ISP_OKR_Master_Final.xlsx"
 
-# Webhook server settings
-WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "8765"))
+# Webhook inbox settings
+WEBHOOK_INBOX_DIR = DATA_DIR / "webhook-inbox"
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
 # Scheduler settings

@@ -181,6 +181,45 @@ class TestQueryMemory:
         assert data["results"] == []
 
 
+class TestSkillUsageRecording:
+    @pytest.mark.asyncio
+    async def test_query_memory_records_skill_usage(self, shared_state):
+        """Verify query_memory records a skill_usage entry on successful search."""
+        import mcp_server
+        from mcp_tools.memory_tools import query_memory
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="personal", key="name", value="Jason")
+        )
+
+        mcp_server._state.update(shared_state)
+        try:
+            await query_memory("Jason")
+        finally:
+            mcp_server._state.clear()
+
+        patterns = shared_state["memory_store"].get_skill_usage_patterns()
+        assert any(
+            p["tool_name"] == "query_memory" and p["query_pattern"] == "Jason"
+            for p in patterns
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_memory_no_recording_on_empty_results(self, shared_state):
+        """Verify query_memory does NOT record usage when there are no results."""
+        import mcp_server
+        from mcp_tools.memory_tools import query_memory
+
+        mcp_server._state.update(shared_state)
+        try:
+            await query_memory("nonexistent")
+        finally:
+            mcp_server._state.clear()
+
+        patterns = shared_state["memory_store"].get_skill_usage_patterns()
+        assert not any(p["tool_name"] == "query_memory" for p in patterns)
+
+
 class TestStoreLocation:
     @pytest.mark.asyncio
     async def test_store_location(self, shared_state):

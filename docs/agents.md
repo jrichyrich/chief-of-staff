@@ -362,6 +362,14 @@ The `AgentFactory` class in `agents/factory.py` uses Claude to generate new agen
 
 Dynamic agents have `created_by: chief_of_staff` and a `created_at` timestamp in their config, making them easy to identify and refine later.
 
+### Auto-Suggested Agents (Self-Authoring Skills)
+
+In addition to on-demand dynamic creation, agents can be **auto-suggested** based on tool usage patterns. The self-authoring skills system (`skills/pattern_detector.py`) tracks how MCP tools are used over time, clusters repeated patterns using Jaccard similarity, and generates suggestions when a pattern exceeds configured confidence and frequency thresholds (`SKILL_SUGGESTION_THRESHOLD` and `SKILL_MIN_OCCURRENCES` in `config.py`).
+
+Suggestions are stored in the `skill_suggestions` SQLite table and can be reviewed via the `list_skill_suggestions` MCP tool. Accepting a suggestion with `auto_create_skill` delegates to the existing `AgentFactory` to generate a YAML config, making the new agent immediately available -- no manual YAML authoring required.
+
+See [Architecture: Self-Authoring Skills](architecture.md#6-self-authoring-skills) for the full system flow.
+
 ---
 
 ## Agent Execution Details

@@ -100,6 +100,10 @@ def register(mcp, state):
         mail_store = state.mail_store
         try:
             messages = mail_store.search_messages(query=query, mailbox=mailbox, account=account, limit=limit)
+            try:
+                state.memory_store.record_skill_usage("search_mail", query)
+            except Exception:
+                pass
             return json.dumps({"results": messages})
         except Exception as e:
             return json.dumps({"error": str(e)})
