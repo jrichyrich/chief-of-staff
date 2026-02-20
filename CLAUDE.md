@@ -158,6 +158,10 @@ SQLite (`data/memory.db`) with 6 tables:
 - Tool functions are imported from `mcp_tools.*` modules (e.g. `from mcp_tools.calendar_tools import list_calendars`)
 - Tests must `import mcp_server` first to trigger `register()` calls before importing tool functions
 
+## Agent Teams
+
+When a task involves 3+ independent subtasks that can run in parallel (e.g., multi-source research, OKR analysis, meeting prep, daily briefs, code analysis across multiple files), **proactively create a team of agents**. Do not wait for explicit user instruction to parallelize — default to spinning up teams whenever there is a clear parallelization opportunity.
+
 ## Package Naming Warning
 
 **NEVER** name a package `calendar/` — it shadows Python's stdlib `calendar` module, breaking `http.cookiejar` → `httpx` → `anthropic` import chain. Use `apple_calendar/` instead.
