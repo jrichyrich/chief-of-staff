@@ -205,7 +205,7 @@ If the M365 connector is not detected at startup, M365 calendar operations are s
 pytest
 ```
 
-All tests should pass (577 expected). Tests mock all external APIs -- no Anthropic key or macOS permissions needed.
+All tests should pass (666 expected). Tests mock all external APIs -- no Anthropic key or macOS permissions needed.
 
 ### Start the MCP server
 

@@ -168,6 +168,10 @@ chief_of_staff/
 
 - [Architecture](docs/architecture.md) -- System design, data flow, and module interactions
 - [iMessage Inbox Monitor Setup](docs/inbox-monitor-setup.md) -- Configuring the autonomous iMessage daemon
+- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 56 MCP tools
+- [Agent System](docs/agents.md) -- Agent architecture, capabilities, and configuration guide
+- [Setup Guide](docs/setup-guide.md) -- Installation, environment variables, and troubleshooting
+- [Project Review Team](docs/project-review-team.md) -- Running structured project reviews with specialist agents
 
 ## Testing
 
@@ -185,7 +189,7 @@ pytest tests/test_mcp_server.py::TestMCPTools::test_query_memory -v
 pytest --cov=agents --cov=memory --cov=documents --cov=mcp_tools
 ```
 
-The test suite contains 577 tests across 27+ test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
+The test suite contains 666 tests across 35 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
 
 ## License
 

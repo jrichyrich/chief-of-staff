@@ -78,7 +78,7 @@ graph TB
         ACS["CalendarStore<br/><i>PyObjC EventKit</i>"]
         ARS["ReminderStore<br/><i>PyObjC EventKit</i>"]
         AMS["MailStore<br/><i>osascript / AppleScript</i>"]
-        MSGS["MessageStore<br/><i>SQLite chat.db + osascript</i>"]
+        MSGS["MessageStore<br/><i>SQLite chat.db + osascript</i><br/><i>guid resolution for group chats</i>"]
         NOT["Notifier<br/><i>osascript</i>"]
     end
 

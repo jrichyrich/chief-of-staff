@@ -188,7 +188,8 @@ The following agents ship with Chief of Staff in the `agent_configs/` directory.
 |-------|-------------|--------------|
 | `daily_briefing` | Generates a prioritized daily briefing from calendar, email, Teams, and memory | `memory_read`, `memory_write`, `document_search`, `calendar_read`, `reminders_read`, `mail_read` |
 | `weekly_planner` | Runs a priority-focused weekly planning session | `memory_read`, `document_search`, `calendar_read`, `reminders_read`, `mail_read` |
-| `meeting_prep` | Prepares talking points and briefing notes for 1:1 meetings | `memory_read`, `document_search`, `calendar_read`, `reminders_read`, `mail_read` |
+| `meeting_prep` | Prepares talking points, agendas, and briefing notes for meetings by gathering context from emails, calendar, Teams, documents, decisions, delegations, and memory | `memory_read`, `document_search`, `calendar_read`, `reminders_read`, `mail_read`, `decision_read`, `delegation_read` |
+| `meeting_debrief` | Captures post-meeting outcomes -- decisions, action items, delegations -- and stores them in tracking systems for future meeting prep | `memory_read`, `memory_write`, `decision_write`, `delegation_write`, `calendar_read` |
 | `agenda_manager` | Creates and updates meeting agendas, publishes to Confluence | `memory_read`, `memory_write`, `document_search` |
 | `scheduler` | Finds available meeting times by analyzing calendar events | `calendar_read` |
 
