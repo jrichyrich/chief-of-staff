@@ -131,8 +131,12 @@ if $RESTORE; then
         echo "  1. memory.db (SQLite .backup)"
         echo "  2. ChromaDB vector store (SQLite .backup + rsync)"
         echo "  3. Inbox state (inbox-processed.json, inbox-log.md)"
+        echo "  3b. Calendar routing database"
+        echo "  3c. iMessage thread profiles database"
+        echo "  3d. OKR snapshots"
+        echo "  3e. Webhook inbox"
         echo "  4. Document library (~Documents/Jarvis/)"
-        echo "  5. Agent configs (26 YAML files)"
+        echo "  5. Agent configs (YAML files)"
         echo "  6. Scripts"
         echo "  7. Hooks"
         echo "  8. Config files (config.py, .mcp.json, manifest.json, pyproject.toml, CLAUDE.md)"
@@ -167,6 +171,32 @@ if $RESTORE; then
             echo "[OK] $f restored"
         fi
     done
+
+    # 3b. Calendar routing database
+    if [ -f "$BACKUP_DIR/data/calendar-routing.db" ]; then
+        cp "$BACKUP_DIR/data/calendar-routing.db" "$PROJECT_DIR/data/calendar-routing.db"
+        echo "[OK] calendar-routing.db restored"
+    fi
+
+    # 3c. iMessage thread profiles
+    if [ -f "$BACKUP_DIR/data/imessage-thread-profiles.db" ]; then
+        cp "$BACKUP_DIR/data/imessage-thread-profiles.db" "$PROJECT_DIR/data/imessage-thread-profiles.db"
+        echo "[OK] imessage-thread-profiles.db restored"
+    fi
+
+    # 3d. OKR snapshots
+    if [ -d "$BACKUP_DIR/data/okr" ]; then
+        mkdir -p "$PROJECT_DIR/data/okr"
+        rsync -av "$BACKUP_DIR/data/okr/" "$PROJECT_DIR/data/okr/"
+        echo "[OK] OKR snapshots restored"
+    fi
+
+    # 3e. Webhook inbox
+    if [ -d "$BACKUP_DIR/data/webhook-inbox" ]; then
+        mkdir -p "$PROJECT_DIR/data/webhook-inbox"
+        rsync -av "$BACKUP_DIR/data/webhook-inbox/" "$PROJECT_DIR/data/webhook-inbox/"
+        echo "[OK] Webhook inbox restored"
+    fi
 
     # 4. Document library
     if [ -d "$BACKUP_DIR/documents" ]; then
@@ -317,6 +347,84 @@ for f in inbox-processed.json inbox-log.md; do
     fi
 done
 
+# --- 3b. Calendar Routing Database -------------------------------------------
+
+log_section "Calendar Routing Database"
+CAL_ROUTING_DB="$PROJECT_DIR/data/calendar-routing.db"
+BACKUP_CAL_ROUTING="$BACKUP_DIR/data/calendar-routing.db"
+SNAPSHOT_CAL_ROUTING="$SNAPSHOT_DIR/$DATE_STAMP/calendar-routing.db"
+
+if [ -f "$CAL_ROUTING_DB" ]; then
+    if $DRY_RUN; then
+        log "Would backup calendar-routing.db via sqlite3 .backup"
+    else
+        sqlite3 "$CAL_ROUTING_DB" "PRAGMA wal_checkpoint(PASSIVE);" 2>/dev/null || true
+        sqlite3 "$CAL_ROUTING_DB" ".backup '$BACKUP_CAL_ROUTING'"
+        sqlite3 "$CAL_ROUTING_DB" ".backup '$SNAPSHOT_CAL_ROUTING'"
+        verify_sqlite "$BACKUP_CAL_ROUTING" "calendar-routing.db (latest)"
+        log "calendar-routing.db backed up ($(du -h "$BACKUP_CAL_ROUTING" | cut -f1))"
+    fi
+else
+    log "SKIP: calendar-routing.db not found (M365 bridge not used)"
+fi
+
+# --- 3c. iMessage Thread Profiles Database -----------------------------------
+
+log_section "iMessage Thread Profiles"
+THREAD_PROFILES_DB="$PROJECT_DIR/data/imessage-thread-profiles.db"
+BACKUP_THREAD_PROFILES="$BACKUP_DIR/data/imessage-thread-profiles.db"
+SNAPSHOT_THREAD_PROFILES="$SNAPSHOT_DIR/$DATE_STAMP/imessage-thread-profiles.db"
+
+if [ -f "$THREAD_PROFILES_DB" ]; then
+    if $DRY_RUN; then
+        log "Would backup imessage-thread-profiles.db via sqlite3 .backup"
+    else
+        sqlite3 "$THREAD_PROFILES_DB" "PRAGMA wal_checkpoint(PASSIVE);" 2>/dev/null || true
+        sqlite3 "$THREAD_PROFILES_DB" ".backup '$BACKUP_THREAD_PROFILES'"
+        sqlite3 "$THREAD_PROFILES_DB" ".backup '$SNAPSHOT_THREAD_PROFILES'"
+        verify_sqlite "$BACKUP_THREAD_PROFILES" "imessage-thread-profiles.db (latest)"
+        log "imessage-thread-profiles.db backed up ($(du -h "$BACKUP_THREAD_PROFILES" | cut -f1))"
+    fi
+else
+    log "SKIP: imessage-thread-profiles.db not found"
+fi
+
+# --- 3d. OKR Snapshots ------------------------------------------------------
+
+log_section "OKR Snapshots"
+OKR_SRC="$PROJECT_DIR/data/okr"
+OKR_DST="$BACKUP_DIR/data/okr"
+
+if [ -d "$OKR_SRC" ]; then
+    if ! $DRY_RUN; then
+        mkdir -p "$OKR_DST"
+    fi
+    rsync $RSYNC_OPTS "$OKR_SRC/" "$OKR_DST/" 2>&1 | \
+        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    OKR_COUNT=$(find "$OKR_SRC" -type f 2>/dev/null | wc -l | tr -d ' ')
+    log "OKR snapshots synced ($OKR_COUNT files)"
+else
+    log "SKIP: OKR directory not found"
+fi
+
+# --- 3e. Webhook Inbox -------------------------------------------------------
+
+log_section "Webhook Inbox"
+WEBHOOK_INBOX="$PROJECT_DIR/data/webhook-inbox"
+WEBHOOK_DST="$BACKUP_DIR/data/webhook-inbox"
+
+if [ -d "$WEBHOOK_INBOX" ]; then
+    if ! $DRY_RUN; then
+        mkdir -p "$WEBHOOK_DST"
+    fi
+    rsync $RSYNC_OPTS "$WEBHOOK_INBOX/" "$WEBHOOK_DST/" 2>&1 | \
+        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    WEBHOOK_COUNT=$(find "$WEBHOOK_INBOX" -type f 2>/dev/null | wc -l | tr -d ' ')
+    log "Webhook inbox synced ($WEBHOOK_COUNT files)"
+else
+    log "SKIP: Webhook inbox not found"
+fi
+
 # --- 4. Document Library (~/Documents/Jarvis/) -------------------------------
 
 log_section "Document Library"
@@ -414,15 +522,19 @@ if ! $DRY_RUN; then
 ## Contents
 | Directory | Source | Description |
 |-----------|--------|-------------|
-| data/memory.db | chief_of_staff/data/memory.db | SQLite memory (facts, locations, context) |
-| data/chroma/ | chief_of_staff/data/chroma/ | ChromaDB vector store (document embeddings) |
+| data/memory.db | chief_of_staff/data/memory.db | SQLite memory (facts, locations, decisions, delegations, alerts, agent_memory, skills, webhooks, scheduler) |
+| data/chroma/ | chief_of_staff/data/chroma/ | ChromaDB vector store (document + fact embeddings) |
+| data/calendar-routing.db | chief_of_staff/data/calendar-routing.db | Calendar event ownership tracking (Apple vs M365) |
+| data/imessage-thread-profiles.db | chief_of_staff/data/imessage-thread-profiles.db | iMessage thread context and profiles |
 | data/inbox-*.* | chief_of_staff/data/ | Inbox monitor state and logs |
+| data/okr/ | chief_of_staff/data/okr/ | OKR snapshots (JSON) |
+| data/webhook-inbox/ | chief_of_staff/data/webhook-inbox/ | File-drop webhook inbox (pending/processed/failed) |
 | documents/ | ~/Documents/Jarvis/ | All project outputs (reports, charts, analysis) |
 | agent_configs/ | chief_of_staff/agent_configs/ | Expert agent YAML definitions |
 | scripts/ | chief_of_staff/scripts/ | Automation scripts and tools |
 | hooks/ | chief_of_staff/hooks/ | Claude Code session hooks |
 | *.py, *.json, *.toml | chief_of_staff/ | Key config files |
-| snapshots/{date}/ | Dated DB snapshots | memory.db + chroma.sqlite3 per day (${SNAPSHOT_RETENTION_DAYS}-day retention) |
+| snapshots/{date}/ | Dated DB snapshots | memory.db + calendar-routing.db + imessage-thread-profiles.db + chroma.sqlite3 per day (${SNAPSHOT_RETENTION_DAYS}-day retention) |
 
 ## Restore
 
