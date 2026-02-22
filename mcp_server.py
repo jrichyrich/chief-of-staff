@@ -27,6 +27,7 @@ from documents.store import DocumentStore
 from memory.models import ScheduledTask
 from memory.store import MemoryStore
 from okr.store import OKRStore
+from hooks.registry import HookRegistry
 from mcp_tools.state import ServerState
 
 # All logging to stderr (stdout is the JSON-RPC channel for stdio transport)
@@ -98,6 +99,12 @@ async def app_lifespan(server: FastMCP):
     messages_store = MessageStore()
     okr_store = OKRStore(app_config.OKR_DATA_DIR)
 
+    # Initialize hook registry and load YAML configs
+    hook_registry = HookRegistry()
+    hook_configs_dir = app_config.BASE_DIR / "hooks" / "hook_configs"
+    loaded = hook_registry.load_configs(hook_configs_dir)
+    logger.info("Loaded %d hook(s) from %s", loaded, hook_configs_dir)
+
     _state.memory_store = memory_store
     _state.document_store = document_store
     _state.agent_registry = agent_registry
@@ -108,6 +115,7 @@ async def app_lifespan(server: FastMCP):
     _state.mail_store = mail_store
     _state.messages_store = messages_store
     _state.okr_store = okr_store
+    _state.hook_registry = hook_registry
 
     # Seed default scheduled tasks if they don't already exist
     _default_tasks = [
@@ -144,10 +152,18 @@ async def app_lifespan(server: FastMCP):
 
     logger.info("Jarvis MCP server initialized")
 
+    # Fire session_start hooks
+    from hooks.registry import build_tool_context
+    hook_registry.fire_hooks("session_start", {"event": "session_start"})
+
     try:
         yield
     finally:
+        # Fire session_end hooks
+        hook_registry.fire_hooks("session_end", {"event": "session_end"})
+
         # Reset all state attributes
+        _state.hook_registry = None
         _state.memory_store = None
         _state.document_store = None
         _state.agent_registry = None
@@ -185,6 +201,7 @@ from mcp_tools import (
     scheduler_tools,
     proactive_tools,
     channel_tools,
+    identity_tools,
     resources,
 )
 
@@ -203,6 +220,7 @@ skill_tools.register(mcp, _state)
 scheduler_tools.register(mcp, _state)
 proactive_tools.register(mcp, _state)
 channel_tools.register(mcp, _state)
+identity_tools.register(mcp, _state)
 resources.register(mcp, _state)
 
 

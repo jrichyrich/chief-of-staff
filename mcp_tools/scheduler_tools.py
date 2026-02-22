@@ -19,6 +19,8 @@ def register(mcp, state):
         handler_config: str = "",
         description: str = "",
         enabled: bool = True,
+        delivery_channel: str = "",
+        delivery_config: str = "",
     ) -> str:
         """Create a new scheduled task.
 
@@ -33,12 +35,29 @@ def register(mcp, state):
             handler_config: JSON config for the handler. For custom: {"command": "echo hello"}
             description: Human-readable description of the task
             enabled: Whether the task is active (default: True)
+            delivery_channel: Channel to deliver results: email, imessage, or notification (optional)
+            delivery_config: JSON config for delivery (optional). Examples:
+                - email: {"to": ["user@example.com"], "subject_template": "Task $task_name completed"}
+                - imessage: {"recipient": "+15551234567"}
+                - notification: {"sound": "default", "title_template": "Task: $task_name"}
         """
         memory_store = state.memory_store
 
         # Validate schedule_type
         if schedule_type not in ("interval", "cron", "once"):
             return json.dumps({"status": "error", "error": f"Invalid schedule_type: {schedule_type}. Must be interval, cron, or once."})
+
+        # Validate delivery_channel
+        if delivery_channel and delivery_channel not in ("email", "imessage", "notification"):
+            return json.dumps({"status": "error", "error": f"Invalid delivery_channel: {delivery_channel}. Must be email, imessage, or notification."})
+
+        # Parse delivery_config
+        parsed_delivery_config = None
+        if delivery_config:
+            try:
+                parsed_delivery_config = json.loads(delivery_config)
+            except json.JSONDecodeError as e:
+                return json.dumps({"status": "error", "error": f"Invalid delivery_config JSON: {e}"})
 
         # Calculate initial next_run_at
         try:
@@ -55,6 +74,8 @@ def register(mcp, state):
             handler_config=handler_config,
             enabled=enabled,
             next_run_at=next_run,
+            delivery_channel=delivery_channel or None,
+            delivery_config=parsed_delivery_config,
         )
 
         try:
@@ -71,6 +92,7 @@ def register(mcp, state):
                 "handler_type": stored.handler_type,
                 "enabled": stored.enabled,
                 "next_run_at": stored.next_run_at,
+                "delivery_channel": stored.delivery_channel,
             },
         })
 
@@ -95,6 +117,7 @@ def register(mcp, state):
                     "enabled": t.enabled,
                     "last_run_at": t.last_run_at,
                     "next_run_at": t.next_run_at,
+                    "delivery_channel": t.delivery_channel,
                 }
                 for t in tasks
             ],
@@ -106,6 +129,8 @@ def register(mcp, state):
         enabled: bool = None,
         schedule_config: str = "",
         handler_config: str = "",
+        delivery_channel: str = "",
+        delivery_config: str = "",
     ) -> str:
         """Update a scheduled task's configuration.
 
@@ -114,6 +139,8 @@ def register(mcp, state):
             enabled: Enable or disable the task
             schedule_config: New schedule config (JSON string)
             handler_config: New handler config (JSON string)
+            delivery_channel: Channel to deliver results: email, imessage, notification, or "none" to clear
+            delivery_config: JSON config for delivery channel
         """
         memory_store = state.memory_store
 
@@ -134,6 +161,19 @@ def register(mcp, state):
                 return json.dumps({"status": "error", "error": str(e)})
         if handler_config:
             kwargs["handler_config"] = handler_config
+        if delivery_channel:
+            if delivery_channel == "none":
+                kwargs["delivery_channel"] = None
+                kwargs["delivery_config"] = None
+            elif delivery_channel not in ("email", "imessage", "notification"):
+                return json.dumps({"status": "error", "error": f"Invalid delivery_channel: {delivery_channel}. Must be email, imessage, notification, or none."})
+            else:
+                kwargs["delivery_channel"] = delivery_channel
+        if delivery_config:
+            try:
+                kwargs["delivery_config"] = json.loads(delivery_config)
+            except json.JSONDecodeError as e:
+                return json.dumps({"status": "error", "error": f"Invalid delivery_config JSON: {e}"})
 
         if not kwargs:
             return json.dumps({"status": "error", "error": "No fields to update"})
@@ -151,6 +191,7 @@ def register(mcp, state):
                 "schedule_config": updated.schedule_config,
                 "handler_config": updated.handler_config,
                 "next_run_at": updated.next_run_at,
+                "delivery_channel": updated.delivery_channel,
             },
         })
 

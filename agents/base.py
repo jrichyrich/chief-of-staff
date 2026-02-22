@@ -28,6 +28,7 @@ class BaseExpertAgent:
         reminder_store=None,
         notifier=None,
         mail_store=None,
+        hook_registry=None,
     ):
         self.config = config
         self.name = config.name
@@ -37,6 +38,7 @@ class BaseExpertAgent:
         self.reminder_store = reminder_store
         self.notifier = notifier
         self.mail_store = mail_store
+        self.hook_registry = hook_registry
         self.client = client or anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
 
     def build_system_prompt(self) -> str:
@@ -137,12 +139,58 @@ class BaseExpertAgent:
             kwargs["tools"] = tools
         return await self.client.messages.create(**kwargs)
 
+    def _fire_hooks(self, event_type: str, context: dict) -> list:
+        """Fire hooks if a hook_registry is available. Error-isolated."""
+        if self.hook_registry is None:
+            return []
+        try:
+            return self.hook_registry.fire_hooks(event_type, context)
+        except Exception:
+            return []
+
     def _handle_tool_call(self, tool_name: str, tool_input: dict) -> Any:
+        from hooks.registry import build_tool_context
+
+        # Fire before_tool_call hooks
+        before_ctx = build_tool_context(
+            tool_name=tool_name,
+            tool_args=tool_input,
+            agent_name=self.name,
+        )
+        self._fire_hooks("before_tool_call", before_ctx)
+
         # Enforce capability boundaries
         allowed_tools = {t["name"] for t in self.get_tools()}
         if tool_name not in allowed_tools:
-            return {"error": f"Tool '{tool_name}' not permitted for agent '{self.name}'"}
+            result = {"error": f"Tool '{tool_name}' not permitted for agent '{self.name}'"}
+            after_ctx = build_tool_context(
+                tool_name=tool_name,
+                tool_args=tool_input,
+                agent_name=self.name,
+                result=result,
+            )
+            # Carry timestamp from before context so timing hooks can correlate
+            after_ctx["timestamp"] = before_ctx["timestamp"]
+            self._fire_hooks("after_tool_call", after_ctx)
+            return result
 
+        result = self._dispatch_tool(tool_name, tool_input)
+
+        # Fire after_tool_call hooks
+        after_ctx = build_tool_context(
+            tool_name=tool_name,
+            tool_args=tool_input,
+            agent_name=self.name,
+            result=result,
+        )
+        # Carry timestamp from before context so timing hooks can correlate
+        after_ctx["timestamp"] = before_ctx["timestamp"]
+        self._fire_hooks("after_tool_call", after_ctx)
+
+        return result
+
+    def _dispatch_tool(self, tool_name: str, tool_input: dict) -> Any:
+        """Route a tool call to the appropriate handler. Returns the result."""
         if tool_name == "query_memory":
             return execute_query_memory(
                 self.memory_store, tool_input["query"], tool_input.get("category")

@@ -106,6 +106,8 @@ class ScheduledTask:
     last_run_at: Optional[str] = None
     next_run_at: Optional[str] = None
     last_result: Optional[str] = None
+    delivery_channel: Optional[str] = None  # email, imessage, notification, or None
+    delivery_config: Optional[dict] = None  # channel-specific JSON config
     id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -130,6 +132,19 @@ class SkillSuggestion:
     status: str = "pending"
     id: Optional[int] = None
     created_at: Optional[str] = None
+
+
+@dataclass
+class Identity:
+    canonical_name: str
+    provider: str
+    provider_id: str
+    display_name: str = ""
+    email: str = ""
+    metadata: str = ""  # JSON string
+    id: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 @dataclass

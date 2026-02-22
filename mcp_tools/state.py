@@ -45,6 +45,7 @@ class ServerState:
     mail_store: Any = None
     messages_store: Any = None
     okr_store: Any = None
+    hook_registry: Any = None
     allowed_ingest_roots: Optional[list] = None
     session_health: SessionHealth = field(default_factory=SessionHealth)
 
@@ -66,6 +67,7 @@ class ServerState:
         self.mail_store = None
         self.messages_store = None
         self.okr_store = None
+        self.hook_registry = None
         self.allowed_ingest_roots = None
         self.session_health = SessionHealth()
 

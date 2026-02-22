@@ -1,0 +1,26 @@
+# Built-in hooks for the Chief of Staff lifecycle system.
+# These are Python-level hooks (distinct from Claude Code shell hooks in hooks.json).
+
+- event_type: before_tool_call
+  name: audit_log_before
+  handler: hooks.builtin.audit_log_hook
+  priority: 10
+  enabled: true
+
+- event_type: after_tool_call
+  name: audit_log_after
+  handler: hooks.builtin.audit_log_hook
+  priority: 10
+  enabled: true
+
+- event_type: before_tool_call
+  name: timing_before
+  handler: hooks.builtin.timing_before_hook
+  priority: 5
+  enabled: true
+
+- event_type: after_tool_call
+  name: timing_after
+  handler: hooks.builtin.timing_after_hook
+  priority: 5
+  enabled: true

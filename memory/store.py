@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Optional
 
 from memory.models import (
-    AgentMemory, AlertRule, ContextEntry, Decision, Delegation, Fact, Location,
-    ScheduledTask, SkillSuggestion, SkillUsage, WebhookEvent,
+    AgentMemory, AlertRule, ContextEntry, Decision, Delegation, Fact, Identity,
+    Location, ScheduledTask, SkillSuggestion, SkillUsage, WebhookEvent,
 )
 
 
@@ -29,6 +29,7 @@ class MemoryStore:
         self._create_tables()
         self._migrate_facts_pinned()
         self._migrate_agent_memory_namespace()
+        self._migrate_scheduled_tasks_delivery()
 
     def _create_tables(self):
         self.conn.executescript("""
@@ -163,6 +164,21 @@ class MemoryStore:
                 UNIQUE(agent_name, memory_type, key)
             );
 
+            CREATE TABLE IF NOT EXISTS identities (
+                id INTEGER PRIMARY KEY,
+                canonical_name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                display_name TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                metadata TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider, provider_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_identities_canonical_name ON identities(canonical_name);
+
             CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
                 key, value, category,
                 content='facts', content_rowid='id'
@@ -201,6 +217,16 @@ class MemoryStore:
         except sqlite3.OperationalError:
             # Column already exists
             pass
+
+    def _migrate_scheduled_tasks_delivery(self):
+        """Add delivery_channel and delivery_config columns to scheduled_tasks if they don't exist."""
+        for col, col_type in [("delivery_channel", "TEXT"), ("delivery_config", "TEXT")]:
+            try:
+                self.conn.execute(f"ALTER TABLE scheduled_tasks ADD COLUMN {col} {col_type}")
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                # Column already exists
+                pass
 
     # --- Facts ---
 
@@ -874,11 +900,14 @@ class MemoryStore:
     # --- Scheduled Tasks ---
 
     def store_scheduled_task(self, task: ScheduledTask) -> ScheduledTask:
+        import json as _json
         now = datetime.now().isoformat()
+        delivery_config_str = _json.dumps(task.delivery_config) if task.delivery_config else None
         cursor = self.conn.execute(
             """INSERT INTO scheduled_tasks (name, description, schedule_type, schedule_config,
-               handler_type, handler_config, enabled, next_run_at, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               handler_type, handler_config, enabled, next_run_at,
+               delivery_channel, delivery_config, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(name) DO UPDATE SET
                    description=excluded.description,
                    schedule_type=excluded.schedule_type,
@@ -887,10 +916,12 @@ class MemoryStore:
                    handler_config=excluded.handler_config,
                    enabled=excluded.enabled,
                    next_run_at=excluded.next_run_at,
+                   delivery_channel=excluded.delivery_channel,
+                   delivery_config=excluded.delivery_config,
                    updated_at=excluded.updated_at""",
             (task.name, task.description, task.schedule_type, task.schedule_config,
              task.handler_type, task.handler_config, 1 if task.enabled else 0,
-             task.next_run_at, now, now),
+             task.next_run_at, task.delivery_channel, delivery_config_str, now, now),
         )
         self.conn.commit()
         row = self.conn.execute(
@@ -935,10 +966,12 @@ class MemoryStore:
     _SCHEDULED_TASK_COLUMNS = frozenset({
         "name", "description", "schedule_type", "schedule_config",
         "handler_type", "handler_config", "enabled",
-        "last_run_at", "next_run_at", "last_result", "updated_at",
+        "last_run_at", "next_run_at", "last_result",
+        "delivery_channel", "delivery_config", "updated_at",
     })
 
     def update_scheduled_task(self, task_id: int, **kwargs) -> Optional[ScheduledTask]:
+        import json as _json
         kwargs["updated_at"] = datetime.now().isoformat()
         invalid = set(kwargs) - self._SCHEDULED_TASK_COLUMNS
         if invalid:
@@ -947,6 +980,8 @@ class MemoryStore:
             raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
         if "enabled" in kwargs:
             kwargs["enabled"] = 1 if kwargs["enabled"] else 0
+        if "delivery_config" in kwargs and isinstance(kwargs["delivery_config"], dict):
+            kwargs["delivery_config"] = _json.dumps(kwargs["delivery_config"])
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [task_id]
         self.conn.execute(
@@ -963,6 +998,14 @@ class MemoryStore:
         return cursor.rowcount > 0
 
     def _row_to_scheduled_task(self, row: sqlite3.Row) -> ScheduledTask:
+        import json as _json
+        delivery_config_raw = row["delivery_config"]
+        delivery_config = None
+        if delivery_config_raw:
+            try:
+                delivery_config = _json.loads(delivery_config_raw)
+            except (ValueError, TypeError):
+                pass
         return ScheduledTask(
             id=row["id"],
             name=row["name"],
@@ -975,6 +1018,8 @@ class MemoryStore:
             last_run_at=row["last_run_at"],
             next_run_at=row["next_run_at"],
             last_result=row["last_result"],
+            delivery_channel=row["delivery_channel"],
+            delivery_config=delivery_config,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -1201,6 +1246,95 @@ class MemoryStore:
             (agent_name, namespace, f"%{query}%", f"%{query}%"),
         ).fetchall()
         return [self._row_to_agent_memory(r) for r in rows]
+
+    # --- Identities ---
+
+    def link_identity(
+        self,
+        canonical_name: str,
+        provider: str,
+        provider_id: str,
+        display_name: str = "",
+        email: str = "",
+        metadata: str = "",
+    ) -> dict:
+        """Link a provider identity to a canonical name. Upserts on (provider, provider_id)."""
+        now = datetime.now().isoformat()
+        self.conn.execute(
+            """INSERT INTO identities (canonical_name, provider, provider_id, display_name, email, metadata, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(provider, provider_id) DO UPDATE SET
+                   canonical_name=excluded.canonical_name,
+                   display_name=excluded.display_name,
+                   email=excluded.email,
+                   metadata=excluded.metadata,
+                   updated_at=excluded.updated_at""",
+            (canonical_name, provider, provider_id, display_name, email, metadata, now, now),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT * FROM identities WHERE provider=? AND provider_id=?",
+            (provider, provider_id),
+        ).fetchone()
+        return self._row_to_identity_dict(row)
+
+    def unlink_identity(self, provider: str, provider_id: str) -> dict:
+        """Remove an identity link. Returns status dict."""
+        cursor = self.conn.execute(
+            "DELETE FROM identities WHERE provider=? AND provider_id=?",
+            (provider, provider_id),
+        )
+        self.conn.commit()
+        if cursor.rowcount > 0:
+            return {"status": "unlinked", "provider": provider, "provider_id": provider_id}
+        return {"status": "not_found", "provider": provider, "provider_id": provider_id}
+
+    def get_identity(self, canonical_name: str) -> list[dict]:
+        """Get all linked identities for a canonical name."""
+        rows = self.conn.execute(
+            "SELECT * FROM identities WHERE canonical_name=? ORDER BY provider",
+            (canonical_name,),
+        ).fetchall()
+        return [self._row_to_identity_dict(r) for r in rows]
+
+    def search_identity(self, query: str) -> list[dict]:
+        """Search identities by canonical_name, display_name, email, or provider_id."""
+        rows = self.conn.execute(
+            """SELECT * FROM identities
+               WHERE canonical_name LIKE ? OR display_name LIKE ? OR email LIKE ? OR provider_id LIKE ?
+               ORDER BY canonical_name""",
+            (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"),
+        ).fetchall()
+        return [self._row_to_identity_dict(r) for r in rows]
+
+    def resolve_sender(self, provider: str, sender_id_or_email: str) -> Optional[str]:
+        """Resolve a sender to a canonical name. Tries provider_id first, then email."""
+        row = self.conn.execute(
+            "SELECT canonical_name FROM identities WHERE provider=? AND provider_id=?",
+            (provider, sender_id_or_email),
+        ).fetchone()
+        if row:
+            return row["canonical_name"]
+        row = self.conn.execute(
+            "SELECT canonical_name FROM identities WHERE email=?",
+            (sender_id_or_email,),
+        ).fetchone()
+        if row:
+            return row["canonical_name"]
+        return None
+
+    def _row_to_identity_dict(self, row: sqlite3.Row) -> dict:
+        return {
+            "id": row["id"],
+            "canonical_name": row["canonical_name"],
+            "provider": row["provider"],
+            "provider_id": row["provider_id"],
+            "display_name": row["display_name"],
+            "email": row["email"],
+            "metadata": row["metadata"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
 
     def close(self):
         self.conn.close()

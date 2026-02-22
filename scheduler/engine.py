@@ -377,6 +377,11 @@ class SchedulerEngine:
             task_result["next_run_at"] = next_run
             task_result["status"] = "executed"
 
+            # Deliver result if a delivery channel is configured
+            if getattr(task, "delivery_channel", None):
+                delivery_result = self._deliver(task, handler_result)
+                task_result["delivery"] = delivery_result
+
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
             task_result["status"] = "error"
@@ -394,6 +399,20 @@ class SchedulerEngine:
                 pass
 
         return task_result
+
+    def _deliver(self, task, result_text: str) -> dict:
+        """Deliver task result via the configured channel. Never raises."""
+        try:
+            from scheduler.delivery import deliver_result
+            return deliver_result(
+                channel=task.delivery_channel,
+                config=task.delivery_config or {},
+                result_text=result_text,
+                task_name=task.name,
+            )
+        except Exception as e:
+            logger.error(f"Delivery failed for task {task.name}: {e}")
+            return {"status": "error", "error": str(e)}
 
 
 # --- Standalone Entry Point ---
