@@ -8,7 +8,7 @@
 
 Chief of Staff (Jarvis) is a Python AI orchestration system built on Anthropic's Claude. A "Chief of Staff" agent manages a roster of expert agents, each configured with YAML and granted scoped capabilities. It interprets user requests, routes to the right specialists, dispatches them in parallel when possible, and synthesizes results.
 
-The system exposes 76 tools via the Model Context Protocol (MCP), covering persistent memory (with temporal decay, FTS5, and vector search), semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, a full decision/delegation lifecycle, webhook ingestion, scheduled tasks, self-authoring skills, proactive suggestions, and unified channel adapters. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
+The system exposes 93 tools via the Model Context Protocol (MCP), covering persistent memory (with temporal decay, FTS5, MMR reranking, and vector search), semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, a full decision/delegation lifecycle, webhook ingestion, event-driven agent dispatch, scheduled tasks, self-authoring skills, proactive suggestions, unified channel adapters, cross-channel identity linking, session compaction, and plugin hooks. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
 
 Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (for Claude Desktop), making it usable from any MCP-compatible host.
 
@@ -24,13 +24,22 @@ Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (fo
 - **macOS notifications** -- Push notifications to Notification Center
 - **OKR tracking** -- Parse Excel spreadsheets into structured OKR snapshots with query/filter support
 - **Decision and delegation lifecycle** -- Log decisions, track delegations with priorities and due dates, check for overdue items
-- **Temporal decay + hybrid search** -- Facts scored by recency (90-day half-life); FTS5 full-text + LIKE + ChromaDB vector search merged with deduplication
+- **Temporal decay + hybrid search** -- Facts scored by recency (90-day half-life); FTS5 full-text + LIKE + ChromaDB vector search merged with MMR reranking for diversity
+- **Pinned facts** -- Facts marked as pinned never decay over time
 - **Webhook ingestion** -- File-drop inbox pattern; external automations drop JSON, ingested on schedule
+- **Event-driven agent dispatch** -- Event rules link webhook events to expert agents; matching, dispatch, and delivery in one pipeline
 - **Built-in scheduler** -- SQLite-backed task scheduler with interval/cron/once types; handlers for alerts, webhooks, skill analysis
-- **Self-authoring skills** -- Tracks tool usage patterns, detects clusters via Jaccard similarity, suggests new agent configs
-- **Agent memory** -- Per-agent persistent memory (insights, preferences, context) injected into system prompts across runs
+- **Autonomous scheduler daemon** -- launchd job (`com.chg.jarvis-scheduler`) runs the scheduler engine every 5 minutes
+- **Self-authoring skills** -- Tracks tool usage patterns, detects clusters via Jaccard similarity, suggests and auto-creates new agent configs
+- **Agent memory** -- Per-agent persistent memory (insights, preferences, context) injected into system prompts across runs; shared namespaces for cross-agent collaboration
 - **Proactive suggestions** -- Engine that surfaces skill suggestions, overdue delegations, stale decisions, and upcoming deadlines
 - **Unified channel adapter** -- Common InboundEvent model normalizing iMessage, Mail, and Webhook sources with EventRouter dispatch
+- **Cross-channel identity linking** -- Maps provider accounts (iMessage, email, Teams, Jira, etc.) to canonical person names for unified identity resolution
+- **Plugin hooks** -- YAML-configured lifecycle hooks (before/after tool call, session start/end) for extensibility
+- **Session compaction** -- Session manager tracks interactions, extracts structured data (decisions, action items, facts), and flushes to long-term memory
+- **Loop detection** -- Detects repeated tool-use patterns to prevent agent infinite loops
+- **Session health monitoring** -- Tracks tool call count and checkpoint freshness to recommend when to persist context
+- **Delivery adapters** -- Task and event results delivered via email, iMessage, or macOS notification channels
 - **Scheduled alerts** -- Configurable alert rules evaluated on a schedule (via launchd); checks for overdue delegations, stale decisions, and upcoming deadlines
 - **iMessage inbox monitor** -- Autonomous daemon that processes incoming commands via iMessage
 
@@ -123,16 +132,24 @@ chief_of_staff/
 |-- manifest.json              # DXT package manifest for Claude Desktop
 |
 |-- mcp_tools/                 # MCP tool handlers, organized by domain
-|   |-- state.py               # ServerState dataclass
-|   |-- memory_tools.py        # Facts, locations
+|   |-- state.py               # ServerState dataclass, SessionHealth tracker
+|   |-- memory_tools.py        # Facts, locations, session health
 |   |-- document_tools.py      # Semantic search, ingestion
-|   |-- agent_tools.py         # Agent CRUD
+|   |-- agent_tools.py         # Agent CRUD, shared memory
 |   |-- lifecycle_tools.py     # Decisions, delegations, alerts
 |   |-- calendar_tools.py      # Unified calendar operations
 |   |-- reminder_tools.py      # Apple Reminders
 |   |-- mail_tools.py          # Apple Mail, notifications
 |   |-- imessage_tools.py      # iMessage read/send
 |   |-- okr_tools.py           # OKR tracking
+|   |-- webhook_tools.py       # Webhook event management
+|   |-- skill_tools.py         # Self-authoring skill patterns
+|   |-- scheduler_tools.py     # Scheduled task management
+|   |-- channel_tools.py       # Unified inbound event access
+|   |-- proactive_tools.py     # Proactive suggestions
+|   |-- identity_tools.py      # Cross-channel identity linking
+|   |-- session_tools.py       # Session status, flush, restore
+|   |-- event_rule_tools.py    # Event rules for agent dispatch
 |   +-- resources.py           # MCP resources
 |
 |-- agents/                    # Expert agent framework
@@ -144,7 +161,7 @@ chief_of_staff/
 |-- capabilities/              # Capability-to-tool mapping registry
 |
 |-- memory/                    # SQLite-backed persistent storage
-|   |-- store.py               # MemoryStore (facts, locations, decisions, etc.)
+|   |-- store.py               # MemoryStore (14 tables incl. identities, event_rules)
 |   +-- models.py              # Dataclasses for all memory entities
 |
 |-- documents/                 # Document ingestion and vector search
@@ -164,10 +181,17 @@ chief_of_staff/
 |-- apple_notifications/       # macOS notification center
 |
 |-- okr/                       # OKR tracking (Excel parser, models, store)
-|-- scheduler/                 # Scheduled alert evaluation
+|-- scheduler/                 # Scheduler engine, alert evaluator, delivery adapters
+|-- hooks/                     # Plugin hook system (YAML-configured lifecycle hooks)
+|-- session/                   # Session manager (interaction tracking, flush/restore)
+|-- webhook/                   # Webhook ingestion and event-driven agent dispatch
+|-- channels/                  # Unified channel adapter (InboundEvent, EventRouter)
+|-- proactive/                 # Proactive suggestion engine
+|-- skills/                    # Tool usage pattern detection
 |-- tools/                     # Decision/delegation execution logic
+|-- utils/                     # Shared utilities (retry logic)
 |-- scripts/                   # Shell scripts and launchd plists
-|-- tests/                     # Test suite
+|-- tests/                     # Test suite (1378 tests, 61 files)
 +-- docs/                      # Documentation
 ```
 
@@ -175,7 +199,7 @@ chief_of_staff/
 
 - [Architecture](docs/architecture.md) -- System design, data flow, and module interactions
 - [iMessage Inbox Monitor Setup](docs/inbox-monitor-setup.md) -- Configuring the autonomous iMessage daemon
-- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 76 MCP tools
+- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 93 MCP tools
 - [Agent System](docs/agents.md) -- Agent architecture, capabilities, and configuration guide
 - [Setup Guide](docs/setup-guide.md) -- Installation, environment variables, and troubleshooting
 - [Project Review Team](docs/project-review-team.md) -- Running structured project reviews with specialist agents
@@ -196,7 +220,7 @@ pytest tests/test_mcp_server.py::TestMCPTools::test_query_memory -v
 pytest --cov=agents --cov=memory --cov=documents --cov=mcp_tools
 ```
 
-The test suite contains 1092 tests across 53 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
+The test suite contains 1378 tests across 61 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
 
 ## License
 

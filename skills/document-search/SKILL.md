@@ -7,7 +7,7 @@ description: Use when the user wants to ingest files into a knowledge base or se
 
 ## Overview
 
-Ingest documents into a vector database and perform semantic search to find relevant content. Supports .txt, .md, .py, .json, .yaml files.
+Ingest documents into a vector database and perform semantic search to find relevant content. Supports .txt, .md, .py, .json, .yaml, .yml, .pdf, and .docx files.
 
 ## When to Use
 

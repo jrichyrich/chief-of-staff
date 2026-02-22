@@ -41,14 +41,14 @@ jarvis-mcp
 
 ### MCP Server Structure
 
-`mcp_server.py` is a slim entry point (~170 lines) that initializes stores and registers tool modules. All tool handlers live in the `mcp_tools/` package:
+`mcp_server.py` is a slim entry point (~245 lines) that initializes stores and registers tool modules. All tool handlers live in the `mcp_tools/` package:
 
 | Module | Tools |
 |--------|-------|
-| `mcp_tools/state.py` | `ServerState` dataclass, `_retry_on_transient` helper |
-| `mcp_tools/memory_tools.py` | store_fact, delete_fact, query_memory, store_location, list_locations, checkpoint_session |
+| `mcp_tools/state.py` | `ServerState` dataclass, `SessionHealth` tracker, `_retry_on_transient` helper |
+| `mcp_tools/memory_tools.py` | store_fact, delete_fact, query_memory, store_location, list_locations, checkpoint_session, get_session_health |
 | `mcp_tools/document_tools.py` | search_documents, ingest_documents (supports .txt, .md, .py, .json, .yaml, .pdf, .docx) |
-| `mcp_tools/agent_tools.py` | list_agents, get_agent, create_agent, get_agent_memory, clear_agent_memory |
+| `mcp_tools/agent_tools.py` | list_agents, get_agent, create_agent, get_agent_memory, clear_agent_memory, store_shared_memory, get_shared_memory |
 | `mcp_tools/lifecycle_tools.py` | create_decision, search_decisions, update_decision, delete_decision, list_pending_decisions, create_delegation, list_delegations, update_delegation, delete_delegation, check_overdue_delegations, create_alert_rule, list_alert_rules, check_alerts, dismiss_alert |
 | `mcp_tools/calendar_tools.py` | list_calendars, get_calendar_events, create/update/delete_calendar_event, search_calendar_events, find_my_open_slots, find_group_availability |
 | `mcp_tools/reminder_tools.py` | list_reminder_lists, list_reminders, create_reminder, complete_reminder, delete_reminder, search_reminders |
@@ -56,10 +56,13 @@ jarvis-mcp
 | `mcp_tools/imessage_tools.py` | get_imessages, list_imessage_threads, get_imessage_threads, get_imessage_thread_messages, get_thread_context, search_imessages, send_imessage_reply |
 | `mcp_tools/okr_tools.py` | refresh_okr_data, query_okr_status |
 | `mcp_tools/webhook_tools.py` | list_webhook_events, get_webhook_event, process_webhook_event |
-| `mcp_tools/skill_tools.py` | record_tool_usage, analyze_skill_patterns, list_skill_suggestions, auto_create_skill |
+| `mcp_tools/skill_tools.py` | record_tool_usage, analyze_skill_patterns, list_skill_suggestions, auto_create_skill, auto_execute_skills |
 | `mcp_tools/scheduler_tools.py` | create_scheduled_task, list_scheduled_tasks, update_scheduled_task, delete_scheduled_task, run_scheduled_task, get_scheduler_status |
 | `mcp_tools/channel_tools.py` | list_inbound_events, get_event_summary |
 | `mcp_tools/proactive_tools.py` | get_proactive_suggestions, dismiss_suggestion |
+| `mcp_tools/identity_tools.py` | link_identity, unlink_identity, get_identity, search_identity |
+| `mcp_tools/session_tools.py` | get_session_status, flush_session_memory, restore_session |
+| `mcp_tools/event_rule_tools.py` | create_event_rule, update_event_rule, delete_event_rule, list_event_rules, process_webhook_event_with_agents |
 | `mcp_tools/resources.py` | MCP resources: facts://all, memory://facts/{category}, agents://list |
 
 Each module exports a `register(mcp, state)` function. Tools are defined inside `register()` using `@mcp.tool()` decorators and access stores via `state.memory_store`, `state.calendar_store`, etc. Tool functions are also exposed at module level via `sys.modules` for test imports.
@@ -74,8 +77,8 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `agents/registry.py` | Loads/saves agent configs from YAML files in `agent_configs/` |
 | `agents/factory.py` | Uses Claude to dynamically generate new agent configs |
 | `capabilities/registry.py` | Maps capability names (e.g. `calendar_read`) to tool schemas; validates agent configs |
-| `memory/store.py` | SQLite backend: facts (with FTS5 full-text index + ChromaDB vector), locations, context, decisions, delegations, alert_rules, webhook_events, scheduled_tasks, skill_usage, skill_suggestions, agent_memory |
-| `memory/models.py` | Dataclasses: Fact, Location, ContextEntry, Decision, Delegation, AlertRule, WebhookEvent, ScheduledTask, SkillUsage, SkillSuggestion, AgentMemory |
+| `memory/store.py` | SQLite backend: facts (with FTS5 full-text index + ChromaDB vector), locations, context, decisions, delegations, alert_rules, webhook_events, scheduled_tasks, skill_usage, skill_suggestions, event_rules, identities, agent_memory |
+| `memory/models.py` | Dataclasses: Fact, Location, ContextEntry, Decision, Delegation, AlertRule, WebhookEvent, ScheduledTask, SkillUsage, SkillSuggestion, Identity, EventRule, AgentMemory |
 | `documents/store.py` | ChromaDB vector search wrapper (all-MiniLM-L6-v2 embeddings) |
 | `documents/ingestion.py` | Text/PDF/DOCX chunking (word-based, 500 words, 50 overlap) and SHA256 dedup |
 | `tools/lifecycle.py` | Execution logic for decisions, delegations, and alert rules |
@@ -83,8 +86,13 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `scheduler/engine.py` | Built-in scheduler engine with cron parser, evaluates due tasks from SQLite |
 | `skills/pattern_detector.py` | Detects repeated usage patterns and suggests new agent configurations |
 | `webhook/ingest.py` | File-drop inbox ingestion: scans JSON files, validates, stores to webhook_events |
+| `webhook/dispatcher.py` | Event-driven agent dispatch: matches webhook events to event rules, runs agents, delivers results |
 | `channels/` | Unified channel adapter: InboundEvent model, iMessage/Mail/Webhook adapters, EventRouter |
 | `proactive/engine.py` | Proactive suggestions: skill patterns, overdue delegations, stale decisions, deadlines |
+| `hooks/registry.py` | Plugin hook system: before/after tool call, session start/end lifecycle events (YAML-configured) |
+| `session/manager.py` | Session lifecycle manager: interaction tracking, structured data extraction, flush to memory, restore |
+| `scheduler/delivery.py` | Delivery adapters for scheduled task results: email, iMessage, macOS notification channels |
+| `scheduler/availability.py` | Availability analysis for finding open calendar slots |
 | `config.py` | All paths, model names, constants, and environment variable settings |
 
 ### Apple Platform Integrations (macOS only)
@@ -146,11 +154,11 @@ All settings live in `config.py`:
 
 ## Memory Store Schema
 
-SQLite (`data/memory.db`) with 11 tables:
+SQLite (`data/memory.db`) with 14 tables:
 
 | Table | Key Constraints | Notable Fields |
 |-------|----------------|----------------|
-| `facts` | `UNIQUE(category, key)` | category, key, value, confidence (0.0-1.0) |
+| `facts` | `UNIQUE(category, key)` | category, key, value, confidence (0.0-1.0), pinned |
 | `facts_fts` | FTS5 virtual table | Synced via triggers, BM25 ranking |
 | `locations` | `name UNIQUE` | address, latitude, longitude |
 | `context` | — | session_id, topic, summary, agent |
@@ -158,14 +166,16 @@ SQLite (`data/memory.db`) with 11 tables:
 | `delegations` | — | delegated_to, priority: `low\|medium\|high\|critical`, status: `active\|completed\|cancelled` |
 | `alert_rules` | `name UNIQUE` | alert_type, condition (JSON), enabled (0/1) |
 | `webhook_events` | — | source, event_type, payload (JSON), status: `pending\|processed\|failed` |
-| `scheduled_tasks` | `name UNIQUE` | schedule_type: `interval\|cron\|once`, handler_type, enabled, next_run_at |
+| `scheduled_tasks` | `name UNIQUE` | schedule_type: `interval\|cron\|once`, handler_type, enabled, next_run_at, delivery_channel |
 | `skill_usage` | `UNIQUE(tool_name, query_pattern)` | count, last_used |
 | `skill_suggestions` | — | suggested_name, confidence, status: `pending\|accepted\|rejected` |
-| `agent_memory` | `UNIQUE(agent_name, memory_type, key)` | agent_name, memory_type, key, value, confidence (0.0-1.0) |
+| `event_rules` | `name UNIQUE` | event_source, event_type_pattern, agent_name, delivery_channel, priority |
+| `identities` | `UNIQUE(provider, provider_id)` | canonical_name, provider, provider_id, display_name, email |
+| `agent_memory` | `UNIQUE(agent_name, memory_type, key)` | agent_name, memory_type, key, value, confidence (0.0-1.0), namespace |
 
 ## Testing Conventions
 
-- 1092 tests across 53 test files
+- 1378 tests across 61 test files
 - Async tests use `@pytest.mark.asyncio` with `asyncio_mode = "Mode.STRICT"` in pyproject.toml
 - Anthropic API calls are mocked — tests never hit real APIs
 - Fixtures create isolated MemoryStore, DocumentStore, AgentRegistry instances using `tmp_path`

@@ -140,7 +140,7 @@ This uses the `manifest.json` to produce a `.dxt` file you can install in Claude
 
 ## LaunchAgent Setup
 
-Four macOS LaunchAgents automate background tasks. Install them all at once:
+Five macOS LaunchAgents automate background tasks. Install them all at once:
 
 ```bash
 ./scripts/install-plists.sh
@@ -153,10 +153,10 @@ The script replaces `__PROJECT_DIR__` placeholders in the plist templates with y
 | LaunchAgent | Purpose |
 |-------------|---------|
 | `com.chg.inbox-monitor` | Polls iMessages every 15 minutes for `jarvis:` commands and processes them via Claude CLI |
-| `com.chg.jarvis-backup` | Periodic backup of runtime data |
-| `com.chg.alert-evaluator` | Evaluates alert rules (overdue delegations, stale decisions, upcoming deadlines) |
+| `com.chg.jarvis-backup` | Daily backup of runtime data at 8 AM |
+| `com.chg.alert-evaluator` | Evaluates alert rules every 2 hours (overdue delegations, stale decisions, upcoming deadlines) |
 | `com.chg.imessage-daemon` | Continuously ingests iMessage events into a SQLite queue and dispatches to the inbox monitor |
-| `com.chg.scheduler-engine` | Evaluates due scheduled tasks every 5 minutes |
+| `com.chg.scheduler-engine` | Runs the built-in scheduler engine every 5 minutes to evaluate due scheduled tasks |
 
 ### Verify LaunchAgents are running
 

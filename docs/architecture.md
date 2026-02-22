@@ -26,23 +26,31 @@ graph TB
     end
 
     %% ── Tool Modules ────────────────────────────────────────────
-    subgraph Tools["Tool Modules  (56 tools + 3 resources)"]
+    subgraph Tools["Tool Modules  (93 tools + 3 resources)"]
         direction TB
-        TM["memory_tools<br/><i>5 tools</i>"]
+        TM["memory_tools<br/><i>7 tools</i>"]
         TD["document_tools<br/><i>2 tools</i>"]
-        TA["agent_tools<br/><i>3 tools</i>"]
+        TA["agent_tools<br/><i>7 tools</i>"]
         TL["lifecycle_tools<br/><i>14 tools</i>"]
         TC["calendar_tools<br/><i>8 tools</i>"]
         TR["reminder_tools<br/><i>6 tools</i>"]
-        TMA["mail_tools<br/><i>9 tools</i>"]
+        TMA["mail_tools<br/><i>10 tools</i>"]
         TI["imessage_tools<br/><i>7 tools</i>"]
         TO["okr_tools<br/><i>2 tools</i>"]
+        TWH["webhook_tools<br/><i>3 tools</i>"]
+        TSK["skill_tools<br/><i>5 tools</i>"]
+        TSCHED["scheduler_tools<br/><i>6 tools</i>"]
+        TCH["channel_tools<br/><i>2 tools</i>"]
+        TPR["proactive_tools<br/><i>2 tools</i>"]
+        TSES["session_tools<br/><i>3 tools</i>"]
+        TER["event_rule_tools<br/><i>5 tools</i>"]
+        TID["identity_tools<br/><i>4 tools</i>"]
         TRES["resources<br/><i>3 resources</i>"]
     end
 
     %% ── Data Stores ─────────────────────────────────────────────
     subgraph DataStores["Data Stores"]
-        MS["MemoryStore<br/><i>SQLite (memory.db)</i><br/>facts, locations, context,<br/>decisions, delegations, alerts"]
+        MS["MemoryStore<br/><i>SQLite (memory.db)</i><br/>facts, locations, context,<br/>decisions, delegations, alerts,<br/>event_rules, identities,<br/>webhook_events, scheduled_tasks,<br/>skill_usage, agent_memory"]
         DS["DocumentStore<br/><i>ChromaDB (data/chroma/)</i><br/>all-MiniLM-L6-v2 embeddings"]
         OS["OKRStore<br/><i>JSON (data/okr/)</i><br/>Excel-parsed snapshots"]
         RDB["OwnershipDB<br/><i>SQLite (calendar-routing.db)</i><br/>event provider tracking"]
@@ -54,7 +62,7 @@ graph TB
         AR["AgentRegistry<br/><i>YAML configs in agent_configs/</i>"]
         BE["BaseExpertAgent<br/><i>Tool-use loop with Claude API</i>"]
         AF["AgentFactory<br/><i>Claude-generated configs</i>"]
-        CR["CapabilitiesRegistry<br/><i>22 capabilities, tool gating</i>"]
+        CR["CapabilitiesRegistry<br/><i>34 capabilities, tool gating</i>"]
         AR --> BE
         AF --> AR
         CR --> BE
@@ -101,8 +109,32 @@ graph TB
     CD -->|"stdio JSON-RPC"| EP
     IM -->|"claude CLI subprocess"| CLAUDE_API
 
+    %% ── Hooks & Session ─────────────────────────────────────────
+    subgraph Hooks["Plugin Hooks"]
+        HR["HookRegistry<br/><i>YAML configs in hooks/</i>"]
+    end
+
+    subgraph Session["Session Management"]
+        SM["SessionManager<br/><i>session/manager.py</i><br/>tracking, extraction, flush"]
+    end
+
+    subgraph Channels["Unified Channels"]
+        direction TB
+        EA["EventRouter<br/><i>channels/router.py</i>"]
+        ADP["Adapters: iMessage,<br/>Mail, Webhook<br/><i>channels/adapter.py</i>"]
+        ADP --> EA
+    end
+
+    subgraph Proactive["Proactive Engine"]
+        PSE["ProactiveSuggestionEngine<br/><i>proactive/engine.py</i>"]
+    end
+
+    subgraph EventDispatch["Event-Driven Dispatch"]
+        ED["EventDispatcher<br/><i>webhook/dispatcher.py</i>"]
+    end
+
     %% ── Tool module wiring ──────────────────────────────────────
-    SS --> TM & TD & TA & TL & TC & TR & TMA & TI & TO & TRES
+    SS --> TM & TD & TA & TL & TC & TR & TMA & TI & TO & TWH & TSK & TSCHED & TCH & TPR & TSES & TER & TID & TRES
 
     %% ── Tool to Store connections ───────────────────────────────
     TM --> MS
@@ -115,6 +147,18 @@ graph TB
     TMA --> AMS & NOT
     TI --> MSGS
     TO --> OS
+    TWH --> MS
+    TSK --> MS
+    TSCHED --> MS
+    TCH --> ADP
+    TPR --> PSE
+    PSE --> MS
+    TSES --> SM
+    SM --> MS
+    TER --> MS
+    TER --> ED
+    ED --> AR
+    TID --> MS
 
     %% ── Calendar provider to backend ────────────────────────────
     AP --> ACS
@@ -141,16 +185,18 @@ graph TB
     classDef apple fill:#a29bfe,stroke:#6c5ce7,color:#fff
     classDef lifecycle fill:#fab1a0,stroke:#e17055,color:#333
     classDef external fill:#636e72,stroke:#2d3436,color:#fff
+    classDef infra fill:#55efc4,stroke:#00b894,color:#333
 
     class CC,CD,IM client
     class EP,SS server
-    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TRES tool
+    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TWH,TSK,TSCHED,TCH,TPR,TSES,TER,TID,TRES tool
     class MS,DS,OS,RDB store
     class AR,BE,AF,CR agent
     class UCS,PR,AP,MP calendar
     class ACS,ARS,AMS,MSGS,NOT apple
     class LT lifecycle
     class CLAUDE_API,M365,EK,CHATDB external
+    class HR,SM,EA,ADP,PSE,ED infra
 ```
 
 ---
@@ -210,9 +256,14 @@ sequenceDiagram
     Lifespan->>Lifespan: Create ProviderRouter
     Lifespan->>Lifespan: Create UnifiedCalendarService
     Lifespan->>Lifespan: Create ReminderStore, MailStore,<br/>MessageStore, OKRStore
+    Lifespan->>Lifespan: Create HookRegistry (YAML hooks)
+    Lifespan->>Lifespan: Create SessionManager
 
     Lifespan->>State: Populate all store references
     State-->>Lifespan: Ready
+
+    Lifespan->>Lifespan: Seed default scheduled tasks<br/>(alert_eval, webhook_poll, skill_analysis)
+    Lifespan->>Lifespan: Fire session_start hooks
 
     Lifespan-->>FastMCP: yield (server running)
     deactivate Lifespan
@@ -221,6 +272,7 @@ sequenceDiagram
 
     FastMCP->>Lifespan: Server shutdown
     activate Lifespan
+    Lifespan->>Lifespan: Fire session_end hooks
     Lifespan->>State: Clear all references
     Lifespan->>Lifespan: memory_store.close()
     deactivate Lifespan
@@ -433,6 +485,16 @@ graph LR
 | `alerts_read` | check_alerts, list_alert_rules | Implemented |
 | `alerts_write` | create_alert_rule, dismiss_alert | Implemented |
 | `scheduling` | find_my_open_slots, find_group_availability | Implemented |
+| `agent_memory_read` | get_agent_memory | Implemented |
+| `agent_memory_write` | clear_agent_memory | Implemented |
+| `channel_read` | list_inbound_events, get_event_summary | Implemented |
+| `proactive_read` | get_proactive_suggestions, dismiss_suggestion | Implemented |
+| `webhook_read` | list_webhook_events, get_webhook_event | Implemented |
+| `webhook_write` | process_webhook_event | Implemented |
+| `scheduler_read` | list_scheduled_tasks, get_scheduler_status | Implemented |
+| `scheduler_write` | create_scheduled_task, update_scheduled_task, delete_scheduled_task, run_scheduled_task | Implemented |
+| `skill_read` | list_skill_suggestions | Implemented |
+| `skill_write` | record_tool_usage, analyze_skill_patterns, auto_create_skill | Implemented |
 | `web_search` | -- | Legacy |
 | `code_analysis` | -- | Legacy |
 | `writing` | -- | Legacy |
@@ -453,8 +515,11 @@ External automations (CI/CD pipelines, monitoring, third-party services) push ev
 | Module | Purpose |
 |--------|---------|
 | `webhook/ingest.py` | CLI that scans the inbox, validates JSON payloads, and stores them to the `webhook_events` table |
+| `webhook/receiver.py` | Standalone entry point (`python -m webhook.receiver`) for running ingestion outside the MCP server |
+| `webhook/dispatcher.py` | `EventDispatcher` — matches webhook events against event rules and dispatches to expert agents |
 | `mcp_tools/webhook_tools.py` | MCP tools (`list_webhook_events`, `get_webhook_event`, `process_webhook_event`) for querying and processing queued events |
-| `memory/store.py` | SQLite `webhook_events` table storing source, event type, payload, and status |
+| `mcp_tools/event_rule_tools.py` | MCP tools for event rules and agent dispatch (`create_event_rule`, `update_event_rule`, `delete_event_rule`, `list_event_rules`, `process_webhook_event_with_agents`) |
+| `memory/store.py` | SQLite `webhook_events` and `event_rules` tables |
 
 ### Flow
 
@@ -466,6 +531,12 @@ webhook/ingest.py  -->  validates & stores to webhook_events table
                         |
                         v
 MCP tools          -->  list / get / process events via Claude
+                        |
+                        v  (if event rules configured)
+EventDispatcher    -->  matches event_rules, dispatches to expert agents
+                        |
+                        v
+scheduler/delivery -->  delivers results via email, iMessage, or notification
 ```
 
 The scheduler's `webhook_poll` handler can trigger periodic ingestion so events are picked up automatically.
@@ -480,7 +551,7 @@ The self-authoring skills system detects repeated tool usage patterns and sugges
 
 | Module | Purpose |
 |--------|---------|
-| `mcp_tools/skill_tools.py` | MCP tools: `record_tool_usage`, `analyze_skill_patterns`, `list_skill_suggestions`, `auto_create_skill` |
+| `mcp_tools/skill_tools.py` | MCP tools: `record_tool_usage`, `analyze_skill_patterns`, `list_skill_suggestions`, `auto_create_skill`, `auto_execute_skills` |
 | `skills/pattern_detector.py` | `PatternDetector` class that clusters usage rows using Jaccard similarity to find repeated patterns |
 | `memory/store.py` | SQLite tables: `skill_usage` (raw usage records) and `skill_suggestions` (detected patterns with confidence scores) |
 | `agents/factory.py` | `AgentFactory` creates YAML agent configs from natural-language descriptions via Claude |
@@ -515,6 +586,8 @@ A lightweight task scheduler backed by SQLite, supporting interval, cron, and on
 | Module | Purpose |
 |--------|---------|
 | `scheduler/engine.py` | `SchedulerEngine` class and `CronExpression` parser (stdlib only, no external cron libraries) |
+| `scheduler/delivery.py` | Delivery adapters for task results — routes to email, iMessage, or macOS notification |
+| `scheduler/availability.py` | Availability calculation helpers used by calendar scheduling tools |
 | `memory/store.py` | SQLite `scheduled_tasks` table with schedule type, config, next/last run times, and handler config |
 | `mcp_tools/scheduler_tools.py` | MCP tools for creating, listing, and managing scheduled tasks |
 
@@ -532,6 +605,7 @@ A lightweight task scheduler backed by SQLite, supporting interval, cron, and on
 |---------|----------|
 | `alert_eval` | Runs the alert rule evaluator (`scheduler/alert_evaluator.py`) |
 | `webhook_poll` | Triggers webhook inbox ingestion |
+| `skill_analysis` | Runs the skill pattern detector to surface new agent suggestions |
 | `custom` | Runs a subprocess command (with a blocklist of dangerous commands and shell metacharacter checks) |
 
 ### Standalone Entry Point
@@ -541,3 +615,156 @@ python -m scheduler.engine
 ```
 
 Reads `scheduled_tasks` from `data/memory.db`, evaluates all due tasks, executes their handlers, and updates next-run times. Intended to run via launchd (`com.chg.scheduler-engine`) every 5 minutes. Complements (does not replace) existing launchd plists for specific tasks like alert evaluation.
+
+---
+
+## 8. Unified Channel Adapter
+
+The channel system normalizes inbound events from iMessage, Mail, and Webhooks into a common `InboundEvent` model, enabling cross-channel queries and unified event routing.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `channels/models.py` | `InboundEvent` dataclass — normalized event with channel, source, event_type, content, metadata |
+| `channels/adapter.py` | `ChannelAdapter` ABC with concrete adapters: `IMessageAdapter`, `MailAdapter`, `WebhookAdapter` |
+| `channels/router.py` | `EventRouter` — thread-safe handler dispatch by event_type |
+| `channels/consumers.py` | Built-in handlers: `log_event_handler`, `priority_filter` (urgent keyword detection) |
+| `mcp_tools/channel_tools.py` | MCP tools: `list_inbound_events`, `get_event_summary` |
+
+### Flow
+
+```
+Raw events (iMessage / Mail / Webhook)
+        |
+        v
+ChannelAdapter.normalize()  -->  InboundEvent
+        |
+        v
+EventRouter.route()  -->  registered handlers (log, priority, custom)
+        |
+        v
+MCP tools  -->  list_inbound_events, get_event_summary
+```
+
+---
+
+## 9. Proactive Suggestion Engine
+
+Surfaces actionable insights by scanning existing data stores for items needing attention.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `proactive/engine.py` | `ProactiveSuggestionEngine` — generates prioritized suggestions from memory data |
+| `proactive/models.py` | `Suggestion` dataclass with category, priority, title, description, action |
+| `mcp_tools/proactive_tools.py` | MCP tools: `get_proactive_suggestions`, `dismiss_suggestion` |
+
+### Suggestion Categories
+
+| Category | Trigger | Priority |
+|----------|---------|----------|
+| `delegation` | Active delegations past due date | High |
+| `deadline` | Active delegations due within 3 days | High |
+| `decision` | Pending decisions older than 7 days | Medium |
+| `skill` | Pending skill suggestions from pattern analysis | Medium |
+| `checkpoint` | 50+ tool calls with no recent checkpoint | Medium |
+| `session` | Approaching context window limit or unflushed items | High/Medium |
+| `webhook` | Unprocessed webhook events | Low |
+
+---
+
+## 10. Session Management
+
+Tracks interactions within a session, extracts structured data (decisions, action items, key facts), and persists them to long-term memory before context compaction.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `session/manager.py` | `SessionManager` — interaction tracking, token estimation, structured extraction, flush, restore |
+| `mcp_tools/session_tools.py` | MCP tools: `get_session_status`, `flush_session_memory`, `restore_session` |
+| `mcp_tools/memory_tools.py` | `checkpoint_session`, `get_session_health` — session checkpoint and health monitoring |
+| `mcp_tools/state.py` | `SessionHealth` dataclass — tracks tool call count, session start, last checkpoint |
+
+### Flow
+
+```
+Interactions recorded  -->  SessionManager._buffer
+        |
+        v
+extract_structured_data()  -->  decisions, action_items, key_facts, general
+        |
+        v
+flush()  -->  stores to facts table (work category) + context checkpoint
+        |
+        v
+restore_from_checkpoint()  -->  loads previous session context and related facts
+```
+
+---
+
+## 11. Event-Driven Agent Dispatch
+
+Links webhook events to expert agents via configurable event rules. When a webhook event matches a rule, the corresponding agent is activated and results can be delivered to a specified channel.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `webhook/dispatcher.py` | `EventDispatcher` — matches events against rules, executes agents, delivers results |
+| `scheduler/delivery.py` | Delivery adapters: `EmailDeliveryAdapter`, `IMessageDeliveryAdapter`, `NotificationDeliveryAdapter` |
+| `mcp_tools/event_rule_tools.py` | MCP tools: `create_event_rule`, `update_event_rule`, `delete_event_rule`, `list_event_rules`, `process_webhook_event_with_agents` |
+| `memory/store.py` | SQLite `event_rules` table — name, source, type pattern, agent, template, delivery config, priority |
+
+### Event Rule Schema
+
+| Field | Purpose |
+|-------|---------|
+| `event_source` | Source to match (e.g. "github", "jira") |
+| `event_type_pattern` | Glob pattern for event types (e.g. "alert.*", "incident.critical") |
+| `agent_name` | Expert agent to activate on match |
+| `agent_input_template` | String.Template with `$event_type`, `$source`, `$payload`, `$timestamp` vars |
+| `delivery_channel` | Result delivery: "email", "imessage", or "notification" |
+| `priority` | Rule ordering (lower = higher priority) |
+
+---
+
+## 12. Identity Linking
+
+Cross-channel identity resolution that maps provider-specific accounts (iMessage phone, email, Teams ID) to canonical person names.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `mcp_tools/identity_tools.py` | MCP tools: `link_identity`, `unlink_identity`, `get_identity`, `search_identity` |
+| `memory/store.py` | SQLite `identities` table — canonical_name, provider, provider_id, display_name, email |
+
+### Supported Providers
+
+`imessage`, `email`, `m365_teams`, `m365_email`, `slack`, `jira`, `confluence`
+
+---
+
+## 13. Plugin Hooks
+
+Lifecycle hooks that fire at key points in the MCP server lifecycle and tool execution, enabling extensibility without modifying core code.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `hooks/registry.py` | `HookRegistry` — registers and fires hooks by event type, YAML config loading |
+| `hooks/builtin.py` | Built-in hook implementations |
+| `hooks/hook_configs/` | YAML hook configuration files |
+
+### Event Types
+
+| Event | When Fired |
+|-------|-----------|
+| `before_tool_call` | Before a tool handler executes |
+| `after_tool_call` | After a tool handler executes (includes result) |
+| `session_start` | When the MCP server starts |
+| `session_end` | When the MCP server shuts down |

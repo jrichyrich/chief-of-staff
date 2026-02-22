@@ -2,27 +2,30 @@
 
 Complete reference for all MCP tools and resources exposed by the Chief of Staff (Jarvis) server.
 
-**Total: 76 tools across 14 modules, plus 3 MCP resources.**
+**Total: 93 tools across 17 modules, plus 3 MCP resources.**
 
 ---
 
 ## Table of Contents
 
-1. [Memory Tools](#memory-tools) (6 tools)
+1. [Memory Tools](#memory-tools) (7 tools)
 2. [Document Tools](#document-tools) (2 tools)
-3. [Agent Tools](#agent-tools) (5 tools)
+3. [Agent Tools](#agent-tools) (7 tools)
 4. [Lifecycle Tools](#lifecycle-tools) (14 tools)
 5. [Calendar Tools](#calendar-tools) (8 tools)
 6. [Reminder Tools](#reminder-tools) (6 tools)
-7. [Mail Tools](#mail-tools) (9 tools)
+7. [Mail Tools](#mail-tools) (10 tools)
 8. [iMessage Tools](#imessage-tools) (7 tools)
 9. [OKR Tools](#okr-tools) (2 tools)
 10. [Webhook Tools](#webhook-tools) (3 tools)
-11. [Skill Tools](#skill-tools) (4 tools)
+11. [Skill Tools](#skill-tools) (5 tools)
 12. [Scheduler Tools](#scheduler-tools) (6 tools)
 13. [Channel Tools](#channel-tools) (2 tools)
 14. [Proactive Tools](#proactive-tools) (2 tools)
-15. [Resources](#resources) (3 resources)
+15. [Identity Tools](#identity-tools) (4 tools)
+16. [Event Rule Tools](#event-rule-tools) (5 tools)
+17. [Session Tools](#session-tools) (3 tools)
+18. [Resources](#resources) (3 resources)
 
 ---
 
@@ -42,6 +45,7 @@ Store a fact about the user in long-term memory. Overwrites if category+key alre
 | `key` | `str` | Yes | Short label for the fact (e.g. `name`, `favorite_color`, `job_title`) |
 | `value` | `str` | Yes | The fact value |
 | `confidence` | `float` | No | Confidence score from 0.0 to 1.0 (default: 1.0) |
+| `pinned` | `bool` | No | If `True`, this fact never decays over time (default: `False`) |
 
 **Returns:** JSON with `status`, `category`, `key`, `value` on success; `error` on failure.
 
@@ -58,12 +62,14 @@ Delete a fact from long-term memory.
 
 ### query_memory
 
-Search stored facts about the user. Returns matching facts ranked by relevance using temporal decay scoring (recent facts score higher). Uses FTS5 full-text search when no category filter is specified, with LIKE fallback.
+Search stored facts about the user. Returns matching facts ranked by relevance using temporal decay scoring (recent facts score higher). Uses hybrid FTS5 + vector search when no category filter is specified.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | `str` | Yes | Search term to match against fact keys and values |
 | `category` | `str` | No | Filter to a specific category. Leave empty to search all. |
+| `diverse` | `bool` | No | Apply MMR re-ranking to reduce redundant results (default: `True`) |
+| `half_life_days` | `int` | No | Number of days for temporal decay half-life (default: 90). Lower = faster decay of old facts. |
 
 **Returns:** JSON with `results` array of matching facts (category, key, value, confidence, relevance_score, updated_at).
 
@@ -100,8 +106,19 @@ Save important session context to persistent memory before context compaction. C
 | `summary` | `str` | Yes | Concise summary of the current session's key context and outcomes |
 | `key_facts` | `str` | No | Comma-separated key facts to persist as individual memory facts |
 | `session_id` | `str` | No | Optional session identifier for organizing context entries |
+| `auto_checkpoint` | `bool` | No | If `True`, marks this as an automatic (system-triggered) checkpoint (default: `False`) |
 
-**Returns:** JSON with `status: "checkpoint_saved"`, `context_id`, `facts_stored` count.
+**Returns:** JSON with `status: "checkpoint_saved"`, `context_id`, `facts_stored` count, `enriched_facts` count.
+
+### get_session_health
+
+Return session activity metrics: tool call count, session start time, last checkpoint. Use this to decide whether a `checkpoint_session` call is needed before context compaction.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with session health metrics including `tool_call_count`, `minutes_since_checkpoint`, and `checkpoint_recommended` flag.
 
 ---
 
@@ -138,7 +155,7 @@ Ingest documents from a file or directory into the knowledge base for semantic s
 
 **Module:** `mcp_tools/agent_tools.py`
 
-Tools for managing expert agent configurations stored as YAML files in `agent_configs/`.
+Tools for managing expert agent configurations stored as YAML files in `agent_configs/`, plus shared memory for cross-agent collaboration.
 
 ### list_agents
 
@@ -193,6 +210,31 @@ Clear all persistent memories for an agent.
 | `agent_name` | `str` | Yes | The agent whose memories to clear |
 
 **Returns:** JSON with `agent_name`, `deleted_count`.
+
+### store_shared_memory
+
+Store a memory in a shared namespace for cross-agent collaboration.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `namespace` | `str` | Yes | The shared namespace (e.g. `research-team`, `onboarding`) |
+| `memory_type` | `str` | Yes | Type of memory (`insight`, `preference`, `context`) |
+| `key` | `str` | Yes | A short label for this memory |
+| `value` | `str` | Yes | The memory content |
+| `confidence` | `float` | No | Confidence score from 0.0 to 1.0 (default: 1.0) |
+
+**Returns:** JSON with `status: "stored"`, `namespace`, `memory_type`, `key`, `value`, `confidence`.
+
+### get_shared_memory
+
+Retrieve shared memories from a namespace.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `namespace` | `str` | Yes | The shared namespace to query |
+| `memory_type` | `str` | No | Filter by memory type (`insight`, `preference`, `context`) |
+
+**Returns:** JSON with `namespace`, `results` array of memories (memory_type, key, value, confidence, updated_at).
 
 ---
 
@@ -674,6 +716,21 @@ Move a message to a different mailbox.
 
 **Returns:** JSON with move result.
 
+### reply_to_email
+
+Reply to an existing email within its thread. Sends a proper threaded reply that appears in the same conversation. Requires `confirm_send=True` after user explicitly confirms.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `message_id` | `str` | Yes | The message ID of the email to reply to |
+| `body` | `str` | Yes | Reply body text |
+| `reply_all` | `bool` | No | If `True`, replies to all recipients; if `False`, replies only to sender (default: `False`) |
+| `cc` | `str` | No | Comma-separated additional CC email addresses |
+| `bcc` | `str` | No | Comma-separated BCC email addresses |
+| `confirm_send` | `bool` | No | Must be `True` to actually send. `False` for preview only. (default: `False`) |
+
+**Returns:** JSON with send result or preview.
+
 ### send_email
 
 Compose and send an email. Requires `confirm_send=True` after user explicitly confirms they want to send.
@@ -883,7 +940,7 @@ Scan usage data and generate suggestions for new agents based on detected patter
 |-----------|------|----------|-------------|
 | *(none)* | | | |
 
-**Returns:** JSON with `suggestions` array of detected patterns with confidence scores.
+**Returns:** JSON with `suggestions_created` count and `patterns` array of detected patterns with confidence scores.
 
 ### list_skill_suggestions
 
@@ -891,7 +948,7 @@ List auto-generated agent suggestions.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `status` | `str` | No | Filter by status (`pending`, `accepted`, `rejected`). Leave empty for all. |
+| `status` | `str` | No | Filter by status (`pending`, `accepted`, `rejected`). Default: `pending`. |
 
 **Returns:** JSON with `results` array of suggestions.
 
@@ -905,13 +962,23 @@ Accept a suggestion and create a new agent configuration using AgentFactory.
 
 **Returns:** JSON with `status: "created"` and agent details.
 
+### auto_execute_skills
+
+Auto-create agents from high-confidence pending skill suggestions. Uses the PatternDetector's `auto_create_threshold` (default: 0.9) to filter suggestions. Only runs if `SKILL_AUTO_EXECUTE_ENABLED` is `True`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `status`, `agents_created` count, and `agent_names` list.
+
 ---
 
 ## Scheduler Tools
 
 **Module:** `mcp_tools/scheduler_tools.py`
 
-Tools for managing the built-in task scheduler. Supports interval, cron, and one-time schedules with handler types for alert evaluation, backups, and custom commands.
+Tools for managing the built-in task scheduler. Supports interval, cron, and one-time schedules with handler types for alert evaluation, backups, and custom commands. Supports delivery channel configuration for result delivery.
 
 ### create_scheduled_task
 
@@ -920,12 +987,14 @@ Create a new scheduled task.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | `str` | Yes | Unique name for the scheduled task |
-| `description` | `str` | No | Human-readable description |
 | `schedule_type` | `str` | Yes | Schedule type: `interval`, `cron`, or `once` |
 | `schedule_config` | `str` | Yes | JSON config (e.g. `{"minutes": 120}`, `{"expression": "0 8 * * 1-5"}`, `{"run_at": "..."}`) |
 | `handler_type` | `str` | Yes | Handler: `alert_eval`, `backup`, `webhook_poll`, `custom` |
 | `handler_config` | `str` | No | JSON config for the handler (e.g. command for custom handler) |
+| `description` | `str` | No | Human-readable description |
 | `enabled` | `bool` | No | Whether the task is active (default: `True`) |
+| `delivery_channel` | `str` | No | Channel to deliver results: `email`, `imessage`, or `notification` |
+| `delivery_config` | `str` | No | JSON config for delivery (e.g. `{"to": ["user@example.com"]}` for email, `{"recipient": "+15551234567"}` for imessage) |
 
 **Returns:** JSON with `status: "created"` and task details.
 
@@ -937,7 +1006,7 @@ List all scheduled tasks.
 |-----------|------|----------|-------------|
 | `enabled_only` | `bool` | No | If `True`, only return enabled tasks (default: `False`) |
 
-**Returns:** JSON with `results` array of tasks.
+**Returns:** JSON with `count` and `tasks` array including `delivery_channel`.
 
 ### update_scheduled_task
 
@@ -949,6 +1018,8 @@ Update a scheduled task's configuration.
 | `enabled` | `bool` | No | Enable or disable the task |
 | `schedule_config` | `str` | No | New schedule configuration (JSON) |
 | `handler_config` | `str` | No | New handler configuration (JSON) |
+| `delivery_channel` | `str` | No | New delivery channel: `email`, `imessage`, `notification`, or `none` to clear |
+| `delivery_config` | `str` | No | New delivery config (JSON) |
 
 **Returns:** JSON with the updated task.
 
@@ -980,7 +1051,7 @@ Show scheduler overview with last run times and next due tasks.
 |-----------|------|----------|-------------|
 | *(none)* | | | |
 
-**Returns:** JSON with task summaries including `last_run_at`, `next_run_at`, `enabled` status.
+**Returns:** JSON with task summaries including `last_run_at`, `next_run_at`, `enabled` status, `overdue` flag.
 
 ---
 
@@ -997,9 +1068,10 @@ List recent inbound events from all channels.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `channel` | `str` | No | Filter by channel (`imessage`, `mail`, `webhook`). Leave empty for all. |
-| `limit` | `int` | No | Maximum events to return (default 50) |
+| `event_type` | `str` | No | Filter by event type (`message`, `email`, `webhook_event`). Leave empty for all. |
+| `limit` | `int` | No | Maximum events per channel (default: 25, max: 100) |
 
-**Returns:** JSON with `results` array of normalized events (channel, sender, subject, timestamp).
+**Returns:** JSON with `results` array of normalized events (channel, source, event_type, content_preview, received_at, raw_id, metadata) and `count`.
 
 ### get_event_summary
 
@@ -1009,7 +1081,7 @@ Get a summary of inbound event activity across all channels.
 |-----------|------|----------|-------------|
 | *(none)* | | | |
 
-**Returns:** JSON with per-channel event counts and recent activity summary.
+**Returns:** JSON with per-channel event counts and `total`.
 
 ---
 
@@ -1021,23 +1093,192 @@ Proactive suggestion engine that surfaces actionable items without being asked.
 
 ### get_proactive_suggestions
 
-Check for proactive suggestions (skill patterns, overdue delegations, stale decisions, upcoming deadlines).
+Check for proactive suggestions (skill patterns, overdue delegations, stale decisions, upcoming deadlines, unprocessed webhook events).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | *(none)* | | | |
 
-**Returns:** JSON with `suggestions` array (type, title, description, priority, source).
+**Returns:** JSON with `suggestions` array (category, priority, title, description, action, created_at) and `total`.
 
 ### dismiss_suggestion
 
-Dismiss a proactive suggestion so it won't appear again.
+Dismiss a proactive suggestion so it won't reappear.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `suggestion_id` | `str` | Yes | The ID of the suggestion to dismiss |
+| `category` | `str` | Yes | The suggestion category (`skill`, `webhook`, `delegation`, `decision`, `deadline`) |
+| `title` | `str` | Yes | The title of the suggestion to dismiss |
 
 **Returns:** JSON with `status: "dismissed"`.
+
+---
+
+## Identity Tools
+
+**Module:** `mcp_tools/identity_tools.py`
+
+Cross-channel identity linking. Maps provider accounts (iMessage, email, Teams, etc.) to canonical person names for unified identity resolution.
+
+### link_identity
+
+Link a provider identity to a canonical person name.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `canonical_name` | `str` | Yes | The person's canonical name (e.g. `Jane Smith`) |
+| `provider` | `str` | Yes | Provider name: `imessage`, `email`, `m365_teams`, `m365_email`, `slack`, `jira`, `confluence` |
+| `provider_id` | `str` | Yes | Unique ID on the provider (phone number, email, user ID, etc.) |
+| `display_name` | `str` | No | Display name on the provider |
+| `email` | `str` | No | Email address associated with this identity |
+
+**Returns:** JSON with the linked identity record.
+
+### unlink_identity
+
+Remove an identity link for a specific provider account.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `provider` | `str` | Yes | Provider name (e.g. `imessage`, `email`, `m365_teams`) |
+| `provider_id` | `str` | Yes | Unique ID on the provider |
+
+**Returns:** JSON with unlink result.
+
+### get_identity
+
+Get all linked accounts for a person by their canonical name.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `canonical_name` | `str` | Yes | The person's canonical name (e.g. `Jane Smith`) |
+
+**Returns:** JSON with `canonical_name` and `identities` array of linked accounts.
+
+### search_identity
+
+Search identities by name, email, or provider ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | `str` | Yes | Search text to match against canonical_name, display_name, email, or provider_id |
+
+**Returns:** JSON with `results` array of matching identities.
+
+---
+
+## Event Rule Tools
+
+**Module:** `mcp_tools/event_rule_tools.py`
+
+Event-driven agent dispatch. Manages rules that link webhook events to expert agent activation, enabling automated workflows.
+
+### create_event_rule
+
+Create an event rule that triggers an agent when a matching webhook event arrives.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `str` | Yes | Unique name for this rule |
+| `event_source` | `str` | Yes | Source to match (e.g. `github`, `jira`) |
+| `event_type_pattern` | `str` | Yes | Glob pattern for event types (e.g. `alert.*`, `incident.critical`) |
+| `agent_name` | `str` | Yes | Name of the expert agent to activate |
+| `description` | `str` | No | Human-readable description of what this rule does |
+| `agent_input_template` | `str` | No | Template for agent input with `$event_type`, `$source`, `$payload`, `$timestamp` vars |
+| `delivery_channel` | `str` | No | Delivery channel for results (`email`, `imessage`, `notification`) |
+| `delivery_config` | `str` | No | JSON config for the delivery channel |
+| `enabled` | `bool` | No | Whether the rule is active (default: `True`) |
+| `priority` | `int` | No | Priority for rule ordering (lower = higher priority, default: 100) |
+
+**Returns:** JSON with the created event rule.
+
+### update_event_rule
+
+Update an existing event rule.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `rule_id` | `int` | Yes | The ID of the event rule to update |
+| `name` | `str` | No | New name for the rule |
+| `event_source` | `str` | No | New event source filter |
+| `event_type_pattern` | `str` | No | New glob pattern for event types |
+| `agent_name` | `str` | No | New agent to activate |
+| `description` | `str` | No | New description |
+| `agent_input_template` | `str` | No | New input template |
+| `delivery_channel` | `str` | No | New delivery channel |
+| `delivery_config` | `str` | No | New delivery config (JSON string) |
+| `enabled` | `bool` | No | Whether the rule is active (default: `True`) |
+| `priority` | `int` | No | New priority value (`-1` means no change) |
+
+**Returns:** JSON with the updated event rule.
+
+### delete_event_rule
+
+Delete an event rule by ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `rule_id` | `int` | Yes | The ID of the event rule to delete |
+
+**Returns:** JSON with deletion result.
+
+### list_event_rules
+
+List event rules.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `enabled_only` | `bool` | No | If `True`, only return enabled rules (default: `True`) |
+
+**Returns:** JSON with `rules` array and `count`.
+
+### process_webhook_event_with_agents
+
+Manually trigger agent dispatch for a specific webhook event. Finds matching event rules and dispatches the event to the corresponding agents.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `event_id` | `int` | Yes | The ID of the webhook event to process |
+
+**Returns:** JSON with `event_id`, `rules_matched`, `dispatches` array, and `event_status`.
+
+---
+
+## Session Tools
+
+**Module:** `mcp_tools/session_tools.py`
+
+Session lifecycle management. Tracks interaction context, estimates token usage, and provides structured flush/restore for persisting session data across context compaction.
+
+### get_session_status
+
+Return current session status: token estimate, interaction count, time since last checkpoint, and a preview of extracted items. Use this to decide whether a `flush_session_memory` call is needed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `session_id`, `token_estimate`, `interaction_count`, `time_since_last_checkpoint`, `extracted_items_preview`, and `context_window_usage`.
+
+### flush_session_memory
+
+Persist structured session data to long-term memory. Extracts decisions, action items, and key facts from the current session and stores them as facts. Also creates a session checkpoint.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `priority` | `str` | No | What to flush: `all`, `decisions`, `action_items`, or `key_facts` (default: `all`) |
+
+**Returns:** JSON with `status: "flushed"`, `session_id`, and flush details.
+
+### restore_session
+
+Restore context from a previous session checkpoint.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | `str` | Yes | The session ID to restore from |
+
+**Returns:** JSON with `status: "restored"` and restored context.
 
 ---
 
@@ -1077,19 +1318,22 @@ All available expert agents and their descriptions.
 
 | Module | Tools | Description |
 |--------|-------|-------------|
-| Memory | 6 | Fact and location CRUD, session checkpoints |
+| Memory | 7 | Fact and location CRUD, session checkpoints, session health |
 | Documents | 2 | Semantic search and ingestion |
-| Agents | 5 | Agent config management + agent memory |
+| Agents | 7 | Agent config management, agent memory, shared memory |
 | Lifecycle | 14 | Decisions, delegations, alerts |
 | Calendar | 8 | Calendar CRUD and availability |
 | Reminders | 6 | Apple Reminders CRUD |
-| Mail | 9 | Mail read/search/send + notifications |
+| Mail | 10 | Mail read/search/send/reply + notifications |
 | iMessage | 7 | iMessage read/search/send |
 | OKR | 2 | OKR tracking and queries |
 | Webhook | 3 | Inbound webhook event queue |
-| Skills | 4 | Pattern detection and auto agent creation |
-| Scheduler | 6 | Built-in task scheduling with cron support |
+| Skills | 5 | Pattern detection, auto agent creation, auto-execution |
+| Scheduler | 6 | Built-in task scheduling with cron and delivery channels |
 | Channels | 2 | Unified inbound event adapter |
 | Proactive | 2 | Proactive suggestion engine |
-| **Total** | **76** | |
+| Identity | 4 | Cross-channel identity linking |
+| Event Rules | 5 | Event-driven agent dispatch |
+| Session | 3 | Session lifecycle and context persistence |
+| **Total** | **93** | |
 | Resources | 3 | Read-only data endpoints |

@@ -150,6 +150,16 @@ These capabilities have runtime tool mappings and grant actual tool access to ag
 | `alerts_read` | Run and inspect proactive alert checks | `check_alerts`, `list_alert_rules` |
 | `alerts_write` | Create and dismiss alert rules | `create_alert_rule`, `dismiss_alert` |
 | `scheduling` | Find available calendar slots and analyze group availability | `find_my_open_slots`, `find_group_availability` |
+| `agent_memory_read` | Read agent-specific memories | `get_agent_memory` |
+| `agent_memory_write` | Clear agent-specific memories | `clear_agent_memory` |
+| `channel_read` | Read unified inbound events across channels | `list_inbound_events`, `get_event_summary` |
+| `proactive_read` | Read and dismiss proactive suggestions | `get_proactive_suggestions`, `dismiss_suggestion` |
+| `webhook_read` | List and inspect webhook events | `list_webhook_events`, `get_webhook_event` |
+| `webhook_write` | Process and update webhook event status | `process_webhook_event` |
+| `scheduler_read` | List scheduled tasks and view scheduler status | `list_scheduled_tasks`, `get_scheduler_status` |
+| `scheduler_write` | Create, update, delete, and run scheduled tasks | `create_scheduled_task`, `update_scheduled_task`, `delete_scheduled_task`, `run_scheduled_task` |
+| `skill_read` | List skill suggestions from pattern analysis | `list_skill_suggestions` |
+| `skill_write` | Record tool usage, analyze patterns, and auto-create skills | `record_tool_usage`, `analyze_skill_patterns`, `auto_create_skill` |
 
 ### Legacy Capabilities
 

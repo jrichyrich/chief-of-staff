@@ -38,7 +38,11 @@ Manage expert agent configurations stored as YAML files. Agents define specializ
 
 ## Capability Options
 
-Common capabilities: `web_search`, `memory_read`, `memory_write`, `document_search`, `code_analysis`, `writing`, `data_analysis`, `planning`
+**Implemented capabilities** (mapped to runtime tools):
+`memory_read`, `memory_write`, `document_search`, `calendar_read`, `reminders_read`, `reminders_write`, `notifications`, `mail_read`, `mail_write`, `decision_read`, `decision_write`, `delegation_read`, `delegation_write`, `alerts_read`, `alerts_write`, `scheduling`, `agent_memory_read`, `agent_memory_write`, `channel_read`, `proactive_read`, `webhook_read`, `webhook_write`, `scheduler_read`, `scheduler_write`, `skill_read`, `skill_write`
+
+**Legacy capabilities** (accepted but no local runtime tools):
+`web_search`, `code_analysis`, `writing`, `editing`, `data_analysis`, `planning`, `file_operations`, `code_execution`
 
 ## Common Mistakes
 

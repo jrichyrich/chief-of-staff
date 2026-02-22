@@ -20,8 +20,9 @@ Persist and retrieve facts about the user using the Chief of Staff memory tools.
 
 | Tool | Purpose | Key Args |
 |------|---------|----------|
-| `store_fact` | Save a fact | category, key, value |
-| `query_memory` | Search/retrieve facts | query, category (optional) |
+| `store_fact` | Save a fact | category, key, value, confidence (optional), pinned (optional) |
+| `delete_fact` | Remove a fact | category, key |
+| `query_memory` | Search/retrieve facts | query, category (optional), diverse (optional), half_life_days (optional) |
 | `store_location` | Save a place | name, address, notes |
 | `list_locations` | List saved places | (none) |
 
@@ -31,6 +32,7 @@ Persist and retrieve facts about the user using the Chief of Staff memory tools.
 - **preference**: Favorite things, communication style, work preferences
 - **work**: Job title, company, projects, skills
 - **relationship**: Colleagues, contacts, team members
+- **backlog**: Tasks, action items, things to follow up on
 
 ## Pattern
 

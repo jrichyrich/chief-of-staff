@@ -4,7 +4,7 @@ argument-hint: "[fact to remember]"
 ---
 
 The user wants to store a fact in their persistent memory. Parse their input to extract:
-- **category**: One of 'personal', 'preference', 'work', 'relationship'
+- **category**: One of 'personal', 'preference', 'work', 'relationship', 'backlog'
 - **key**: A short label for the fact
 - **value**: The fact itself
 
