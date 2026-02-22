@@ -27,6 +27,7 @@ class MemoryStore:
                 metadata={"hnsw:space": "cosine"},
             )
         self._create_tables()
+        self._migrate_facts_pinned()
         self._migrate_agent_memory_namespace()
 
     def _create_tables(self):
@@ -183,6 +184,15 @@ class MemoryStore:
         self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
         self.conn.commit()
 
+    def _migrate_facts_pinned(self):
+        """Add pinned column to facts if it doesn't exist."""
+        try:
+            self.conn.execute("ALTER TABLE facts ADD COLUMN pinned INTEGER DEFAULT 0")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+
     def _migrate_agent_memory_namespace(self):
         """Add namespace column to agent_memory if it doesn't exist."""
         try:
@@ -197,14 +207,16 @@ class MemoryStore:
     def store_fact(self, fact: Fact) -> Fact:
         now = datetime.now().isoformat()
         self.conn.execute(
-            """INSERT INTO facts (category, key, value, confidence, source, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO facts (category, key, value, confidence, source, pinned, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(category, key) DO UPDATE SET
                    value=excluded.value,
                    confidence=excluded.confidence,
                    source=excluded.source,
+                   pinned=excluded.pinned,
                    updated_at=excluded.updated_at""",
-            (fact.category, fact.key, fact.value, fact.confidence, fact.source, now, now),
+            (fact.category, fact.key, fact.value, fact.confidence, fact.source,
+             1 if fact.pinned else 0, now, now),
         )
         self.conn.commit()
         if self._facts_collection is not None:
@@ -243,6 +255,7 @@ class MemoryStore:
         """Apply temporal decay scoring to a list of facts.
 
         Score = confidence * exp(-ln(2) * age_days / half_life_days)
+        Pinned facts bypass decay and return full confidence score.
         Returns list of (Fact, score) tuples sorted by score descending.
         """
         half_life_days = max(half_life_days, 0.001)
@@ -250,6 +263,9 @@ class MemoryStore:
         ln2 = math.log(2)
         scored: list[tuple[Fact, float]] = []
         for fact in facts:
+            if fact.pinned:
+                scored.append((fact, fact.confidence))
+                continue
             timestamp = fact.updated_at or fact.created_at
             if timestamp:
                 dt = datetime.fromisoformat(str(timestamp))
@@ -327,10 +343,56 @@ class MemoryStore:
             scored.append((fact, score))
         return scored
 
-    def search_facts_hybrid(self, query: str) -> list[tuple[Fact, float]]:
+    @staticmethod
+    def _mmr_rerank(
+        results: list[tuple[Fact, float]],
+        lambda_param: float = 0.7,
+        top_k: int | None = None,
+    ) -> list[tuple[Fact, float]]:
+        """Maximal Marginal Relevance re-ranking to reduce redundancy.
+
+        Iteratively selects results that maximize:
+            lambda * relevance - (1 - lambda) * max_similarity_to_already_selected
+
+        Uses Jaccard token similarity between fact values.
+        """
+        if not results:
+            return []
+
+        def _jaccard(a: str, b: str) -> float:
+            words_a = set(a.lower().split())
+            words_b = set(b.lower().split())
+            if not words_a or not words_b:
+                return 0.0
+            return len(words_a & words_b) / len(words_a | words_b)
+
+        remaining = list(results)
+        selected: list[tuple[Fact, float]] = []
+        k = top_k if top_k is not None else len(results)
+
+        while remaining and len(selected) < k:
+            best_idx = 0
+            best_mmr = float("-inf")
+            for i, (fact, score) in enumerate(remaining):
+                max_sim = 0.0
+                for sel_fact, _ in selected:
+                    sim = _jaccard(fact.value, sel_fact.value)
+                    if sim > max_sim:
+                        max_sim = sim
+                mmr = lambda_param * score - (1 - lambda_param) * max_sim
+                if mmr > best_mmr:
+                    best_mmr = mmr
+                    best_idx = i
+            selected.append(remaining.pop(best_idx))
+
+        return selected
+
+    def search_facts_hybrid(self, query: str, diverse: bool = False, half_life_days: float = 90.0) -> list[tuple[Fact, float]]:
         """Hybrid search combining FTS5 BM25, LIKE, and vector search.
 
         Returns (Fact, score) tuples sorted by score descending.
+        When diverse=True, applies MMR re-ranking to reduce redundant results.
+        Applies temporal decay with configurable half_life_days; pinned facts bypass decay.
         """
         if not query or not query.strip():
             return []
@@ -371,8 +433,28 @@ class MemoryStore:
                 if score > merged[fact.id][1]:
                     merged[fact.id] = (fact, score)
 
-        results = list(merged.values())
+        # Apply temporal decay to merged results; pinned facts bypass decay
+        half_life_days = max(half_life_days, 0.001)
+        now = datetime.now()
+        ln2 = math.log(2)
+        results: list[tuple[Fact, float]] = []
+        for fact, score in merged.values():
+            if fact.pinned:
+                results.append((fact, score))
+                continue
+            timestamp = fact.updated_at or fact.created_at
+            if timestamp:
+                dt = datetime.fromisoformat(str(timestamp))
+                age_days = (now - dt).total_seconds() / 86400.0
+            else:
+                age_days = 0.0
+            decay = math.exp(-ln2 * age_days / half_life_days)
+            results.append((fact, score * decay))
         results.sort(key=lambda x: x[1], reverse=True)
+
+        if diverse:
+            results = self._mmr_rerank(results)
+
         return results
 
     def delete_fact(self, category: str, key: str) -> bool:
@@ -388,6 +470,11 @@ class MemoryStore:
         return cursor.rowcount > 0
 
     def _row_to_fact(self, row: sqlite3.Row) -> Fact:
+        pinned = False
+        try:
+            pinned = bool(row["pinned"])
+        except (IndexError, KeyError):
+            pass
         return Fact(
             id=row["id"],
             category=row["category"],
@@ -395,6 +482,7 @@ class MemoryStore:
             value=row["value"],
             confidence=row["confidence"],
             source=row["source"],
+            pinned=pinned,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

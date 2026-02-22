@@ -1,11 +1,12 @@
 """Tests for the proactive suggestion engine."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
 from memory.models import Decision, Delegation, SkillSuggestion, WebhookEvent
 from memory.store import MemoryStore
+from mcp_tools.state import SessionHealth
 from proactive.engine import ProactiveSuggestionEngine
 
 
@@ -220,3 +221,61 @@ class TestCheckUpcomingDeadlines:
         ))
         result = engine._check_upcoming_deadlines()
         assert result == []
+
+
+class TestCheckSessionCheckpointNeeded:
+    def test_no_session_health_returns_empty(self, memory_store):
+        engine = ProactiveSuggestionEngine(memory_store, session_health=None)
+        result = engine._check_session_checkpoint_needed()
+        assert result == []
+
+    def test_low_tool_calls_returns_empty(self, memory_store):
+        health = SessionHealth(tool_call_count=10)
+        engine = ProactiveSuggestionEngine(memory_store, session_health=health)
+        result = engine._check_session_checkpoint_needed()
+        assert result == []
+
+    def test_high_calls_no_checkpoint_returns_suggestion(self, memory_store):
+        health = SessionHealth(tool_call_count=60)
+        engine = ProactiveSuggestionEngine(memory_store, session_health=health)
+        result = engine._check_session_checkpoint_needed()
+        assert len(result) == 1
+        assert result[0].category == "checkpoint"
+        assert result[0].priority == "medium"
+        assert result[0].action == "checkpoint_session"
+        assert "60 tool calls" in result[0].description
+        assert "no checkpoint yet" in result[0].description
+
+    def test_high_calls_stale_checkpoint_returns_suggestion(self, memory_store):
+        old_time = (datetime.now() - timedelta(minutes=45)).isoformat()
+        health = SessionHealth(tool_call_count=55, last_checkpoint=old_time)
+        engine = ProactiveSuggestionEngine(memory_store, session_health=health)
+        result = engine._check_session_checkpoint_needed()
+        assert len(result) == 1
+        assert "last checkpoint over 30 min ago" in result[0].description
+
+    def test_high_calls_recent_checkpoint_returns_empty(self, memory_store):
+        recent = (datetime.now() - timedelta(minutes=5)).isoformat()
+        health = SessionHealth(tool_call_count=100, last_checkpoint=recent)
+        engine = ProactiveSuggestionEngine(memory_store, session_health=health)
+        result = engine._check_session_checkpoint_needed()
+        assert result == []
+
+    def test_exactly_50_calls_triggers(self, memory_store):
+        health = SessionHealth(tool_call_count=50)
+        engine = ProactiveSuggestionEngine(memory_store, session_health=health)
+        result = engine._check_session_checkpoint_needed()
+        assert len(result) == 1
+
+    def test_49_calls_does_not_trigger(self, memory_store):
+        health = SessionHealth(tool_call_count=49)
+        engine = ProactiveSuggestionEngine(memory_store, session_health=health)
+        result = engine._check_session_checkpoint_needed()
+        assert result == []
+
+    def test_checkpoint_suggestion_appears_in_generate_suggestions(self, memory_store):
+        health = SessionHealth(tool_call_count=60)
+        engine = ProactiveSuggestionEngine(memory_store, session_health=health)
+        suggestions = engine.generate_suggestions()
+        checkpoint_suggestions = [s for s in suggestions if s.category == "checkpoint"]
+        assert len(checkpoint_suggestions) == 1

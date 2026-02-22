@@ -11,6 +11,7 @@ class Fact:
     value: str
     confidence: float = 1.0
     source: Optional[str] = None
+    pinned: bool = False
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

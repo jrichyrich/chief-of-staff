@@ -52,7 +52,7 @@ jarvis-mcp
 | `mcp_tools/lifecycle_tools.py` | create_decision, search_decisions, update_decision, delete_decision, list_pending_decisions, create_delegation, list_delegations, update_delegation, delete_delegation, check_overdue_delegations, create_alert_rule, list_alert_rules, check_alerts, dismiss_alert |
 | `mcp_tools/calendar_tools.py` | list_calendars, get_calendar_events, create/update/delete_calendar_event, search_calendar_events, find_my_open_slots, find_group_availability |
 | `mcp_tools/reminder_tools.py` | list_reminder_lists, list_reminders, create_reminder, complete_reminder, delete_reminder, search_reminders |
-| `mcp_tools/mail_tools.py` | send_notification, list_mailboxes, get_mail_messages, get_mail_message, search_mail, mark_mail_read, mark_mail_flagged, move_mail_message, send_email |
+| `mcp_tools/mail_tools.py` | send_notification, list_mailboxes, get_mail_messages, get_mail_message, search_mail, mark_mail_read, mark_mail_flagged, move_mail_message, reply_to_email, send_email |
 | `mcp_tools/imessage_tools.py` | get_imessages, list_imessage_threads, get_imessage_threads, get_imessage_thread_messages, get_thread_context, search_imessages, send_imessage_reply |
 | `mcp_tools/okr_tools.py` | refresh_okr_data, query_okr_status |
 | `mcp_tools/webhook_tools.py` | list_webhook_events, get_webhook_event, process_webhook_event |

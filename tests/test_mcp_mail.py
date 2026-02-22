@@ -30,6 +30,7 @@ def mock_mail_store():
     store.mark_read.return_value = {}
     store.mark_flagged.return_value = {}
     store.move_message.return_value = {}
+    store.reply_message.return_value = {}
     store.send_message.return_value = {}
     return store
 
@@ -49,7 +50,7 @@ def mail_state(mock_mail_store):
 
 class TestMailToolsRegistered:
     def test_all_mail_tools_registered(self):
-        """Verify all 8 mail tools are registered on the MCP server."""
+        """Verify all 9 mail tools are registered on the MCP server."""
         tool_names = [t.name for t in mcp_server.mcp._tool_manager.list_tools()]
         expected = [
             "list_mailboxes",
@@ -59,6 +60,7 @@ class TestMailToolsRegistered:
             "mark_mail_read",
             "mark_mail_flagged",
             "move_mail_message",
+            "reply_to_email",
             "send_email",
         ]
         for name in expected:
@@ -310,6 +312,118 @@ class TestMoveMailMessageTool:
         mail_state.move_message.assert_called_once_with(
             "m1", target_mailbox="Archive", target_account="Work"
         )
+
+
+# ---------------------------------------------------------------------------
+# reply_to_email
+# ---------------------------------------------------------------------------
+
+
+class TestReplyToEmailTool:
+    @pytest.mark.asyncio
+    async def test_basic_reply(self, mail_state):
+        from mcp_tools.mail_tools import reply_to_email
+
+        mail_state.reply_message.return_value = {
+            "status": "replied",
+            "message_id": "msg-123",
+            "reply_all": False,
+        }
+
+        result = await reply_to_email(
+            message_id="msg-123",
+            body="Thanks for the update.",
+            confirm_send=True,
+        )
+        data = json.loads(result)
+
+        assert data["status"] == "replied"
+        assert data["message_id"] == "msg-123"
+        assert data["reply_all"] is False
+        mail_state.reply_message.assert_called_once_with(
+            message_id="msg-123",
+            body="Thanks for the update.",
+            reply_all=False,
+            cc=None,
+            bcc=None,
+            confirm_send=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reply_all(self, mail_state):
+        from mcp_tools.mail_tools import reply_to_email
+
+        mail_state.reply_message.return_value = {
+            "status": "replied",
+            "message_id": "msg-456",
+            "reply_all": True,
+        }
+
+        result = await reply_to_email(
+            message_id="msg-456",
+            body="Replying to all.",
+            reply_all=True,
+            confirm_send=True,
+        )
+        data = json.loads(result)
+
+        assert data["reply_all"] is True
+        call_kwargs = mail_state.reply_message.call_args[1]
+        assert call_kwargs["reply_all"] is True
+
+    @pytest.mark.asyncio
+    async def test_reply_with_cc_bcc(self, mail_state):
+        from mcp_tools.mail_tools import reply_to_email
+
+        mail_state.reply_message.return_value = {"status": "replied", "message_id": "msg-789", "reply_all": False}
+
+        result = await reply_to_email(
+            message_id="msg-789",
+            body="Adding people.",
+            cc="extra@test.com, another@test.com",
+            bcc="hidden@test.com",
+            confirm_send=True,
+        )
+        data = json.loads(result)
+
+        assert data["status"] == "replied"
+        call_kwargs = mail_state.reply_message.call_args[1]
+        assert call_kwargs["cc"] == ["extra@test.com", "another@test.com"]
+        assert call_kwargs["bcc"] == ["hidden@test.com"]
+
+    @pytest.mark.asyncio
+    async def test_confirm_send_false(self, mail_state):
+        from mcp_tools.mail_tools import reply_to_email
+
+        mail_state.reply_message.return_value = {
+            "error": "confirm_send must be True. Please confirm with the user before sending."
+        }
+
+        result = await reply_to_email(
+            message_id="msg-123",
+            body="Reply text",
+            confirm_send=False,
+        )
+        data = json.loads(result)
+
+        assert "error" in data
+        assert "confirm_send" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_reply_error(self, mail_state):
+        from mcp_tools.mail_tools import reply_to_email
+
+        mail_state.reply_message.side_effect = RuntimeError("Mail connection lost")
+
+        result = await reply_to_email(
+            message_id="msg-123",
+            body="Reply text",
+            confirm_send=True,
+        )
+        data = json.loads(result)
+
+        assert "error" in data
+        assert "Mail connection lost" in data["error"]
 
 
 # ---------------------------------------------------------------------------

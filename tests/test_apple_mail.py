@@ -375,6 +375,90 @@ class TestMoveMessage:
 # ---------------------------------------------------------------------------
 
 
+class TestReplyMessage:
+    @patch("apple_mail.mail.Notifier")
+    def test_reply_success(self, mock_notifier_cls):
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.reply_message(
+                message_id="msg-123",
+                body="Thanks for the update.",
+                confirm_send=True,
+            )
+            assert result["status"] == "replied"
+            assert result["message_id"] == "msg-123"
+            assert result["reply_all"] is False
+            mock_notifier_cls.send.assert_called_once()
+            # Verify the script uses the reply command
+            call_args = mock_run.call_args[0][0]
+            assert "reply foundMsg" in call_args
+            assert "without reply to all" in call_args
+
+    @patch("apple_mail.mail.Notifier")
+    def test_reply_all(self, mock_notifier_cls):
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.reply_message(
+                message_id="msg-456",
+                body="Replying to all.",
+                reply_all=True,
+                confirm_send=True,
+            )
+            assert result["status"] == "replied"
+            assert result["reply_all"] is True
+            call_args = mock_run.call_args[0][0]
+            assert "with opening window and reply to all" in call_args
+
+    def test_confirm_send_false(self):
+        store = MailStore()
+        result = store.reply_message(
+            message_id="msg-123",
+            body="Reply text",
+            confirm_send=False,
+        )
+        assert "error" in result
+        assert "confirm_send" in result["error"]
+
+    def test_message_not_found(self):
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "ERROR: Message not found"}):
+            result = store.reply_message(
+                message_id="missing-id",
+                body="Reply text",
+                confirm_send=True,
+            )
+            assert "error" in result
+            assert "not found" in result["error"]
+
+    @patch("apple_mail.mail.Notifier")
+    def test_reply_with_cc_bcc(self, mock_notifier_cls):
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.reply_message(
+                message_id="msg-789",
+                body="Adding people to thread.",
+                cc=["extra@test.com"],
+                bcc=["hidden@test.com"],
+                confirm_send=True,
+            )
+            assert result["status"] == "replied"
+            call_args = mock_run.call_args[0][0]
+            assert 'address:"extra@test.com"' in call_args
+            assert 'address:"hidden@test.com"' in call_args
+
+    @patch("apple_mail.mail.Notifier")
+    def test_reply_script_error(self, mock_notifier_cls):
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"error": "osascript failed: bad"}):
+            result = store.reply_message(
+                message_id="msg-123",
+                body="Reply text",
+                confirm_send=True,
+            )
+            assert "error" in result
+            mock_notifier_cls.send.assert_not_called()
+
+
 class TestSendMessage:
     @patch("apple_mail.mail.Notifier")
     def test_success(self, mock_notifier_cls):

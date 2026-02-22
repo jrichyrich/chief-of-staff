@@ -80,7 +80,7 @@ class TestBaseExpertAgent:
 
     @pytest.mark.asyncio
     async def test_agent_respects_max_tool_rounds(self, agent_config, memory_store, doc_store):
-        """Agent should stop after MAX_TOOL_ROUNDS to prevent infinite loops."""
+        """Agent should stop after MAX_TOOL_ROUNDS or loop detection to prevent infinite loops."""
         agent = BaseExpertAgent(
             config=agent_config,
             memory_store=memory_store,
@@ -95,7 +95,8 @@ class TestBaseExpertAgent:
 
         with patch.object(agent, "_call_api", new_callable=AsyncMock, return_value=mock_response):
             result = await agent.execute("Loop forever")
-            assert "maximum tool rounds" in result.lower()
+            # Loop detector catches this before MAX_TOOL_ROUNDS since it's the exact same call
+            assert "loop detected" in result.lower() or "maximum tool rounds" in result.lower()
 
     def test_uses_async_client(self, agent_config, memory_store, doc_store):
         """Agent should use AsyncAnthropic for true async execution."""

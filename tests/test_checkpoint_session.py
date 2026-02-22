@@ -5,6 +5,7 @@ import pytest
 
 from memory.models import Fact
 from memory.store import MemoryStore
+from mcp_tools.state import SessionHealth
 
 
 @pytest.fixture
@@ -178,3 +179,120 @@ class TestCheckpointSession:
         data = json.loads(result)
         # Should only store 2 non-empty facts
         assert data["facts_stored"] == 2
+
+    @pytest.mark.asyncio
+    async def test_auto_checkpoint_prefixes_summary(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import checkpoint_session
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await checkpoint_session(
+                "Session context before compaction",
+                auto_checkpoint=True,
+            )
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "checkpoint_saved"
+        assert data["auto_checkpoint"] is True
+
+        entries = shared_state["memory_store"].list_context()
+        assert len(entries) == 1
+        assert entries[0].summary.startswith("[Auto] ")
+        assert "Session context before compaction" in entries[0].summary
+
+    @pytest.mark.asyncio
+    async def test_manual_checkpoint_no_prefix(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import checkpoint_session
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await checkpoint_session("Manual checkpoint")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["auto_checkpoint"] is False
+
+        entries = shared_state["memory_store"].list_context()
+        assert entries[0].summary == "Manual checkpoint"
+        assert not entries[0].summary.startswith("[Auto]")
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_records_session_health(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import checkpoint_session
+
+        mcp_server._state.update(shared_state)
+        try:
+            assert mcp_server._state.session_health.last_checkpoint == ""
+            await checkpoint_session("Test checkpoint")
+            assert mcp_server._state.session_health.last_checkpoint != ""
+        finally:
+            mcp_server._state.clear()
+
+
+class TestGetSessionHealth:
+    @pytest.mark.asyncio
+    async def test_returns_session_metrics(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import get_session_health
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = json.loads(await get_session_health())
+            assert "tool_call_count" in result
+            assert "session_start" in result
+            assert "last_checkpoint" in result
+            assert "minutes_since_checkpoint" in result
+            assert "checkpoint_recommended" in result
+        finally:
+            mcp_server._state.clear()
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_not_recommended_low_calls(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import get_session_health
+
+        mcp_server._state.update(shared_state)
+        try:
+            # Default state: 0 tool calls
+            result = json.loads(await get_session_health())
+            assert result["checkpoint_recommended"] is False
+        finally:
+            mcp_server._state.clear()
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_recommended_high_calls_no_checkpoint(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import get_session_health
+
+        mcp_server._state.update(shared_state)
+        try:
+            mcp_server._state.session_health.tool_call_count = 60
+            result = json.loads(await get_session_health())
+            assert result["checkpoint_recommended"] is True
+            assert result["last_checkpoint"] is None
+        finally:
+            mcp_server._state.clear()
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_not_recommended_after_recent_checkpoint(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import checkpoint_session, get_session_health
+        from datetime import datetime
+
+        mcp_server._state.update(shared_state)
+        try:
+            mcp_server._state.session_health.tool_call_count = 60
+            # Do a checkpoint first
+            await checkpoint_session("Recent checkpoint")
+            result = json.loads(await get_session_health())
+            assert result["checkpoint_recommended"] is False
+            assert result["minutes_since_checkpoint"] is not None
+            assert result["minutes_since_checkpoint"] < 1  # Just happened
+        finally:
+            mcp_server._state.clear()

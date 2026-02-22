@@ -157,6 +157,46 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    async def reply_to_email(
+        message_id: str,
+        body: str,
+        reply_all: bool = False,
+        cc: str = "",
+        bcc: str = "",
+        confirm_send: bool = False,
+    ) -> str:
+        """Reply to an existing email within its thread. REQUIRES confirm_send=True after user explicitly confirms.
+
+        This sends a proper threaded reply (not a new email), so the reply appears
+        in the same conversation thread in the recipient's inbox.
+
+        WARNING: This will send a real email reply. Always confirm with the user before calling with confirm_send=True.
+
+        Args:
+            message_id: The message ID of the email to reply to (required)
+            body: Reply body text (required)
+            reply_all: If True, replies to all recipients; if False, replies only to sender (default: False)
+            cc: Comma-separated additional CC email addresses (optional)
+            bcc: Comma-separated BCC email addresses (optional)
+            confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
+        """
+        mail_store = state.mail_store
+        try:
+            cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
+            bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
+            result = mail_store.reply_message(
+                message_id=message_id,
+                body=body,
+                reply_all=reply_all,
+                cc=cc_list,
+                bcc=bcc_list,
+                confirm_send=confirm_send,
+            )
+            return json.dumps(result)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
     async def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", confirm_send: bool = False) -> str:
         """Compose and send an email. REQUIRES confirm_send=True after user explicitly confirms they want to send.
 
@@ -198,4 +238,5 @@ def register(mcp, state):
     module.mark_mail_read = mark_mail_read
     module.mark_mail_flagged = mark_mail_flagged
     module.move_mail_message = move_mail_message
+    module.reply_to_email = reply_to_email
     module.send_email = send_email

@@ -346,6 +346,80 @@ end tell
             return {"error": result["output"]}
         return {"status": "ok", "message_id": message_id, "moved_to": target_mailbox}
 
+    def reply_message(
+        self,
+        message_id: str,
+        body: str,
+        reply_all: bool = False,
+        cc: Optional[list[str]] = None,
+        bcc: Optional[list[str]] = None,
+        confirm_send: bool = False,
+    ) -> dict:
+        """Reply to an existing message in-thread. confirm_send must be True."""
+        if not confirm_send:
+            return {"error": "confirm_send must be True. Please confirm with the user before sending."}
+
+        mid_esc = _escape_osascript(message_id)
+        body_esc = _escape_osascript(body)
+
+        if reply_all:
+            reply_flag = "with opening window and reply to all"
+        else:
+            reply_flag = "with opening window without reply to all"
+
+        # Build additional recipient blocks for extra CC/BCC
+        cc_block = ""
+        if cc:
+            for addr in cc:
+                addr_esc = _escape_osascript(addr)
+                cc_block += f'\nmake new cc recipient at end of cc recipients of replyMsg with properties {{address:"{addr_esc}"}}'
+
+        bcc_block = ""
+        if bcc:
+            for addr in bcc:
+                addr_esc = _escape_osascript(addr)
+                bcc_block += f'\nmake new bcc recipient at end of bcc recipients of replyMsg with properties {{address:"{addr_esc}"}}'
+
+        script = f'''
+tell application "Mail"
+    set foundMsg to missing value
+    repeat with acct in accounts
+        repeat with mb in mailboxes of acct
+            try
+                set matchMsgs to (messages of mb whose message id is "{mid_esc}")
+                if (count of matchMsgs) > 0 then
+                    set foundMsg to item 1 of matchMsgs
+                    exit repeat
+                end if
+            end try
+        end repeat
+        if foundMsg is not missing value then exit repeat
+    end repeat
+    if foundMsg is missing value then return "ERROR: Message not found"
+    set replyMsg to reply foundMsg {reply_flag}
+    set visible of replyMsg to false
+    set content of replyMsg to "{body_esc}"
+{cc_block}
+{bcc_block}
+    send replyMsg
+    return "OK"
+end tell
+'''
+        result = _run_applescript(script, timeout=_SEND_TIMEOUT)
+        if "error" in result:
+            return result
+        if result["output"].startswith("ERROR:"):
+            return {"error": result["output"]}
+
+        try:
+            Notifier.send(
+                title="Reply Sent",
+                message=f"Replied to: {message_id[:30]}",
+            )
+        except (subprocess.SubprocessError, OSError):
+            pass
+        return {"status": "replied", "message_id": message_id, "reply_all": reply_all}
+
     def send_message(
         self,
         to: list[str],

@@ -6,6 +6,7 @@ import anthropic
 
 import config as app_config
 from config import MAX_TOOL_ROUNDS
+from agents.loop_detector import LoopDetector
 
 MAX_TOOL_RESULT_LENGTH = 10000
 from agents.registry import AgentConfig
@@ -69,6 +70,7 @@ class BaseExpertAgent:
     async def execute(self, task: str) -> str:
         messages = [{"role": "user", "content": task}]
         tools = self.get_tools()
+        loop_detector = LoopDetector()
 
         for _round in range(MAX_TOOL_ROUNDS):
             response = await self._call_api(messages, tools)
@@ -80,17 +82,36 @@ class BaseExpertAgent:
                 messages.append({"role": "assistant", "content": assistant_content})
 
                 tool_results = []
+                should_break = False
                 for block in assistant_content:
                     if block.type == "tool_use":
+                        signal = loop_detector.record(block.name, block.input)
+                        if signal == "break":
+                            should_break = True
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps({"error": "Loop detected — repeated identical tool call. Stopping."}),
+                            })
+                            continue
+
                         result = self._handle_tool_call(block.name, block.input)
                         result_str = json.dumps(result)
                         if len(result_str) > MAX_TOOL_RESULT_LENGTH:
                             result_str = result_str[:MAX_TOOL_RESULT_LENGTH] + "... [truncated]"
+
+                        if signal == "warning":
+                            result_str += "\n[SYSTEM: You are repeating the same tool call. Try a different approach.]"
+
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
                             "content": result_str,
                         })
+
+                if should_break:
+                    messages.append({"role": "user", "content": tool_results})
+                    return "[Agent terminated early: repetitive tool call loop detected]"
 
                 messages.append({"role": "user", "content": tool_results})
                 continue

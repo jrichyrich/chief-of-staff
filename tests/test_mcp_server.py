@@ -104,6 +104,78 @@ class TestStoreFact:
         assert data["value"] == "Jay"
 
 
+class TestStorePinnedFact:
+    @pytest.mark.asyncio
+    async def test_store_pinned_fact(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import store_fact
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await store_fact("personal", "name", "Jason", pinned=True)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["status"] == "stored"
+        # Verify it persisted as pinned
+        fact = shared_state["memory_store"].get_fact("personal", "name")
+        assert fact.pinned is True
+
+    @pytest.mark.asyncio
+    async def test_store_fact_default_not_pinned(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import store_fact
+
+        mcp_server._state.update(shared_state)
+        try:
+            await store_fact("personal", "name", "Jason")
+        finally:
+            mcp_server._state.clear()
+
+        fact = shared_state["memory_store"].get_fact("personal", "name")
+        assert fact.pinned is False
+
+
+class TestQueryMemoryHalfLife:
+    @pytest.mark.asyncio
+    async def test_query_with_custom_half_life(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import query_memory
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="personal", key="name", value="Jason")
+        )
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await query_memory("Jason", half_life_days=30)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) >= 1
+        assert data["results"][0]["value"] == "Jason"
+
+    @pytest.mark.asyncio
+    async def test_query_with_category_and_half_life(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import query_memory
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="title", value="Engineer")
+        )
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await query_memory("Engineer", category="work", half_life_days=365)
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+
+
 class TestQueryMemory:
     @pytest.mark.asyncio
     async def test_query_by_search(self, shared_state):
@@ -179,6 +251,35 @@ class TestQueryMemory:
 
         data = json.loads(result)
         assert data["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_query_memory_diverse_param(self, shared_state):
+        """Verify query_memory passes diverse parameter to search_facts_hybrid."""
+        import mcp_server
+        from mcp_tools.memory_tools import query_memory
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="proj_a", value="project alpha deadline friday")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="proj_b", value="project beta deadline friday")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="personal", key="hobby", value="likes hiking outdoors")
+        )
+
+        mcp_server._state.update(shared_state)
+        try:
+            result_diverse = await query_memory("project deadline", diverse=True)
+            result_no_diverse = await query_memory("project deadline", diverse=False)
+        finally:
+            mcp_server._state.clear()
+
+        data_diverse = json.loads(result_diverse)
+        data_no_diverse = json.loads(result_no_diverse)
+        # Both should return results
+        assert len(data_diverse["results"]) >= 2
+        assert len(data_no_diverse["results"]) >= 2
 
 
 class TestSkillUsageRecording:

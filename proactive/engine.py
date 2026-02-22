@@ -15,8 +15,9 @@ PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 class ProactiveSuggestionEngine:
-    def __init__(self, memory_store: MemoryStore):
+    def __init__(self, memory_store: MemoryStore, session_health=None):
         self.memory_store = memory_store
+        self.session_health = session_health
 
     def generate_suggestions(self) -> list[Suggestion]:
         suggestions: list[Suggestion] = []
@@ -25,6 +26,7 @@ class ProactiveSuggestionEngine:
         suggestions.extend(self._check_overdue_delegations())
         suggestions.extend(self._check_stale_decisions())
         suggestions.extend(self._check_upcoming_deadlines())
+        suggestions.extend(self._check_session_checkpoint_needed())
         # Sort by priority: high first, then medium, then low
         suggestions.sort(key=lambda s: PRIORITY_ORDER.get(s.priority, 3))
         return suggestions
@@ -108,6 +110,33 @@ class ProactiveSuggestionEngine:
                     created_at=d.created_at or "",
                 ))
         return results
+
+    def _check_session_checkpoint_needed(self) -> list[Suggestion]:
+        if self.session_health is None:
+            return []
+        health = self.session_health
+        if health.tool_call_count < 50:
+            return []
+        # Check if last checkpoint is stale (>30 min ago or never)
+        if health.last_checkpoint:
+            try:
+                last_cp = datetime.fromisoformat(health.last_checkpoint)
+                minutes_ago = (datetime.now() - last_cp).total_seconds() / 60
+                if minutes_ago < 30:
+                    return []
+            except (ValueError, TypeError):
+                pass
+        return [Suggestion(
+            category="checkpoint",
+            priority="medium",
+            title="Session checkpoint recommended",
+            description=(
+                f"{health.tool_call_count} tool calls since session start with "
+                f"{'no checkpoint yet' if not health.last_checkpoint else 'last checkpoint over 30 min ago'}. "
+                "Consider running checkpoint_session to preserve context before compaction."
+            ),
+            action="checkpoint_session",
+        )]
 
     def push_suggestions(
         self,

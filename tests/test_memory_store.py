@@ -1,4 +1,6 @@
 # tests/test_memory_store.py
+from datetime import datetime
+
 import pytest
 from memory.store import MemoryStore
 from memory.models import AlertRule, ContextEntry, Decision, Delegation, Fact, Location
@@ -329,3 +331,196 @@ class TestAlertRules:
         stored = memory_store.store_alert_rule(AlertRule(name="rule", alert_type="test"))
         with pytest.raises(ValueError, match="Invalid alert_rule fields"):
             memory_store.update_alert_rule(stored.id, bad_field="x")
+
+
+class TestMMRRerank:
+    def test_empty_results(self, memory_store):
+        assert memory_store._mmr_rerank([]) == []
+
+    def test_single_result_unchanged(self, memory_store):
+        fact = Fact(id=1, category="work", key="k1", value="hello world")
+        results = [(fact, 1.0)]
+        reranked = memory_store._mmr_rerank(results)
+        assert len(reranked) == 1
+        assert reranked[0][0].id == 1
+
+    def test_diverse_results_preserve_order(self, memory_store):
+        """Completely different facts should keep relevance order."""
+        f1 = Fact(id=1, category="work", key="k1", value="python programming language")
+        f2 = Fact(id=2, category="work", key="k2", value="favorite color blue")
+        f3 = Fact(id=3, category="work", key="k3", value="meeting at noon today")
+        results = [(f1, 1.0), (f2, 0.8), (f3, 0.6)]
+        reranked = memory_store._mmr_rerank(results)
+        assert len(reranked) == 3
+        assert reranked[0][0].id == 1
+        assert reranked[1][0].id == 2
+        assert reranked[2][0].id == 3
+
+    def test_redundant_results_get_demoted(self, memory_store):
+        """Near-duplicate facts should be pushed down in ranking."""
+        f1 = Fact(id=1, category="work", key="k1", value="project deadline friday next week")
+        f2 = Fact(id=2, category="work", key="k2", value="project deadline friday this week")
+        f3 = Fact(id=3, category="work", key="k3", value="favorite restaurant downtown sushi")
+        # f2 is very similar to f1; f3 is completely different
+        # Scores close enough that similarity penalty flips the order
+        results = [(f1, 1.0), (f2, 0.6), (f3, 0.5)]
+        reranked = memory_store._mmr_rerank(results)
+        assert len(reranked) == 3
+        # f1 picked first (highest relevance), then f3 should be promoted over f2
+        assert reranked[0][0].id == 1
+        assert reranked[1][0].id == 3
+        assert reranked[2][0].id == 2
+
+    def test_top_k_limits_output(self, memory_store):
+        facts = [
+            (Fact(id=i, category="work", key=f"k{i}", value=f"unique value {i}"), 1.0 - i * 0.1)
+            for i in range(5)
+        ]
+        reranked = memory_store._mmr_rerank(facts, top_k=2)
+        assert len(reranked) == 2
+
+    def test_search_facts_hybrid_diverse(self, memory_store):
+        """search_facts_hybrid with diverse=True should return results."""
+        memory_store.store_fact(Fact(category="work", key="project_a", value="project alpha deadline"))
+        memory_store.store_fact(Fact(category="work", key="project_b", value="project beta deadline"))
+        memory_store.store_fact(Fact(category="personal", key="hobby", value="likes hiking outdoors"))
+        results = memory_store.search_facts_hybrid("project deadline", diverse=True)
+        assert len(results) >= 2
+        # All results should still be (Fact, float) tuples
+        for fact, score in results:
+            assert isinstance(fact, Fact)
+            assert isinstance(score, float)
+
+
+class TestPinnedFacts:
+    def test_store_pinned_fact(self, memory_store):
+        """Pinned flag should persist through store and retrieve."""
+        fact = Fact(category="personal", key="name", value="Jason", pinned=True)
+        stored = memory_store.store_fact(fact)
+        assert stored.pinned is True
+        retrieved = memory_store.get_fact("personal", "name")
+        assert retrieved.pinned is True
+
+    def test_store_unpinned_fact_default(self, memory_store):
+        """Facts are unpinned by default."""
+        fact = Fact(category="personal", key="name", value="Jason")
+        stored = memory_store.store_fact(fact)
+        assert stored.pinned is False
+
+    def test_update_fact_to_pinned(self, memory_store):
+        """Updating a fact can change its pinned status."""
+        memory_store.store_fact(Fact(category="work", key="project", value="Alpha"))
+        memory_store.store_fact(Fact(category="work", key="project", value="Alpha", pinned=True))
+        retrieved = memory_store.get_fact("work", "project")
+        assert retrieved.pinned is True
+
+    def test_pinned_fact_bypasses_temporal_decay(self, memory_store):
+        """Pinned facts should return full confidence score regardless of age."""
+        from datetime import timedelta
+        old_time = (datetime.now() - timedelta(days=365)).isoformat()
+        # Insert a pinned fact with an old timestamp
+        memory_store.conn.execute(
+            """INSERT INTO facts (category, key, value, confidence, pinned, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("work", "critical", "important info", 0.9, 1, old_time, old_time),
+        )
+        memory_store.conn.commit()
+        fact = memory_store.get_fact("work", "critical")
+        assert fact.pinned is True
+
+        scored = memory_store.rank_facts([fact], half_life_days=30.0)
+        assert len(scored) == 1
+        # Pinned fact should have full confidence, no decay
+        assert scored[0][1] == pytest.approx(0.9)
+
+    def test_unpinned_fact_decays(self, memory_store):
+        """Unpinned facts should decay based on age."""
+        from datetime import timedelta
+        old_time = (datetime.now() - timedelta(days=90)).isoformat()
+        memory_store.conn.execute(
+            """INSERT INTO facts (category, key, value, confidence, pinned, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("work", "old_info", "stale data", 1.0, 0, old_time, old_time),
+        )
+        memory_store.conn.commit()
+        fact = memory_store.get_fact("work", "old_info")
+        assert fact.pinned is False
+
+        scored = memory_store.rank_facts([fact], half_life_days=90.0)
+        # At exactly one half-life, score should be ~0.5
+        assert scored[0][1] == pytest.approx(0.5, abs=0.05)
+
+    def test_pinned_and_unpinned_ranking(self, memory_store):
+        """Pinned facts should rank higher than decayed unpinned facts."""
+        from datetime import timedelta
+        old_time = (datetime.now() - timedelta(days=180)).isoformat()
+        now = datetime.now().isoformat()
+        # Old unpinned fact
+        memory_store.conn.execute(
+            """INSERT INTO facts (category, key, value, confidence, pinned, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("work", "old_fact", "old data", 1.0, 0, old_time, old_time),
+        )
+        # Pinned fact with same confidence but also old
+        memory_store.conn.execute(
+            """INSERT INTO facts (category, key, value, confidence, pinned, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("work", "pinned_fact", "pinned data", 1.0, 1, old_time, old_time),
+        )
+        memory_store.conn.commit()
+        old_fact = memory_store.get_fact("work", "old_fact")
+        pinned_fact = memory_store.get_fact("work", "pinned_fact")
+        scored = memory_store.rank_facts([old_fact, pinned_fact], half_life_days=90.0)
+        # Pinned fact should be ranked first
+        assert scored[0][0].key == "pinned_fact"
+        assert scored[0][1] == 1.0  # Full confidence
+        assert scored[1][1] < 1.0  # Decayed
+
+
+class TestConfigurableHalfLife:
+    def test_custom_half_life_changes_decay(self, memory_store):
+        """Different half_life_days should produce different scores."""
+        from datetime import timedelta
+        old_time = (datetime.now() - timedelta(days=90)).isoformat()
+        memory_store.conn.execute(
+            """INSERT INTO facts (category, key, value, confidence, pinned, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("work", "fact1", "test data", 1.0, 0, old_time, old_time),
+        )
+        memory_store.conn.commit()
+        fact = memory_store.get_fact("work", "fact1")
+
+        # Short half-life = more decay
+        scored_short = memory_store.rank_facts([fact], half_life_days=30.0)
+        # Long half-life = less decay
+        scored_long = memory_store.rank_facts([fact], half_life_days=365.0)
+
+        assert scored_short[0][1] < scored_long[0][1]
+
+    def test_search_facts_hybrid_half_life(self, memory_store):
+        """search_facts_hybrid should accept half_life_days."""
+        memory_store.store_fact(Fact(category="work", key="project", value="test project"))
+        results = memory_store.search_facts_hybrid("project", half_life_days=30.0)
+        assert len(results) >= 1
+        for fact, score in results:
+            assert isinstance(fact, Fact)
+            assert isinstance(score, float)
+
+    def test_search_ranked_uses_half_life(self, memory_store):
+        """search_facts_ranked should pass through half_life_days."""
+        from datetime import timedelta
+        old_time = (datetime.now() - timedelta(days=90)).isoformat()
+        memory_store.conn.execute(
+            """INSERT INTO facts (category, key, value, confidence, pinned, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("work", "project", "test project", 1.0, 0, old_time, old_time),
+        )
+        memory_store.conn.commit()
+        # Rebuild FTS index
+        memory_store.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
+        memory_store.conn.commit()
+
+        scored_short = memory_store.search_facts_ranked("project", half_life_days=30.0)
+        scored_long = memory_store.search_facts_ranked("project", half_life_days=365.0)
+        if scored_short and scored_long:
+            assert scored_short[0][1] < scored_long[0][1]

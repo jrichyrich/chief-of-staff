@@ -142,7 +142,7 @@ class TestHybridSearch:
         results = memory_store.search_facts_hybrid("Jason")
         assert len(results) == 1
         _, score = results[0]
-        assert score == 0.5  # Only LIKE results with fixed score
+        assert score == pytest.approx(0.5)  # Only LIKE results with fixed score
 
 
 class TestFTS5Rebuild:

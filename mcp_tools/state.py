@@ -2,8 +2,34 @@
 
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Optional
+
+
+@dataclass
+class SessionHealth:
+    """Tracks session activity for checkpoint suggestions."""
+    tool_call_count: int = 0
+    session_start: str = ""
+    last_checkpoint: str = ""
+
+    def __post_init__(self):
+        if not self.session_start:
+            self.session_start = datetime.now().isoformat()
+
+    def record_tool_call(self):
+        self.tool_call_count += 1
+
+    def record_checkpoint(self):
+        self.last_checkpoint = datetime.now().isoformat()
+
+    def to_dict(self) -> dict:
+        return {
+            "tool_call_count": self.tool_call_count,
+            "session_start": self.session_start,
+            "last_checkpoint": self.last_checkpoint or None,
+        }
 
 
 @dataclass
@@ -20,6 +46,7 @@ class ServerState:
     messages_store: Any = None
     okr_store: Any = None
     allowed_ingest_roots: Optional[list] = None
+    session_health: SessionHealth = field(default_factory=SessionHealth)
 
     def update(self, values: dict) -> None:
         """Update state from a dictionary (for backward compatibility with tests)."""
@@ -40,6 +67,7 @@ class ServerState:
         self.messages_store = None
         self.okr_store = None
         self.allowed_ingest_roots = None
+        self.session_health = SessionHealth()
 
     def __setitem__(self, key: str, value: Any) -> None:
         """Dict-style assignment (for backward compatibility with tests)."""
