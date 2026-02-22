@@ -166,6 +166,33 @@ def register(mcp, state):
 
         memory_store = state.memory_store
         try:
+            # If SessionManager is available, use it for richer extraction
+            session_manager = state.session_manager
+            enriched_facts = 0
+            if session_manager is not None and session_manager.interaction_count > 0:
+                extracted = session_manager.extract_structured_data()
+                now_ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                for i, decision in enumerate(extracted.get("decisions", [])):
+                    fact = Fact(
+                        category="work",
+                        key=f"checkpoint_decision_{now_ts}_{i}",
+                        value=decision,
+                        confidence=0.9,
+                        source="session_checkpoint",
+                    )
+                    _retry_on_transient(memory_store.store_fact, fact)
+                    enriched_facts += 1
+                for i, action in enumerate(extracted.get("action_items", [])):
+                    fact = Fact(
+                        category="work",
+                        key=f"checkpoint_action_{now_ts}_{i}",
+                        value=action,
+                        confidence=0.85,
+                        source="session_checkpoint",
+                    )
+                    _retry_on_transient(memory_store.store_fact, fact)
+                    enriched_facts += 1
+
             entry = ContextEntry(
                 topic="session_checkpoint",
                 summary=effective_summary,
@@ -199,6 +226,7 @@ def register(mcp, state):
                 "status": "checkpoint_saved",
                 "context_id": stored_entry.id,
                 "facts_stored": facts_stored,
+                "enriched_facts": enriched_facts,
                 "auto_checkpoint": auto_checkpoint,
             })
         except (sqlite3.OperationalError, ValueError, KeyError) as e:

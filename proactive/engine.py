@@ -15,9 +15,10 @@ PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 class ProactiveSuggestionEngine:
-    def __init__(self, memory_store: MemoryStore, session_health=None):
+    def __init__(self, memory_store: MemoryStore, session_health=None, session_manager=None):
         self.memory_store = memory_store
         self.session_health = session_health
+        self.session_manager = session_manager
 
     def generate_suggestions(self) -> list[Suggestion]:
         suggestions: list[Suggestion] = []
@@ -27,6 +28,8 @@ class ProactiveSuggestionEngine:
         suggestions.extend(self._check_stale_decisions())
         suggestions.extend(self._check_upcoming_deadlines())
         suggestions.extend(self._check_session_checkpoint_needed())
+        suggestions.extend(self._check_session_token_limit())
+        suggestions.extend(self._check_session_unflushed_items())
         # Sort by priority: high first, then medium, then low
         suggestions.sort(key=lambda s: PRIORITY_ORDER.get(s.priority, 3))
         return suggestions
@@ -136,6 +139,50 @@ class ProactiveSuggestionEngine:
                 "Consider running checkpoint_session to preserve context before compaction."
             ),
             action="checkpoint_session",
+        )]
+
+    def _check_session_token_limit(self) -> list[Suggestion]:
+        """Suggest flushing when estimated tokens exceed 80% of context window (~150k)."""
+        if self.session_manager is None:
+            return []
+        tokens = self.session_manager.estimate_tokens()
+        threshold = 150_000
+        if tokens < int(threshold * 0.8):
+            return []
+        return [Suggestion(
+            category="session",
+            priority="high",
+            title="Session approaching context limit",
+            description=(
+                f"Estimated {tokens:,} tokens (~{round(tokens / threshold * 100)}% of context window). "
+                "Flush session memory to preserve decisions and action items before compaction."
+            ),
+            action="flush_session_memory",
+        )]
+
+    def _check_session_unflushed_items(self) -> list[Suggestion]:
+        """Suggest flushing when there are unflushed decisions or action items."""
+        if self.session_manager is None:
+            return []
+        extracted = self.session_manager.extract_structured_data()
+        decisions = len(extracted.get("decisions", []))
+        actions = len(extracted.get("action_items", []))
+        if decisions == 0 and actions == 0:
+            return []
+        items = []
+        if decisions:
+            items.append(f"{decisions} decision(s)")
+        if actions:
+            items.append(f"{actions} action item(s)")
+        return [Suggestion(
+            category="session",
+            priority="medium",
+            title=f"Unflushed session data: {', '.join(items)}",
+            description=(
+                f"Session contains {', '.join(items)} that haven't been persisted. "
+                "Consider running flush_session_memory to avoid losing them."
+            ),
+            action="flush_session_memory",
         )]
 
     def push_suggestions(

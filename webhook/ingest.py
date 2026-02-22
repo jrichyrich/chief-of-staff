@@ -19,6 +19,49 @@ from pathlib import Path
 logger = logging.getLogger("jarvis-webhook-ingest")
 
 
+async def dispatch_pending_events(
+    memory_store,
+    agent_registry=None,
+    document_store=None,
+) -> dict:
+    """Dispatch all pending webhook events through the event rule system.
+
+    Returns dict with counts: {"dispatched": N, "failed": N, "skipped": N}
+    """
+    counts = {"dispatched": 0, "failed": 0, "skipped": 0}
+    pending = memory_store.list_webhook_events(status="pending")
+    if not pending:
+        return counts
+
+    from webhook.dispatcher import EventDispatcher
+    dispatcher = EventDispatcher(
+        agent_registry=agent_registry,
+        memory_store=memory_store,
+        document_store=document_store,
+    )
+
+    for event in pending:
+        try:
+            results = await dispatcher.dispatch(event)
+            if results:
+                all_success = all(r["status"] == "success" for r in results)
+                new_status = "processed" if all_success else "failed"
+                memory_store.update_webhook_event_status(event.id, new_status)
+                if all_success:
+                    counts["dispatched"] += 1
+                else:
+                    counts["failed"] += 1
+            else:
+                # No matching rules — skip without changing status
+                counts["skipped"] += 1
+        except Exception as exc:
+            logger.error("Dispatch failed for event %s: %s", event.id, exc)
+            memory_store.update_webhook_event_status(event.id, "failed")
+            counts["failed"] += 1
+
+    return counts
+
+
 def ingest_events(
     memory_store,
     inbox_dir: Path,

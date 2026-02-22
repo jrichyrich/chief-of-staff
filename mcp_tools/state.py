@@ -48,6 +48,7 @@ class ServerState:
     hook_registry: Any = None
     allowed_ingest_roots: Optional[list] = None
     session_health: SessionHealth = field(default_factory=SessionHealth)
+    session_manager: Any = None
 
     def update(self, values: dict) -> None:
         """Update state from a dictionary (for backward compatibility with tests)."""
@@ -70,6 +71,7 @@ class ServerState:
         self.hook_registry = None
         self.allowed_ingest_roots = None
         self.session_health = SessionHealth()
+        self.session_manager = None
 
     def __setitem__(self, key: str, value: Any) -> None:
         """Dict-style assignment (for backward compatibility with tests)."""

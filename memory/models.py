@@ -148,6 +148,23 @@ class Identity:
 
 
 @dataclass
+class EventRule:
+    name: str
+    event_source: str
+    event_type_pattern: str
+    agent_name: str
+    description: str = ""
+    agent_input_template: str = ""
+    delivery_channel: Optional[str] = None
+    delivery_config: Optional[str] = None  # JSON string
+    enabled: bool = True
+    priority: int = 100
+    id: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass
 class AgentMemory:
     agent_name: str = ""
     memory_type: str = ""  # "insight", "preference", "context"

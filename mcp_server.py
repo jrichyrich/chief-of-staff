@@ -117,6 +117,10 @@ async def app_lifespan(server: FastMCP):
     _state.okr_store = okr_store
     _state.hook_registry = hook_registry
 
+    # Initialize session manager
+    from session.manager import SessionManager
+    _state.session_manager = SessionManager(memory_store)
+
     # Seed default scheduled tasks if they don't already exist
     _default_tasks = [
         ScheduledTask(
@@ -175,6 +179,7 @@ async def app_lifespan(server: FastMCP):
         _state.messages_store = None
         _state.okr_store = None
         _state.allowed_ingest_roots = None
+        _state.session_manager = None
         memory_store.close()
         logger.info("Jarvis MCP server shut down")
 
@@ -202,6 +207,8 @@ from mcp_tools import (
     proactive_tools,
     channel_tools,
     identity_tools,
+    event_rule_tools,
+    session_tools,
     resources,
 )
 
@@ -221,6 +228,8 @@ scheduler_tools.register(mcp, _state)
 proactive_tools.register(mcp, _state)
 channel_tools.register(mcp, _state)
 identity_tools.register(mcp, _state)
+event_rule_tools.register(mcp, _state)
+session_tools.register(mcp, _state)
 resources.register(mcp, _state)
 
 
