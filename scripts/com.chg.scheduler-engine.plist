@@ -16,11 +16,11 @@
     <key>RunAtLoad</key>
     <true/>
     <key>WorkingDirectory</key>
-    <string>__PROJECT_DIR__</string>
+    <string>__HOME_DIR__</string>
     <key>StandardOutPath</key>
-    <string>__PROJECT_DIR__/data/scheduler-engine.log</string>
+    <string>__HOME_DIR__/Library/Logs/Jarvis/scheduler-engine.log</string>
     <key>StandardErrorPath</key>
-    <string>__PROJECT_DIR__/data/scheduler-engine.log</string>
+    <string>__HOME_DIR__/Library/Logs/Jarvis/scheduler-engine.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
