@@ -143,7 +143,9 @@ class TestAgentMemoryInjection:
         doc_store = DocumentStore(str(memory_store.db_path.parent / "chroma_test"))
         agent = BaseExpertAgent(config, memory_store, doc_store)
         prompt = agent.build_system_prompt()
-        assert prompt == "You are a test agent."
+        assert prompt.startswith("You are a test agent.")
+        assert "## Runtime Context" in prompt
+        assert "Agent name: test_agent" in prompt
         assert "Agent Memory" not in prompt
 
     def test_memories_injected_into_prompt(self, memory_store):

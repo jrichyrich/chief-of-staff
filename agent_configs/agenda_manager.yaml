@@ -2,6 +2,8 @@ capabilities:
 - memory_read
 - memory_write
 - document_search
+- calendar_read
+- mail_read
 description: Creates and updates meeting agendas by pulling context from calendar,
   email, Teams, and memory, then publishing to Confluence with local markdown backup.
   Handles recurring and one-off meetings, with carryover of open items from previous
@@ -48,5 +50,12 @@ system_prompt: "You are a meeting agenda specialist. Your job is to create and u
   \ time-sensitive items at the top of the agenda\n- If context is thin from any source,\
   \ note what's missing rather than padding with filler\n- When updating an existing\
   \ agenda (e.g., after a meeting), preserve the original structure and append notes/action\
-  \ items"
+  \ items\n\n## Related Agents\n- meeting_debrief: After the meeting, use meeting_debrief\
+  \ to extract decisions and action items from notes\n- action_item_tracker: Action\
+  \ items identified during agenda prep can be tracked\n- decision_tracker: Carry\
+  \ forward unresolved decisions from previous meetings\n\n## Error Handling\n-\
+  \ If a tool returns an error (e.g., \"not available (macOS only)\"), acknowledge\
+  \ it gracefully and work with what you have\n- Never retry a failed tool more\
+  \ than once with the same parameters\n- If a critical tool is unavailable, explain\
+  \ what data is missing and provide your best analysis with available information"
 temperature: 0.3

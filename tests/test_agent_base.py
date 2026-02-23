@@ -69,7 +69,10 @@ def _make_tool_use_response(tool_name, tool_input, tool_id="toolu_123"):
 class TestBuildSystemPrompt:
     def test_no_memories(self, agent):
         prompt = agent.build_system_prompt()
-        assert prompt == "You are a helpful test agent."
+        assert prompt.startswith("You are a helpful test agent.")
+        assert "## Runtime Context" in prompt
+        assert "Agent name: test-agent" in prompt
+        assert "Today's date:" in prompt
         assert "Agent Memory" not in prompt
 
     def test_with_memories(self, agent, memory_store):
@@ -93,10 +96,11 @@ class TestBuildSystemPrompt:
         assert "hidden" not in prompt
 
     def test_memory_store_error_graceful(self, agent):
-        """If get_agent_memories raises, build_system_prompt returns base prompt."""
+        """If get_agent_memories raises, build_system_prompt returns base prompt + runtime context."""
         agent.memory_store.get_agent_memories = MagicMock(side_effect=Exception("db error"))
         prompt = agent.build_system_prompt()
-        assert prompt == "You are a helpful test agent."
+        assert prompt.startswith("You are a helpful test agent.")
+        assert "## Runtime Context" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +285,8 @@ class TestCallApi:
         await agent._call_api([{"role": "user", "content": "hi"}], [])
 
         call_kwargs = agent.client.messages.create.call_args.kwargs
-        assert call_kwargs["system"] == "You are a helpful test agent."
+        assert call_kwargs["system"].startswith("You are a helpful test agent.")
+        assert "## Runtime Context" in call_kwargs["system"]
 
 
 # ---------------------------------------------------------------------------

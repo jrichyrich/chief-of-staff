@@ -1,5 +1,6 @@
 # agents/base.py
 import json
+from datetime import date
 from typing import Any, Optional
 
 import anthropic
@@ -43,6 +44,11 @@ class BaseExpertAgent:
 
     def build_system_prompt(self) -> str:
         prompt = self.config.system_prompt
+
+        # Inject runtime context: agent identity and current date
+        today = date.today().isoformat()
+        prompt += f"\n\n## Runtime Context\n- Agent name: {self.name}\n- Today's date: {today}"
+
         try:
             memories = self.memory_store.get_agent_memories(self.name)
         except Exception:
