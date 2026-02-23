@@ -9,6 +9,12 @@ CHROMA_PERSIST_DIR = DATA_DIR / "chroma"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+MODEL_TIERS = {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-5-20250929",
+    "opus": "claude-opus-4-6",
+}
+DEFAULT_MODEL_TIER = "sonnet"
 
 AGENT_TIMEOUT_SECONDS = 60
 MAX_TOOL_ROUNDS = 25
