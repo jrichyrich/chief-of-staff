@@ -110,10 +110,25 @@ class CalendarStore:
         granted_flag.wait(timeout=30)
         return result["granted"]
 
-    def _get_calendar_by_name(self, name: str):
-        """Find an EKCalendar by display title, or None."""
+    def _get_calendar_by_name(self, name: str, source: Optional[str] = None):
+        """Find an EKCalendar by display title (and optionally source), or None.
+
+        Resolves calendar aliases from config before matching.  When two
+        calendars share the same display name (e.g. iCloud "Calendar" and
+        Exchange "Calendar"), the alias provides the source to disambiguate.
+        """
+        from config import CALENDAR_ALIASES
+
+        alias = CALENDAR_ALIASES.get((name or "").strip().lower())
+        if alias:
+            name = alias["name"]
+            source = source or alias.get("source")
+
         for cal in self._store.calendarsForEntityType_(0):  # 0 = Event
             if cal.title() == name:
+                if source and cal.source():
+                    if str(cal.source().title()).lower() != source.lower():
+                        continue
                 return cal
         return None
 

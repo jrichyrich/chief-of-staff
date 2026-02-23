@@ -449,3 +449,85 @@ class TestPermissionDenied:
             result = store.create_event("Test", datetime(2024, 1, 1), datetime(2024, 1, 2))
             assert "error" in result
             assert "Calendar access denied" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Calendar alias resolution
+# ---------------------------------------------------------------------------
+
+
+class TestCalendarAliases:
+    """Test that _get_calendar_by_name resolves CALENDAR_ALIASES."""
+
+    def test_alias_resolves_to_exchange(self, calendar_store):
+        """'work' alias picks Exchange calendar, not iCloud, when both are named 'Calendar'."""
+        icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
+        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
+
+        result = calendar_store._get_calendar_by_name("work")
+
+        assert result is exchange_cal
+
+    def test_alias_case_insensitive(self, calendar_store):
+        """Alias lookup is case-insensitive: 'Work', 'WORK', 'work' all resolve."""
+        icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
+        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
+
+        for variant in ["work", "Work", "WORK", "Work Calendar", "EXCHANGE"]:
+            result = calendar_store._get_calendar_by_name(variant)
+            assert result is exchange_cal, f"Failed for alias variant: {variant!r}"
+
+    def test_alias_personal_resolves_to_icloud(self, calendar_store):
+        """'personal' alias picks iCloud calendar."""
+        icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
+        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
+
+        result = calendar_store._get_calendar_by_name("personal")
+
+        assert result is icloud_cal
+
+    def test_non_alias_name_uses_first_match(self, calendar_store):
+        """A non-alias calendar name falls back to first-match behavior."""
+        cal_a = _make_mock_calendar(name="Meetings", source_name="iCloud")
+        cal_b = _make_mock_calendar(name="Meetings", source_name="Exchange")
+        calendar_store._store.calendarsForEntityType_.return_value = [cal_a, cal_b]
+
+        result = calendar_store._get_calendar_by_name("Meetings")
+
+        assert result is cal_a  # first match, backward compatible
+
+    def test_alias_chg_resolves_to_exchange(self, calendar_store):
+        """'chg' alias picks Exchange calendar."""
+        icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
+        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
+
+        result = calendar_store._get_calendar_by_name("chg")
+
+        assert result is exchange_cal
+
+    def test_create_event_with_alias(self, calendar_store):
+        """create_event with alias 'work' targets the Exchange calendar."""
+        icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
+        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
+        calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+        # Patch EventKit.EKEvent to return a mock event
+        mock_event = _make_mock_event(uid="ALIAS-1", title="Work Meeting", calendar_title="Calendar")
+        with patch("apple_calendar.eventkit.EventKit") as mock_ek:
+            mock_ek.EKEvent.eventWithEventStore_.return_value = mock_event
+
+            result = calendar_store.create_event(
+                title="Work Meeting",
+                start_dt=datetime(2026, 4, 23, 9, 0),
+                end_dt=datetime(2026, 4, 23, 12, 0),
+                calendar_name="work",
+            )
+
+        assert "error" not in result
+        # Verify setCalendar_ was called with the Exchange calendar, not iCloud
+        mock_event.setCalendar_.assert_called_once_with(exchange_cal)

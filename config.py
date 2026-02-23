@@ -43,6 +43,18 @@ SKILL_AUTO_EXECUTE_ENABLED = os.environ.get("SKILL_AUTO_EXECUTE_ENABLED", "false
 PROACTIVE_PUSH_ENABLED = os.environ.get("PROACTIVE_PUSH_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 PROACTIVE_PUSH_THRESHOLD = os.environ.get("PROACTIVE_PUSH_THRESHOLD", "high").strip().lower()
 
+# Calendar aliases: friendly names → {name, source} for disambiguation
+# Lookup is case-insensitive. Resolves in _get_calendar_by_name().
+CALENDAR_ALIASES = {
+    "work": {"name": "Calendar", "source": "Exchange"},
+    "work calendar": {"name": "Calendar", "source": "Exchange"},
+    "chg": {"name": "Calendar", "source": "Exchange"},
+    "chg calendar": {"name": "Calendar", "source": "Exchange"},
+    "exchange": {"name": "Calendar", "source": "Exchange"},
+    "personal": {"name": "Calendar", "source": "iCloud"},
+    "personal calendar": {"name": "Calendar", "source": "iCloud"},
+}
+
 # Unified connector routing state
 CALENDAR_ROUTING_DB_PATH = DATA_DIR / "calendar-routing.db"
 CALENDAR_REQUIRE_DUAL_READ = os.environ.get("CALENDAR_REQUIRE_DUAL_READ", "true").strip().lower() not in {"0", "false", "no"}
