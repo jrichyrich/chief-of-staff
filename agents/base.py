@@ -159,7 +159,7 @@ class BaseExpertAgent:
             return []
 
     def _handle_tool_call(self, tool_name: str, tool_input: dict) -> Any:
-        from hooks.registry import build_tool_context
+        from hooks.registry import build_tool_context, extract_transformed_args
 
         # Fire before_tool_call hooks
         before_ctx = build_tool_context(
@@ -167,7 +167,12 @@ class BaseExpertAgent:
             tool_args=tool_input,
             agent_name=self.name,
         )
-        self._fire_hooks("before_tool_call", before_ctx)
+        hook_results = self._fire_hooks("before_tool_call", before_ctx)
+
+        # Apply arg transformations from before_tool_call hooks
+        transformed = extract_transformed_args(hook_results)
+        if transformed is not None:
+            tool_input = transformed
 
         # Enforce capability boundaries
         allowed_tools = {t["name"] for t in self.get_tools()}

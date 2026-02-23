@@ -189,3 +189,18 @@ def build_tool_context(
     if result is not None:
         ctx["result"] = result
     return ctx
+
+
+def extract_transformed_args(hook_results: list[Any]) -> dict | None:
+    """Extract transformed tool_args from before_tool_call hook results.
+
+    Hooks that want to modify tool args return a dict with a "tool_args" key.
+    The last hook that returns transformed args wins.
+
+    Returns None if no hook returned transformed args.
+    """
+    transformed = None
+    for result in hook_results:
+        if isinstance(result, dict) and "tool_args" in result:
+            transformed = result["tool_args"]
+    return transformed

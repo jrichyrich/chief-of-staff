@@ -11,7 +11,7 @@ import yaml
 # Trigger mcp_server registration before importing tool functions
 import mcp_server  # noqa: F401
 
-from hooks.registry import HookRegistry, build_tool_context, EVENT_TYPES
+from hooks.registry import HookRegistry, build_tool_context, EVENT_TYPES, extract_transformed_args
 from hooks.builtin import audit_log_hook, timing_before_hook, timing_after_hook, _timing_store
 
 
@@ -271,6 +271,65 @@ class TestBuildToolContext:
         ctx = build_tool_context(tool_name="x", tool_args={})
         # Should parse as ISO 8601 with UTC offset
         assert "+00:00" in ctx["timestamp"] or "Z" in ctx["timestamp"]
+
+
+# ---------------------------------------------------------------------------
+# Arg transformation via before_tool_call hooks
+# ---------------------------------------------------------------------------
+
+class TestArgTransformation:
+    """Tests for before_tool_call hooks that modify tool_args."""
+
+    def test_before_hook_can_modify_args(self):
+        reg = HookRegistry()
+
+        def uppercase_body(ctx):
+            args = ctx.get("tool_args", {})
+            if "body" in args:
+                args["body"] = args["body"].upper()
+            return {"tool_args": args}
+
+        reg.register_hook("before_tool_call", uppercase_body)
+        context = {"tool_name": "send_email", "tool_args": {"body": "hello"}}
+        results = reg.fire_hooks("before_tool_call", context)
+        assert results[0]["tool_args"]["body"] == "HELLO"
+
+    def test_before_hook_returning_none_is_noop(self):
+        reg = HookRegistry()
+        reg.register_hook("before_tool_call", lambda ctx: None)
+        context = {"tool_name": "send_email", "tool_args": {"body": "hello"}}
+        results = reg.fire_hooks("before_tool_call", context)
+        assert results == [None]
+
+    def test_extract_transformed_args_helper(self):
+        reg = HookRegistry()
+
+        def rewriter(ctx):
+            args = dict(ctx.get("tool_args", {}))
+            args["body"] = "rewritten"
+            return {"tool_args": args}
+
+        reg.register_hook("before_tool_call", rewriter)
+        context = {"tool_name": "send_email", "tool_args": {"body": "original"}}
+        results = reg.fire_hooks("before_tool_call", context)
+        transformed = extract_transformed_args(results)
+        assert transformed is not None
+        assert transformed["body"] == "rewritten"
+
+    def test_extract_transformed_args_no_transforms(self):
+        reg = HookRegistry()
+        reg.register_hook("before_tool_call", lambda ctx: None)
+        results = reg.fire_hooks("before_tool_call", {"tool_args": {"body": "hi"}})
+        transformed = extract_transformed_args(results)
+        assert transformed is None
+
+    def test_after_hook_return_not_treated_as_transform(self):
+        """after_tool_call hooks should not transform args."""
+        reg = HookRegistry()
+        reg.register_hook("after_tool_call", lambda ctx: {"tool_args": {"body": "bad"}})
+        results = reg.fire_hooks("after_tool_call", {"tool_args": {"body": "ok"}})
+        # Returns are just informational, not transforms
+        assert results[0]["tool_args"]["body"] == "bad"
 
 
 # ---------------------------------------------------------------------------
