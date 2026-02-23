@@ -1,0 +1,5 @@
+- event_type: before_tool_call
+  name: humanizer
+  handler: humanizer.hook.humanize_hook
+  priority: 10
+  enabled: true
