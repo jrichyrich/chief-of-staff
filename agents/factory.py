@@ -35,7 +35,7 @@ class AgentFactory:
     def create_agent(self, description: str) -> AgentConfig:
         client = anthropic.Anthropic(api_key=app_config.ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model=app_config.DEFAULT_MODEL,
+            model=app_config.MODEL_TIERS["haiku"],
             max_tokens=1024,
             system=AGENT_CREATION_PROMPT,
             messages=[{"role": "user", "content": f"I need an agent for: {description}"}],

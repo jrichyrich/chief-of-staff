@@ -66,3 +66,28 @@ class TestAgentFactory:
         loaded = registry.get_agent("budget_analyst")
         assert loaded is not None
         assert loaded.name == "budget_analyst"
+
+    def test_factory_uses_haiku_model(self, factory):
+        """Factory should use haiku tier for generating agent configs."""
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(
+            type="text",
+            text="""{
+                "name": "test_agent",
+                "description": "Test",
+                "system_prompt": "Test.",
+                "capabilities": ["memory_read"],
+                "temperature": 0.3
+            }""",
+        )]
+
+        with patch("agents.factory.anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = mock_response
+            mock_anthropic.Anthropic.return_value = mock_client
+
+            factory.create_agent("test agent")
+
+            call_kwargs = mock_client.messages.create.call_args.kwargs
+            import config as app_config
+            assert call_kwargs["model"] == app_config.MODEL_TIERS["haiku"]
