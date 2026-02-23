@@ -15,6 +15,8 @@ import time
 from string import Template
 from typing import Optional
 
+from agents.triage import classify_and_resolve
+
 logger = logging.getLogger("jarvis-event-dispatcher")
 
 
@@ -111,10 +113,16 @@ class EventDispatcher:
                 timestamp,
             )
 
+            # Triage: classify complexity and potentially downgrade model
+            try:
+                effective_config = classify_and_resolve(agent_config, agent_input)
+            except Exception:
+                effective_config = agent_config
+
             # Execute the agent
             from agents.base import BaseExpertAgent
             agent = BaseExpertAgent(
-                config=agent_config,
+                config=effective_config,
                 memory_store=self.memory_store,
                 document_store=self.document_store,
             )

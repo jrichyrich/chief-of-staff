@@ -516,3 +516,53 @@ class TestEventDispatcher:
         assert "Source=github" in captured_input
         assert "Type=alert.critical" in captured_input
         assert "Payload=test-payload" in captured_input
+
+
+# --- Triage Integration ---
+
+
+@pytest.mark.asyncio
+class TestTriageIntegration:
+    async def test_triage_called_before_agent_creation(self, dispatcher, memory_store):
+        """Triage should be called and its result used for agent config."""
+        _create_event_rule(memory_store)
+        event = _create_webhook_event(memory_store)
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent, \
+             patch("webhook.dispatcher.classify_and_resolve") as mock_triage:
+            triaged_config = AgentConfig(
+                name="incident-responder",
+                description="Handles incident alerts",
+                system_prompt="You are an incident responder.",
+                capabilities=[],
+                model="haiku",
+            )
+            mock_triage.return_value = triaged_config
+
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            await dispatcher.dispatch(event)
+
+            mock_triage.assert_called_once()
+            call_kwargs = MockAgent.call_args.kwargs
+            assert call_kwargs["config"].model == "haiku"
+
+    async def test_triage_failure_does_not_block_dispatch(self, dispatcher, memory_store):
+        """If triage fails, dispatch should still work with original config."""
+        _create_event_rule(memory_store)
+        event = _create_webhook_event(memory_store)
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent, \
+             patch("webhook.dispatcher.classify_and_resolve") as mock_triage:
+            mock_triage.side_effect = Exception("Triage crashed")
+
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            results = await dispatcher.dispatch(event)
+
+            assert len(results) == 1
+            assert results[0]["status"] == "success"
