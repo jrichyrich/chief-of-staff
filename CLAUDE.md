@@ -58,6 +58,7 @@ jarvis-mcp
 | `mcp_tools/webhook_tools.py` | list_webhook_events, get_webhook_event, process_webhook_event |
 | `mcp_tools/skill_tools.py` | record_tool_usage, analyze_skill_patterns, list_skill_suggestions, auto_create_skill, auto_execute_skills |
 | `mcp_tools/scheduler_tools.py` | create_scheduled_task, list_scheduled_tasks, update_scheduled_task, delete_scheduled_task, run_scheduled_task, get_scheduler_status |
+| `mcp_tools/enrichment.py` | enrich_person (parallel person data fetching from 6 sources) |
 | `mcp_tools/channel_tools.py` | list_inbound_events, get_event_summary |
 | `mcp_tools/proactive_tools.py` | get_proactive_suggestions, dismiss_suggestion |
 | `mcp_tools/identity_tools.py` | link_identity, unlink_identity, get_identity, search_identity |
@@ -84,6 +85,7 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `tools/lifecycle.py` | Execution logic for decisions, delegations, and alert rules |
 | `scheduler/alert_evaluator.py` | Standalone alert rule evaluator (runs via launchd every 2 hours) |
 | `scheduler/engine.py` | Built-in scheduler engine with cron parser, evaluates due tasks from SQLite |
+| `scheduler/daemon.py` | JarvisDaemon: persistent asyncio tick loop replacing 3 launchd agents |
 | `skills/pattern_detector.py` | Detects repeated usage patterns and suggests new agent configurations |
 | `webhook/ingest.py` | File-drop inbox ingestion: scans JSON files, validates, stores to webhook_events |
 | `webhook/dispatcher.py` | Event-driven agent dispatch: matches webhook events to event rules, runs agents, delivers results |
@@ -143,7 +145,7 @@ Agent YAML configs declare capabilities (e.g. `calendar_read`, `mail_write`, `me
 
 All settings live in `config.py`:
 - `ANTHROPIC_API_KEY`: from environment variable
-- `DEFAULT_MODEL`: `claude-sonnet-4-5-20250929`
+- `DEFAULT_MODEL`: `claude-sonnet-4-5-20250929` (also `MODEL_TIERS` dict: haiku/sonnet/opus)
 - `VALID_FACT_CATEGORIES`: `personal`, `preference`, `work`, `relationship`, `backlog`
 - `MAX_TOOL_ROUNDS`: 25 (agent loop limit)
 - `AGENT_TIMEOUT_SECONDS`: 60
@@ -175,8 +177,8 @@ SQLite (`data/memory.db`) with 14 tables:
 
 ## Testing Conventions
 
-- 1378 tests across 61 test files
-- Async tests use `@pytest.mark.asyncio` with `asyncio_mode = "Mode.STRICT"` in pyproject.toml
+- ~1400 tests across 64 test files
+- Async tests use `@pytest.mark.asyncio` decorator on each async test function (no global asyncio_mode setting)
 - Anthropic API calls are mocked — tests never hit real APIs
 - Fixtures create isolated MemoryStore, DocumentStore, AgentRegistry instances using `tmp_path`
 - No shared conftest.py — fixtures are defined per test module
