@@ -686,3 +686,74 @@ class TestConstructor:
         assert agent.reminder_store is None
         assert agent.notifier is None
         assert agent.mail_store is None
+
+
+# ---------------------------------------------------------------------------
+# Model tier resolution tests
+# ---------------------------------------------------------------------------
+
+class TestModelTierResolution:
+    @pytest.mark.asyncio
+    async def test_default_model_uses_sonnet(self, agent):
+        """Agent with default model='sonnet' resolves to sonnet model ID."""
+        agent.client.messages.create = AsyncMock(
+            return_value=_make_text_response("ok")
+        )
+        await agent._call_api([{"role": "user", "content": "hi"}], [])
+        call_kwargs = agent.client.messages.create.call_args.kwargs
+        import config as app_config
+        assert call_kwargs["model"] == app_config.MODEL_TIERS["sonnet"]
+
+    @pytest.mark.asyncio
+    async def test_haiku_agent_uses_haiku_model(self, memory_store, document_store):
+        """Agent with model='haiku' resolves to haiku model ID."""
+        config = AgentConfig(
+            name="fast-agent",
+            description="Fast",
+            system_prompt="Fast.",
+            capabilities=["memory_read"],
+            model="haiku",
+        )
+        client = AsyncMock()
+        client.messages.create = AsyncMock(return_value=_make_text_response("ok"))
+        agent = BaseExpertAgent(config, memory_store, document_store, client=client)
+        await agent._call_api([{"role": "user", "content": "hi"}], [])
+        call_kwargs = client.messages.create.call_args.kwargs
+        import config as app_config
+        assert call_kwargs["model"] == app_config.MODEL_TIERS["haiku"]
+
+    @pytest.mark.asyncio
+    async def test_opus_agent_uses_opus_model(self, memory_store, document_store):
+        """Agent with model='opus' resolves to opus model ID."""
+        config = AgentConfig(
+            name="deep-agent",
+            description="Deep",
+            system_prompt="Deep.",
+            capabilities=["memory_read"],
+            model="opus",
+        )
+        client = AsyncMock()
+        client.messages.create = AsyncMock(return_value=_make_text_response("ok"))
+        agent = BaseExpertAgent(config, memory_store, document_store, client=client)
+        await agent._call_api([{"role": "user", "content": "hi"}], [])
+        call_kwargs = client.messages.create.call_args.kwargs
+        import config as app_config
+        assert call_kwargs["model"] == app_config.MODEL_TIERS["opus"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_tier_falls_back_to_default(self, memory_store, document_store):
+        """Agent with unrecognized model tier falls back to DEFAULT_MODEL_TIER."""
+        config = AgentConfig(
+            name="bad-tier-agent",
+            description="Bad tier",
+            system_prompt="Bad.",
+            capabilities=["memory_read"],
+            model="nonexistent_tier",
+        )
+        client = AsyncMock()
+        client.messages.create = AsyncMock(return_value=_make_text_response("ok"))
+        agent = BaseExpertAgent(config, memory_store, document_store, client=client)
+        await agent._call_api([{"role": "user", "content": "hi"}], [])
+        call_kwargs = client.messages.create.call_args.kwargs
+        import config as app_config
+        assert call_kwargs["model"] == app_config.MODEL_TIERS[app_config.DEFAULT_MODEL_TIER]

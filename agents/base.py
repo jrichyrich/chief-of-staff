@@ -135,8 +135,12 @@ class BaseExpertAgent:
 
     @retry_api_call
     async def _call_api(self, messages: list, tools: list) -> Any:
+        model_id = app_config.MODEL_TIERS.get(
+            self.config.model,
+            app_config.MODEL_TIERS[app_config.DEFAULT_MODEL_TIER],
+        )
         kwargs = {
-            "model": app_config.DEFAULT_MODEL,
+            "model": model_id,
             "max_tokens": self.config.max_tokens,
             "system": self.build_system_prompt(),
             "messages": messages,
