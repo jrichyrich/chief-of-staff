@@ -236,6 +236,32 @@ class TestNotificationDeliveryAdapter:
 # --- deliver_result convenience function ---
 
 
+class TestHumanizedDelivery:
+    def test_deliver_result_humanizes_text(self):
+        """deliver_result should humanize result_text before passing to adapter."""
+        from humanizer.rules import humanize
+
+        text = "Additionally, we utilize this comprehensive tool."
+        cleaned = humanize(text)
+        assert "Additionally" not in cleaned
+        assert "utilize" not in cleaned
+        assert "comprehensive" not in cleaned
+
+    def test_adapter_receives_humanized_text(self):
+        """The adapter should receive humanized text, not raw AI text."""
+        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+            mock_adapter = MagicMock()
+            mock_adapter.deliver.return_value = {"status": "delivered"}
+            mock_get.return_value = mock_adapter
+
+            deliver_result("email", {}, "Additionally, we utilize this.", "task")
+
+            call_args = mock_adapter.deliver.call_args
+            delivered_text = call_args[0][0]
+            assert "Additionally" not in delivered_text
+            assert "utilize" not in delivered_text
+
+
 class TestDeliverResult:
     def test_unknown_channel(self):
         result = deliver_result("slack", {}, "text", "task")

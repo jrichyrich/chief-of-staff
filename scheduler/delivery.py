@@ -12,6 +12,8 @@ from datetime import datetime
 from string import Template
 from typing import Optional
 
+from humanizer.rules import humanize
+
 logger = logging.getLogger(__name__)
 
 # Valid delivery channel names
@@ -137,6 +139,7 @@ def deliver_result(
         return {"status": "error", "error": f"Unknown delivery channel: {channel}"}
 
     try:
+        result_text = humanize(result_text)
         return adapter.deliver(result_text, config or {}, task_name)
     except Exception as e:
         logger.error(
