@@ -30,6 +30,10 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 # Scheduler settings
 SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
 
+# Daemon settings
+DAEMON_TICK_INTERVAL_SECONDS = int(os.environ.get("DAEMON_TICK_INTERVAL_SECONDS", "60"))
+DAEMON_LOG_FILE = DATA_DIR / "jarvis-daemon.log"
+
 # Skill auto-creation settings
 SKILL_SUGGESTION_THRESHOLD = 0.7
 SKILL_MIN_OCCURRENCES = 5
