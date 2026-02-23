@@ -99,6 +99,56 @@ class TestAgentRegistry:
         assert registry.get_agent("invalid_cap_file") is None
 
 
+class TestModelField:
+    def test_default_model_is_sonnet(self, registry, configs_dir):
+        """AgentConfig without model field defaults to sonnet."""
+        _write_agent_yaml(configs_dir, "no-model-agent", "Test", ["memory_read"])
+        config = registry.get_agent("no-model-agent")
+        assert config is not None
+        assert config.model == "sonnet"
+
+    def test_model_field_persisted(self, registry):
+        """model field round-trips through save/load."""
+        config = AgentConfig(
+            name="haiku-agent",
+            description="A fast agent",
+            system_prompt="You are fast.",
+            capabilities=["memory_read"],
+            model="haiku",
+        )
+        registry.save_agent(config)
+        loaded = registry.get_agent("haiku-agent")
+        assert loaded is not None
+        assert loaded.model == "haiku"
+
+    def test_model_field_in_yaml(self, registry, configs_dir):
+        """model field is written to YAML file."""
+        config = AgentConfig(
+            name="opus-agent",
+            description="A deep thinker",
+            system_prompt="You think deeply.",
+            capabilities=["memory_read"],
+            model="opus",
+        )
+        registry.save_agent(config)
+        import yaml
+        raw = yaml.safe_load((configs_dir / "opus-agent.yaml").read_text())
+        assert raw["model"] == "opus"
+
+    def test_default_model_not_written_to_yaml(self, registry, configs_dir):
+        """When model is the default (sonnet), it is still persisted for explicitness."""
+        config = AgentConfig(
+            name="default-model-agent",
+            description="Default",
+            system_prompt="Default.",
+            capabilities=["memory_read"],
+        )
+        registry.save_agent(config)
+        import yaml
+        raw = yaml.safe_load((configs_dir / "default-model-agent.yaml").read_text())
+        assert raw["model"] == "sonnet"
+
+
 class TestAgentNameValidation:
     def test_rejects_path_traversal(self, registry):
         with pytest.raises(ValueError, match="Invalid agent name"):

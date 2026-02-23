@@ -21,6 +21,7 @@ class AgentConfig:
     namespaces: list[str] = field(default_factory=list)
     temperature: float = 0.3
     max_tokens: int = 4096
+    model: str = "sonnet"
     created_by: Optional[str] = None
     created_at: Optional[str] = None
 
@@ -76,6 +77,7 @@ class AgentRegistry:
             "capabilities": normalized_capabilities,
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
+            "model": config.model,
         }
         if config.namespaces:
             data["namespaces"] = config.namespaces
@@ -104,6 +106,7 @@ class AgentRegistry:
                 namespaces=data.get("namespaces", []),
                 temperature=data.get("temperature", 0.3),
                 max_tokens=data.get("max_tokens", 4096),
+                model=data.get("model", "sonnet"),
                 created_by=data.get("created_by"),
                 created_at=data.get("created_at"),
             )
