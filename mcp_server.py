@@ -210,6 +210,7 @@ from mcp_tools import (
     event_rule_tools,
     session_tools,
     resources,
+    enrichment,
 )
 
 # Register all tool groups
@@ -231,6 +232,7 @@ identity_tools.register(mcp, _state)
 event_rule_tools.register(mcp, _state)
 session_tools.register(mcp, _state)
 resources.register(mcp, _state)
+enrichment.register(mcp, _state)
 
 
 # --- Entry point ---
