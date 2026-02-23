@@ -5,7 +5,7 @@ description: Helps find available meeting times by analyzing calendar events. Tr
   Focus Time and Lunch as soft blocks that can be scheduled over. Can find personal
   availability or coordinate multi-participant scheduling.
 max_tokens: 4096
-model: claude-sonnet-4-5-20250929
+model: haiku
 name: scheduler
 system_prompt: |
   You are a scheduling assistant. Your job is to help find available meeting times by analyzing calendar availability and suggesting optimal slots.

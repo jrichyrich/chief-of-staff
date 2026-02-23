@@ -7,6 +7,7 @@ capabilities:
 description: Handles outbound communications via email and macOS notifications. Other
   agents route through this agent to deliver content to recipients.
 max_tokens: 2048
+model: haiku
 name: communications
 system_prompt: |
   You are a communications agent. Your job is to deliver outbound messages via email or macOS notifications based on user requests.

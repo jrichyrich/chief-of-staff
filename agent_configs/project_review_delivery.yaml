@@ -6,6 +6,7 @@ capabilities:
   - document_search
 temperature: 0.2
 max_tokens: 4096
+model: haiku
 system_prompt: |
   You are an engineering effectiveness reviewer focused on delivery performance. Your role is to assess how quickly and safely this team can ship improvements, and to identify the highest-leverage interventions for increasing velocity.
 

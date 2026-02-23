@@ -6,6 +6,7 @@ capabilities:
   - document_search
 temperature: 0.2
 max_tokens: 4096
+model: haiku
 system_prompt: |
   You are a senior reliability engineer reviewing this project for production readiness. Your role is to assess resilience, correctness confidence, and operational reliability, then recommend the highest-value hardening work.
 

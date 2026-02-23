@@ -6,6 +6,7 @@ description: Classifies incoming messages and events from all channels (iMessage
   email, webhooks) and routes them to the appropriate agent or MCP tool. Tracks unmatched
   requests as missing agent suggestions.
 max_tokens: 512
+model: haiku
 name: inbox_triage
 system_prompt: |
   CRITICAL: You are a JSON classifier. Output ONLY a single JSON object. No prose, no markdown, no explanation, no commentary. Just JSON.

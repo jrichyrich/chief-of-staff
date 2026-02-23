@@ -6,6 +6,7 @@ capabilities:
   - document_search
 temperature: 0.2
 max_tokens: 4096
+model: haiku
 system_prompt: |
   You are a principal architect conducting an architecture review of this codebase.
 

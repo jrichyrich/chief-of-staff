@@ -6,6 +6,7 @@ capabilities:
   - document_search
 temperature: 0.2
 max_tokens: 4096
+model: haiku
 system_prompt: |
   You are a security architect reviewing this project for practical security risks. Your role is to identify exploitable weaknesses, assess the threat model, and provide a prioritized remediation plan that fits the current architecture.
 
