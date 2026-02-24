@@ -1,60 +1,98 @@
 """Teams browser automation tools for MCP server.
 
-Exposes a two-phase posting flow:
-1. ``post_teams_message`` — opens browser, detects active channel, returns
-   confirmation info without sending.
-2. ``confirm_teams_post`` — sends the prepared message after user approval.
-3. ``cancel_teams_post`` — closes the browser without sending.
+Five tools:
+1. ``open_teams_browser`` — launch persistent Chromium, navigate to Teams
+2. ``post_teams_message`` — search for target by name, return confirmation
+3. ``confirm_teams_post`` — send the prepared message
+4. ``cancel_teams_post`` — cancel without sending
+5. ``close_teams_browser`` — kill the browser process
 """
 
+import asyncio
 import json
+import logging
 import sys
 
-# Module-level poster instance (lazy, replaceable for tests)
+logger = logging.getLogger(__name__)
+
+_manager = None
 _poster = None
 
 
+def _get_manager():
+    global _manager
+    if _manager is None:
+        from browser.manager import TeamsBrowserManager
+        _manager = TeamsBrowserManager()
+    return _manager
+
+
 def _get_poster():
-    """Get or create the poster singleton."""
     global _poster
     if _poster is None:
         from browser.teams_poster import PlaywrightTeamsPoster
-        _poster = PlaywrightTeamsPoster()
+        _poster = PlaywrightTeamsPoster(manager=_get_manager())
     return _poster
+
+
+async def _wait_for_teams(manager, timeout_s: int = 30) -> bool:
+    """After launch, navigate to Teams and wait for it to load."""
+    try:
+        pw, browser = await manager.connect()
+        ctx = browser.contexts[0]
+        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+
+        if "teams" not in page.url.lower():
+            await page.goto("https://teams.cloud.microsoft/",
+                            wait_until="domcontentloaded", timeout=30_000)
+
+        await pw.stop()
+        return True
+    except Exception as exc:
+        logger.warning("Failed to navigate to Teams: %s", exc)
+        return False
 
 
 def register(mcp, state):
     """Register Teams browser tools with the MCP server."""
 
     @mcp.tool()
-    async def post_teams_message(channel_url: str, message: str) -> str:
-        """Prepare a message for posting to a Microsoft Teams channel.
+    async def open_teams_browser() -> str:
+        """Launch a persistent Chromium browser and navigate to Teams.
 
-        Opens a Chromium browser window, navigates to the channel URL,
-        and detects the active channel/conversation. Does NOT send
-        the message — returns confirmation info so the user can verify
-        the correct channel before sending.
+        The browser stays open in the background. If the Teams session
+        has expired, authenticate manually in the browser window — the
+        session is cached in the browser profile for future calls.
 
-        If the Teams session has expired, the browser will show a login
-        page — authenticate manually and the session will be cached.
+        Call this before using post_teams_message. Idempotent — returns
+        current status if the browser is already running.
+        """
+        mgr = _get_manager()
+        result = mgr.launch()
+
+        if result["status"] in ("launched", "already_running"):
+            await _wait_for_teams(mgr)
+            result["status"] = "running"
+
+        return json.dumps(result)
+
+    @mcp.tool()
+    async def post_teams_message(target: str, message: str) -> str:
+        """Prepare a message for posting to a Teams channel or person.
+
+        Connects to the running browser, uses the Teams search bar to
+        find the target by name, navigates there, and returns
+        confirmation info. Does NOT send the message yet.
 
         After this returns ``"confirm_required"``, call
         ``confirm_teams_post`` to send or ``cancel_teams_post`` to abort.
 
         Args:
-            channel_url: Full Teams channel URL
+            target: Channel name or person name (e.g. "Engineering", "John Smith")
             message: The message text to post
         """
-        # Validate URL — Teams uses both old and new domains
-        valid_domains = ("teams.microsoft.com", "teams.cloud.microsoft")
-        if not any(d in channel_url for d in valid_domains):
-            return json.dumps({
-                "status": "error",
-                "error": "Invalid URL. Must be a teams.microsoft.com or teams.cloud.microsoft URL.",
-            })
-
         poster = _get_poster()
-        result = await poster.prepare_message(channel_url, message)
+        result = await poster.prepare_message(target, message)
         return json.dumps(result)
 
     @mcp.tool()
@@ -62,8 +100,7 @@ def register(mcp, state):
         """Send the previously prepared Teams message.
 
         Must be called after ``post_teams_message`` returned
-        ``"confirm_required"``. The message will be typed into the
-        compose box and sent. The browser window closes after sending.
+        ``"confirm_required"``.
         """
         poster = _get_poster()
         result = await poster.send_prepared_message()
@@ -73,15 +110,27 @@ def register(mcp, state):
     async def cancel_teams_post() -> str:
         """Cancel the previously prepared Teams message.
 
-        Closes the browser window without sending. Use this if the
-        detected channel was wrong or the user wants to abort.
+        Disconnects from the browser without sending.
         """
         poster = _get_poster()
         result = await poster.cancel_prepared_message()
         return json.dumps(result)
 
+    @mcp.tool()
+    async def close_teams_browser() -> str:
+        """Close the persistent Teams browser.
+
+        Sends SIGTERM to the Chromium process. Call ``open_teams_browser``
+        to restart.
+        """
+        mgr = _get_manager()
+        result = mgr.close()
+        return json.dumps(result)
+
     # Expose at module level for test imports
-    current_module = sys.modules[__name__]
-    current_module.post_teams_message = post_teams_message
-    current_module.confirm_teams_post = confirm_teams_post
-    current_module.cancel_teams_post = cancel_teams_post
+    mod = sys.modules[__name__]
+    mod.open_teams_browser = open_teams_browser
+    mod.post_teams_message = post_teams_message
+    mod.confirm_teams_post = confirm_teams_post
+    mod.cancel_teams_post = cancel_teams_post
+    mod.close_teams_browser = close_teams_browser
