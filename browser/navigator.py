@@ -103,8 +103,8 @@ class TeamsNavigator:
             try:
                 await page.reload(wait_until="domcontentloaded")
                 await asyncio.sleep(3)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Page reload failed during recovery: %s", exc)
             search_bar = await self._find_element(page, SEARCH_SELECTORS, timeout_ms=10_000)
             if search_bar is None:
                 return {

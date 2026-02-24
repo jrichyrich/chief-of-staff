@@ -106,8 +106,6 @@ class TestSearchAndNavigate:
 
         call_count = {"reload_called": False}
 
-        original_empty = _make_locator(count=0)
-
         def locator_effect(selector):
             if selector in SEARCH_SELECTORS and not call_count["reload_called"]:
                 return empty_loc
@@ -119,7 +117,7 @@ class TestSearchAndNavigate:
                 return compose_loc
             if selector in CHANNEL_NAME_SELECTORS:
                 return channel_loc
-            return original_empty
+            return empty_loc
 
         async def fake_reload(**kwargs):
             call_count["reload_called"] = True
