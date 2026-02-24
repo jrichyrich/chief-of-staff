@@ -211,6 +211,7 @@ from mcp_tools import (
     session_tools,
     resources,
     enrichment,
+    teams_browser_tools,
 )
 
 # Register all tool groups
@@ -233,6 +234,7 @@ event_rule_tools.register(mcp, _state)
 session_tools.register(mcp, _state)
 resources.register(mcp, _state)
 enrichment.register(mcp, _state)
+teams_browser_tools.register(mcp, _state)
 
 
 # --- Entry point ---
