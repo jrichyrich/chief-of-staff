@@ -1,7 +1,7 @@
 """Tests for browser.manager — TeamsBrowserManager."""
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
@@ -113,3 +113,27 @@ class TestClose:
                     result = manager.close()
         assert result["status"] == "error"
         assert "still running" in result["error"]
+
+
+@pytest.mark.asyncio
+class TestConnect:
+    async def test_connect_returns_browser(self, manager):
+        """connect() returns (pw, browser) tuple via CDP."""
+        mock_browser = AsyncMock()
+        mock_browser.contexts = [MagicMock()]
+        mock_pw = AsyncMock()
+        mock_pw.chromium.connect_over_cdp = AsyncMock(return_value=mock_browser)
+
+        with patch("browser.manager.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=mock_pw)
+            with patch.object(manager, "is_alive", return_value=True):
+                pw, browser = await manager.connect()
+
+        assert browser is mock_browser
+        mock_pw.chromium.connect_over_cdp.assert_awaited_once()
+
+    async def test_connect_not_running_raises(self, manager):
+        """connect() raises RuntimeError when browser is not running."""
+        with patch.object(manager, "is_alive", return_value=False):
+            with pytest.raises(RuntimeError, match="not running"):
+                await manager.connect()

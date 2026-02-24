@@ -21,6 +21,11 @@ try:
 except ImportError:
     DATA_DIR = Path("data")
 
+try:
+    from playwright.async_api import async_playwright
+except ImportError:
+    async_playwright = None
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_CDP_PORT = 9222
@@ -134,6 +139,28 @@ class TeamsBrowserManager:
                 f"responding on port {self.cdp_port}"
             ),
         }
+
+    async def connect(self):
+        """Connect to running Chromium via CDP.
+
+        Returns ``(playwright, browser)`` tuple. Caller must call
+        ``await pw.stop()`` when done (this disconnects but does NOT
+        kill the browser).
+
+        Raises ``RuntimeError`` if the browser is not running.
+        """
+        if async_playwright is None:
+            raise RuntimeError("playwright is not installed")
+        if not self.is_alive():
+            raise RuntimeError(
+                "Browser is not running. Call open_teams_browser first."
+            )
+        pw = await async_playwright().start()
+        browser = await pw.chromium.connect_over_cdp(
+            f"http://localhost:{self.cdp_port}",
+            timeout=10_000,
+        )
+        return pw, browser
 
     def close(self) -> dict:
         """Stop the Chromium process."""
