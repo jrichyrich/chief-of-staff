@@ -80,7 +80,7 @@ class TestHumanizeHook:
         context = build_tool_context(
             tool_name="post_teams_message",
             tool_args={
-                "channel_url": "https://teams.microsoft.com/v2/#/channel/123",
+                "target": "Engineering",
                 "message": "I wanted to take a moment to share this \u2014 it's a pivotal update.",
             },
         )
@@ -89,8 +89,8 @@ class TestHumanizeHook:
         # em dash should be replaced and "pivotal" swapped (AI vocabulary rule)
         assert "\u2014" not in result["tool_args"]["message"]
         assert "pivotal" not in result["tool_args"]["message"]
-        # channel_url should be unchanged
-        assert result["tool_args"]["channel_url"] == context["tool_args"]["channel_url"]
+        # target should be unchanged
+        assert result["tool_args"]["target"] == context["tool_args"]["target"]
 
 
 class TestHumanizeHookIntegration:
