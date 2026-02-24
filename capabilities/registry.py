@@ -255,22 +255,30 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["message_id", "target_mailbox"],
         },
     },
+    "open_teams_browser": {
+        "name": "open_teams_browser",
+        "description": "Launch persistent Chromium browser and navigate to Teams.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
     "post_teams_message": {
         "name": "post_teams_message",
-        "description": "Prepare a message for posting to a Microsoft Teams channel. Returns confirmation info — call confirm_teams_post to send.",
+        "description": "Search for a Teams channel or person by name and prepare a message. Returns confirmation info — call confirm_teams_post to send.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "channel_url": {
+                "target": {
                     "type": "string",
-                    "description": "Full Teams channel URL (e.g. https://teams.microsoft.com/l/channel/...)",
+                    "description": "Channel name or person name (e.g. 'Engineering', 'John Smith')",
                 },
                 "message": {
                     "type": "string",
                     "description": "The message text to post",
                 },
             },
-            "required": ["channel_url", "message"],
+            "required": ["target", "message"],
         },
     },
     "confirm_teams_post": {
@@ -283,7 +291,15 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "cancel_teams_post": {
         "name": "cancel_teams_post",
-        "description": "Cancel the previously prepared Teams message and close the browser.",
+        "description": "Cancel the previously prepared Teams message.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    "close_teams_browser": {
+        "name": "close_teams_browser",
+        "description": "Close the persistent Teams browser process.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -748,8 +764,8 @@ CAPABILITY_DEFINITIONS: dict[str, CapabilityDefinition] = {
     ),
     "teams_write": CapabilityDefinition(
         name="teams_write",
-        description="Post messages to Microsoft Teams channels via browser automation",
-        tool_names=("post_teams_message", "confirm_teams_post", "cancel_teams_post"),
+        description="Post messages to Microsoft Teams channels via persistent browser automation",
+        tool_names=("open_teams_browser", "post_teams_message", "confirm_teams_post", "cancel_teams_post", "close_teams_browser"),
     ),
     "decision_read": CapabilityDefinition(
         name="decision_read",
