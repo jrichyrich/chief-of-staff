@@ -255,6 +255,24 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["message_id", "target_mailbox"],
         },
     },
+    "post_teams_message": {
+        "name": "post_teams_message",
+        "description": "Post a message to a Microsoft Teams channel via browser automation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_url": {
+                    "type": "string",
+                    "description": "Full Teams channel URL (e.g. https://teams.microsoft.com/l/channel/...)",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The message text to post",
+                },
+            },
+            "required": ["channel_url", "message"],
+        },
+    },
     "create_decision": {
         "name": "create_decision",
         "description": "Log a decision for tracking and follow-up.",
@@ -711,6 +729,11 @@ CAPABILITY_DEFINITIONS: dict[str, CapabilityDefinition] = {
         name="mail_write",
         description="Send and update email state",
         tool_names=("send_email", "mark_mail_read", "mark_mail_flagged", "move_mail_message"),
+    ),
+    "teams_write": CapabilityDefinition(
+        name="teams_write",
+        description="Post messages to Microsoft Teams channels via browser automation",
+        tool_names=("post_teams_message",),
     ),
     "decision_read": CapabilityDefinition(
         name="decision_read",
