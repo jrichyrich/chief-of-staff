@@ -93,6 +93,48 @@ class TestSearchAndNavigate:
         assert result["detected_channel"] == "Engineering"
         search_loc.click.assert_awaited()
 
+    async def test_search_recovers_after_reload(self):
+        """Reloads page and retries when search bar not initially found."""
+        page = AsyncMock()
+        search_loc = _make_locator(count=1)
+        result_loc = _make_locator(count=1, texts=["Engineering"])
+        compose_loc = _make_locator(count=1)
+        channel_loc = _make_locator(count=1, texts=["Engineering"])
+        empty_loc = _make_locator(count=0)
+
+        from browser.constants import COMPOSE_SELECTORS, CHANNEL_NAME_SELECTORS
+
+        call_count = {"reload_called": False}
+
+        original_empty = _make_locator(count=0)
+
+        def locator_effect(selector):
+            if selector in SEARCH_SELECTORS and not call_count["reload_called"]:
+                return empty_loc
+            if selector in SEARCH_SELECTORS:
+                return search_loc
+            if selector == SEARCH_RESULT_SELECTOR:
+                return result_loc
+            if selector in COMPOSE_SELECTORS:
+                return compose_loc
+            if selector in CHANNEL_NAME_SELECTORS:
+                return channel_loc
+            return original_empty
+
+        async def fake_reload(**kwargs):
+            call_count["reload_called"] = True
+
+        page.locator = MagicMock(side_effect=locator_effect)
+        page.reload = AsyncMock(side_effect=fake_reload)
+        page.keyboard = AsyncMock()
+        page.title = AsyncMock(return_value="Engineering | Microsoft Teams")
+
+        nav = TeamsNavigator()
+        result = await nav.search_and_navigate(page, "Engineering")
+
+        assert result["status"] == "navigated"
+        page.reload.assert_awaited_once()
+
     async def test_search_no_search_bar(self):
         """Error when search bar not found."""
         page = AsyncMock()

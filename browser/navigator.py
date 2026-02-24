@@ -98,10 +98,19 @@ class TeamsNavigator:
         # Find the search bar
         search_bar = await self._find_element(page, SEARCH_SELECTORS, timeout_ms=10_000)
         if search_bar is None:
-            return {
-                "status": "error",
-                "error": "Could not find Teams search bar. Is Teams loaded?",
-            }
+            # Auto-recover: reload page and retry once
+            logger.info("Search bar not found, reloading page and retrying")
+            try:
+                await page.reload(wait_until="domcontentloaded")
+                await asyncio.sleep(3)
+            except Exception:
+                pass
+            search_bar = await self._find_element(page, SEARCH_SELECTORS, timeout_ms=10_000)
+            if search_bar is None:
+                return {
+                    "status": "error",
+                    "error": "Could not find Teams search bar. Is Teams loaded?",
+                }
 
         # Click search bar and type the target name
         await search_bar.click()
