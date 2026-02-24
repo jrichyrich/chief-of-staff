@@ -78,12 +78,12 @@ def register(mcp, state):
         return json.dumps(result)
 
     @mcp.tool()
-    async def post_teams_message(target: str, message: str) -> str:
+    async def post_teams_message(target: str, message: str, auto_send: bool = False) -> str:
         """Prepare a message for posting to a Teams channel or person.
 
         Connects to the running browser, uses the Teams search bar to
         find the target by name, navigates there, and returns
-        confirmation info. Does NOT send the message yet.
+        confirmation info. Does NOT send the message yet (unless auto_send=True).
 
         After this returns ``"confirm_required"``, call
         ``confirm_teams_post`` to send or ``cancel_teams_post`` to abort.
@@ -91,9 +91,13 @@ def register(mcp, state):
         Args:
             target: Channel name or person name (e.g. "Engineering", "John Smith")
             message: The message text to post
+            auto_send: If True, send immediately without confirmation step
         """
         poster = _get_poster()
-        result = await poster.prepare_message(target, message)
+        if auto_send:
+            result = await poster.send_message(target, message)
+        else:
+            result = await poster.prepare_message(target, message)
         return json.dumps(result)
 
     @mcp.tool()

@@ -316,6 +316,79 @@ class TestSendPreparedMessage:
 
 
 # -------------------------------------------------------------------
+# send_message tests
+# -------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestSendMessage:
+    async def test_send_message_one_shot(self):
+        """send_message prepares, sends, and disconnects in one call."""
+        manager = MagicMock()
+        manager.is_alive.return_value = True
+        navigator = AsyncMock()
+        navigator.search_and_navigate.return_value = {
+            "status": "navigated",
+            "detected_channel": "Jonas De Oliveira",
+        }
+
+        compose = AsyncMock()
+        poster = PlaywrightTeamsPoster(manager=manager, navigator=navigator)
+
+        pw_mock = AsyncMock()
+        browser_mock = MagicMock()
+        ctx_mock = MagicMock()
+        page_mock = AsyncMock()
+        ctx_mock.pages = [page_mock]
+        browser_mock.contexts = [ctx_mock]
+        manager.connect = AsyncMock(return_value=(pw_mock, browser_mock))
+
+        with patch.object(poster, "_find_compose_box", return_value=compose):
+            result = await poster.send_message("Jonas", "Hello!")
+
+        assert result["status"] == "sent"
+        assert result["detected_channel"] == "Jonas De Oliveira"
+        compose.click.assert_awaited_once()
+        compose.fill.assert_awaited_once_with("Hello!")
+        page_mock.keyboard.press.assert_awaited_with("Enter")
+        pw_mock.stop.assert_awaited()  # disconnected
+
+    async def test_send_message_navigation_fails(self):
+        """send_message returns error when navigation fails."""
+        manager = MagicMock()
+        manager.is_alive.return_value = True
+        navigator = AsyncMock()
+        navigator.search_and_navigate.return_value = {
+            "status": "error",
+            "error": "No results",
+        }
+
+        poster = PlaywrightTeamsPoster(manager=manager, navigator=navigator)
+
+        pw_mock = AsyncMock()
+        browser_mock = MagicMock()
+        ctx_mock = MagicMock()
+        page_mock = AsyncMock()
+        ctx_mock.pages = [page_mock]
+        browser_mock.contexts = [ctx_mock]
+        manager.connect = AsyncMock(return_value=(pw_mock, browser_mock))
+
+        result = await poster.send_message("Nobody", "Hello!")
+
+        assert result["status"] == "error"
+        pw_mock.stop.assert_awaited()  # disconnected even on error
+
+    async def test_send_message_browser_not_running(self):
+        """send_message returns error when browser not running."""
+        manager = MagicMock()
+        manager.is_alive.return_value = False
+        poster = PlaywrightTeamsPoster(manager=manager)
+
+        result = await poster.send_message("Jonas", "Hello!")
+        assert result["status"] == "error"
+        assert "not running" in result["error"].lower()
+
+
+# -------------------------------------------------------------------
 # cancel_prepared_message tests
 # -------------------------------------------------------------------
 

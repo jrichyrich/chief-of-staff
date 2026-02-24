@@ -88,6 +88,24 @@ class TestPostTeamsMessage:
         assert result["detected_channel"] == "Engineering"
         mock_poster.prepare_message.assert_awaited_once_with("Engineering", "Hello")
 
+    async def test_post_auto_send(self):
+        """auto_send=True sends immediately without confirmation."""
+        mock_poster = AsyncMock()
+        mock_poster.send_message = AsyncMock(return_value={
+            "status": "sent",
+            "detected_channel": "Jonas",
+            "message": "Hello!",
+        })
+
+        with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+            raw = await post_teams_message(
+                target="Jonas", message="Hello!", auto_send=True
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        mock_poster.send_message.assert_awaited_once_with("Jonas", "Hello!")
+
     async def test_post_browser_not_running(self):
         mock_poster = AsyncMock()
         mock_poster.prepare_message.return_value = {
