@@ -36,7 +36,7 @@ for arg in "$@"; do
     esac
 done
 
-RSYNC_OPTS="-av --delete"
+RSYNC_OPTS="-av --delete --timeout=60"
 if $DRY_RUN; then
     RSYNC_OPTS="$RSYNC_OPTS --dry-run"
 fi
@@ -91,6 +91,19 @@ notify_success() {
     escaped_sql_summary="$(escape_sql_value "$summary")"
     sqlite3 "$PROJECT_DIR/data/memory.db" \
         "INSERT OR REPLACE INTO facts (category, key, value, confidence) VALUES ('work', 'backup_last_success', '$(date +%Y-%m-%d): $escaped_sql_summary', 1.0);" 2>/dev/null || true
+}
+
+safe_rsync() {
+    # Run rsync but don't let failure abort the script (set -e safe).
+    # Usage: safe_rsync <label> <rsync_args...>
+    local label="$1"; shift
+    if rsync "$@" 2>&1; then
+        return 0
+    else
+        local rc=$?
+        log_error "$label rsync failed (exit $rc) -- continuing"
+        return 0  # swallow error so set -e doesn't abort
+    fi
 }
 
 verify_sqlite() {
@@ -327,7 +340,7 @@ if [ -d "$CHROMA_SRC" ]; then
     fi
 
     # rsync the HNSW index and other binary files (exclude the sqlite we already backed up)
-    rsync $RSYNC_OPTS --exclude='chroma.sqlite3' "$CHROMA_SRC/" "$CHROMA_DST/" 2>&1 | \
+    safe_rsync "ChromaDB HNSW" $RSYNC_OPTS --exclude='chroma.sqlite3' "$CHROMA_SRC/" "$CHROMA_DST/" | \
         { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
     log "ChromaDB vector store synced ($(du -sh "$CHROMA_DST" 2>/dev/null | cut -f1))"
 else
@@ -399,7 +412,7 @@ if [ -d "$OKR_SRC" ]; then
     if ! $DRY_RUN; then
         mkdir -p "$OKR_DST"
     fi
-    rsync $RSYNC_OPTS "$OKR_SRC/" "$OKR_DST/" 2>&1 | \
+    safe_rsync "OKR snapshots" $RSYNC_OPTS "$OKR_SRC/" "$OKR_DST/" | \
         { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
     OKR_COUNT=$(find "$OKR_SRC" -type f 2>/dev/null | wc -l | tr -d ' ')
     log "OKR snapshots synced ($OKR_COUNT files)"
@@ -417,7 +430,7 @@ if [ -d "$WEBHOOK_INBOX" ]; then
     if ! $DRY_RUN; then
         mkdir -p "$WEBHOOK_DST"
     fi
-    rsync $RSYNC_OPTS "$WEBHOOK_INBOX/" "$WEBHOOK_DST/" 2>&1 | \
+    safe_rsync "Webhook inbox" $RSYNC_OPTS "$WEBHOOK_INBOX/" "$WEBHOOK_DST/" | \
         { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
     WEBHOOK_COUNT=$(find "$WEBHOOK_INBOX" -type f 2>/dev/null | wc -l | tr -d ' ')
     log "Webhook inbox synced ($WEBHOOK_COUNT files)"
@@ -429,7 +442,7 @@ fi
 
 log_section "Document Library"
 if [ -d "$JARVIS_DOCS" ]; then
-    rsync $RSYNC_OPTS "$JARVIS_DOCS/" "$BACKUP_DIR/documents/" 2>&1 | \
+    safe_rsync "Document library" $RSYNC_OPTS "$JARVIS_DOCS/" "$BACKUP_DIR/documents/" | \
         { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
     DOC_COUNT=$(find "$JARVIS_DOCS" -type f | wc -l | tr -d ' ')
     DOC_SIZE=$(du -sh "$JARVIS_DOCS" 2>/dev/null | cut -f1)
@@ -443,7 +456,7 @@ fi
 log_section "Agent Configurations"
 AGENT_SRC="$PROJECT_DIR/agent_configs"
 if [ -d "$AGENT_SRC" ]; then
-    rsync $RSYNC_OPTS "$AGENT_SRC/" "$BACKUP_DIR/agent_configs/" 2>&1 | \
+    safe_rsync "Agent configs" $RSYNC_OPTS "$AGENT_SRC/" "$BACKUP_DIR/agent_configs/" | \
         { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
     AGENT_COUNT=$(ls "$AGENT_SRC"/*.yaml 2>/dev/null | wc -l | tr -d ' ')
     log "Agent configs synced ($AGENT_COUNT YAML files)"
@@ -456,10 +469,10 @@ fi
 log_section "Scripts"
 SCRIPTS_SRC="$PROJECT_DIR/scripts"
 if [ -d "$SCRIPTS_SRC" ]; then
-    rsync $RSYNC_OPTS \
+    safe_rsync "Scripts" $RSYNC_OPTS \
         --exclude='*.o' \
         --exclude='.DS_Store' \
-        "$SCRIPTS_SRC/" "$BACKUP_DIR/scripts/" 2>&1 | \
+        "$SCRIPTS_SRC/" "$BACKUP_DIR/scripts/" | \
         { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
     log "Scripts synced"
 fi
@@ -469,7 +482,7 @@ fi
 log_section "Hooks"
 HOOKS_SRC="$PROJECT_DIR/hooks"
 if [ -d "$HOOKS_SRC" ]; then
-    rsync $RSYNC_OPTS "$HOOKS_SRC/" "$BACKUP_DIR/hooks/" 2>&1 | \
+    safe_rsync "Hooks" $RSYNC_OPTS "$HOOKS_SRC/" "$BACKUP_DIR/hooks/" | \
         { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
     log "Hooks synced"
 fi
