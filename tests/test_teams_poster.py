@@ -44,6 +44,12 @@ class TestSessionPersistence:
         assert deep.exists()
         assert json.loads(deep.read_text()) == {"ok": True}
 
+    def test_load_session_corrupt_json(self, poster):
+        """_load_session returns None on invalid JSON."""
+        poster.session_path.parent.mkdir(parents=True, exist_ok=True)
+        poster.session_path.write_text("not valid json{{{")
+        assert poster._load_session() is None
+
 
 # -------------------------------------------------------------------
 # Login-page detection
@@ -107,9 +113,10 @@ def _make_mock_browser(context):
 
 def _make_mock_playwright(browser):
     """Return a MagicMock Playwright instance."""
-    pw = MagicMock()
+    pw = AsyncMock()
     pw.chromium = AsyncMock()
     pw.chromium.launch = AsyncMock(return_value=browser)
+    pw.stop = AsyncMock()
     return pw
 
 
@@ -152,6 +159,7 @@ class TestPostMessage:
         compose_loc.fill.assert_awaited_once_with("hello team")
         page.keyboard.press.assert_awaited_once_with("Enter")
         br.close.assert_awaited_once()
+        mock_pw.stop.assert_awaited_once()
 
     async def test_post_message_auth_timeout(self, poster):
         """Login page that never resolves gives 'auth_required'."""

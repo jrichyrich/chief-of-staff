@@ -16,7 +16,11 @@ from playwright.async_api import async_playwright
 logger = logging.getLogger(__name__)
 
 # Default path for persisted browser session (storage state JSON).
-SESSION_PATH = Path("data/playwright/teams_session.json")
+try:
+    from config import DATA_DIR
+    SESSION_PATH = DATA_DIR / "playwright" / "teams_session.json"
+except ImportError:
+    SESSION_PATH = Path("data/playwright/teams_session.json")
 
 # Timeout (ms) for waiting for user to complete SSO authentication.
 AUTH_TIMEOUT_MS = 120_000
@@ -70,7 +74,8 @@ class PlaywrightTeamsPoster:
     def _save_session_sync(self, state: dict) -> None:
         """Persist browser session state to disk, creating parent dirs."""
         self.session_path.parent.mkdir(parents=True, exist_ok=True)
-        self.session_path.write_text(json.dumps(state))
+        self.session_path.write_text(json.dumps(state, indent=2))
+        logger.info("Session saved to %s", self.session_path)
 
     # ------------------------------------------------------------------
     # Auth helpers
@@ -125,6 +130,7 @@ class PlaywrightTeamsPoster:
         or ``"error"``) and optional ``"error"`` detail.
         """
         browser = None
+        pw = None
         try:
             pw = await async_playwright().start()
             session = self._load_session()
@@ -137,7 +143,8 @@ class PlaywrightTeamsPoster:
             context = await browser.new_context(**context_kwargs)
             page = await context.new_page()
 
-            await page.goto(channel_url, wait_until="domcontentloaded")
+            await page.goto(channel_url, wait_until="domcontentloaded",
+                            timeout=POST_TIMEOUT_MS)
 
             # Handle SSO login if redirected
             if self._is_login_page(page.url):
@@ -187,3 +194,5 @@ class PlaywrightTeamsPoster:
         finally:
             if browser is not None:
                 await browser.close()
+            if pw is not None:
+                await pw.stop()
