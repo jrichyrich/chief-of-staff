@@ -14,7 +14,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from browser.constants import COMPOSE_SELECTORS, CHANNEL_NAME_SELECTORS, POST_TIMEOUT_MS
+from browser.constants import COMPOSE_SELECTORS, POST_TIMEOUT_MS
 from browser.manager import TeamsBrowserManager
 from browser.navigator import TeamsNavigator
 
@@ -78,35 +78,6 @@ class PlaywrightTeamsPoster:
             await asyncio.sleep(interval_ms / 1_000)
             elapsed += interval_ms
         return None
-
-    @staticmethod
-    async def _detect_channel_name(page) -> str:
-        """Try to extract the active channel or conversation name from the DOM.
-
-        Returns the detected name, or ``"(unknown)"`` if detection fails.
-        """
-        for selector in CHANNEL_NAME_SELECTORS:
-            try:
-                locator = page.locator(selector)
-                if await locator.count() > 0:
-                    text = await locator.first.inner_text()
-                    text = text.strip()
-                    if text:
-                        return text
-            except Exception:
-                continue
-
-        try:
-            title = await page.title()
-            if title and title not in ("Microsoft Teams", ""):
-                for suffix in (" | Microsoft Teams", " - Microsoft Teams"):
-                    if title.endswith(suffix):
-                        title = title[: -len(suffix)]
-                return title.strip() or "(unknown)"
-        except Exception:
-            pass
-
-        return "(unknown)"
 
     async def prepare_message(self, target: str, message: str) -> dict:
         """Phase 1: connect to browser, navigate to target, return confirmation.
@@ -176,7 +147,7 @@ class PlaywrightTeamsPoster:
 
         try:
             # Re-detect the channel in case user navigated during confirmation
-            detected = await self._detect_channel_name(self._page)
+            detected = await TeamsNavigator._detect_channel_name(self._page)
 
             await self._compose.click()
             await self._compose.fill(self._pending_message)

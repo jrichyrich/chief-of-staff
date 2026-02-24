@@ -312,7 +312,7 @@ class TestSendPreparedMessage:
 
         assert result["status"] == "error"
         assert not poster.has_pending_message
-        poster._pw is None  # Should be cleared
+        assert poster._pw is None  # Should be cleared
 
 
 # -------------------------------------------------------------------
