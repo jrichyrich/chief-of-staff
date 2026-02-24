@@ -72,7 +72,7 @@ class TeamsBrowserManager:
     def is_alive(self) -> bool:
         """Check if the CDP endpoint is responding."""
         try:
-            url = f"http://localhost:{self.cdp_port}/json/version"
+            url = f"http://127.0.0.1:{self.cdp_port}/json/version"
             with urlopen(url, timeout=2) as resp:
                 return resp.status == 200
         except (URLError, OSError, TimeoutError):
@@ -157,7 +157,7 @@ class TeamsBrowserManager:
             )
         pw = await async_playwright().start()
         browser = await pw.chromium.connect_over_cdp(
-            f"http://localhost:{self.cdp_port}",
+            f"http://127.0.0.1:{self.cdp_port}",
             timeout=10_000,
         )
         return pw, browser
