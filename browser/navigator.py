@@ -39,14 +39,15 @@ class TeamsNavigator:
         """Try each selector with retries. Returns first matching locator or None."""
         elapsed = 0
         interval_ms = 1_000
-        while elapsed < timeout_ms:
+        while True:
             for selector in selectors:
                 locator = page.locator(selector)
                 if await locator.count() > 0:
                     return locator
-            await asyncio.sleep(interval_ms / 1_000)
             elapsed += interval_ms
-        return None
+            if elapsed >= timeout_ms:
+                return None
+            await asyncio.sleep(interval_ms / 1_000)
 
     @staticmethod
     async def _detect_channel_name(page) -> str:
@@ -92,6 +93,7 @@ class TeamsNavigator:
         # Click search bar and type the target name
         await search_bar.click()
         await asyncio.sleep(0.5)
+        await page.keyboard.press("Meta+a")  # Select all existing text
         await page.keyboard.type(target, delay=50)
         await asyncio.sleep(2)  # Wait for search results to populate
 
