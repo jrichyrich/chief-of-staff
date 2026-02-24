@@ -75,6 +75,23 @@ class TestHumanizeHook:
         # Should not crash, just return None or unchanged
         assert result is None or "tool_args" in result
 
+    def test_humanize_hook_teams_message(self):
+        """Humanizer hook processes post_teams_message tool."""
+        context = build_tool_context(
+            tool_name="post_teams_message",
+            tool_args={
+                "channel_url": "https://teams.microsoft.com/v2/#/channel/123",
+                "message": "I wanted to take a moment to share this \u2014 it's a pivotal update.",
+            },
+        )
+        result = humanize_hook(context)
+        assert result is not None
+        # em dash should be replaced and "pivotal" swapped (AI vocabulary rule)
+        assert "\u2014" not in result["tool_args"]["message"]
+        assert "pivotal" not in result["tool_args"]["message"]
+        # channel_url should be unchanged
+        assert result["tool_args"]["channel_url"] == context["tool_args"]["channel_url"]
+
 
 class TestHumanizeHookIntegration:
     def test_registered_via_hook_registry(self):

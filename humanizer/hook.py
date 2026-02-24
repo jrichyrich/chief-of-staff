@@ -9,10 +9,11 @@ OUTBOUND_TOOLS = frozenset({
     "send_email",
     "reply_to_email",
     "send_imessage_reply",
+    "post_teams_message",
 })
 
 # Fields to humanize on outbound tools
-TEXT_FIELDS = ("body", "subject")
+TEXT_FIELDS = ("body", "subject", "message")
 
 
 def humanize_hook(context: dict) -> dict[str, Any] | None:
