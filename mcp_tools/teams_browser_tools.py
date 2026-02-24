@@ -31,11 +31,12 @@ def register(mcp, state):
             channel_url: Full Teams channel URL (e.g. https://teams.microsoft.com/l/channel/...)
             message: The message text to post
         """
-        # Validate URL
-        if "teams.microsoft.com" not in channel_url:
+        # Validate URL — Teams uses both old and new domains
+        valid_domains = ("teams.microsoft.com", "teams.cloud.microsoft")
+        if not any(d in channel_url for d in valid_domains):
             return json.dumps({
                 "status": "error",
-                "error": "Invalid URL. Must be a teams.microsoft.com URL.",
+                "error": "Invalid URL. Must be a teams.microsoft.com or teams.cloud.microsoft URL.",
             })
 
         poster = _get_poster()

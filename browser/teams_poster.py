@@ -36,6 +36,13 @@ LOGIN_PATTERNS = (
     "login.microsoftonline.com",
     ".okta.com",
     "login.microsoft.com",
+    "login.srf",
+)
+
+# URL substrings that indicate we've landed on Teams.
+TEAMS_PATTERNS = (
+    "teams.microsoft.com",
+    "teams.cloud.microsoft",
 )
 
 # CSS selectors to locate the Teams compose / reply box, tried in order.
@@ -92,6 +99,11 @@ class PlaywrightTeamsPoster:
                 return True
         return False
 
+    @staticmethod
+    def _is_teams_page(url: str) -> bool:
+        """Return True if *url* is on a Teams domain."""
+        return any(pattern in url for pattern in TEAMS_PATTERNS)
+
     async def _wait_for_auth(self, page) -> bool:
         """Poll *page* URL every 1 s until it leaves the login page.
 
@@ -101,7 +113,7 @@ class PlaywrightTeamsPoster:
         elapsed = 0
         interval_ms = 1_000
         while elapsed < AUTH_TIMEOUT_MS:
-            if not self._is_login_page(page.url) and "teams.microsoft.com" in page.url:
+            if not self._is_login_page(page.url) and self._is_teams_page(page.url):
                 return True
             await asyncio.sleep(interval_ms / 1_000)
             elapsed += interval_ms
@@ -112,14 +124,24 @@ class PlaywrightTeamsPoster:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _find_compose_box(page):
-        """Try each selector in :data:`COMPOSE_SELECTORS` and return the
-        first locator that matches at least one element, or ``None``.
+    async def _find_compose_box(page, timeout_ms: int = POST_TIMEOUT_MS):
+        """Try each selector in :data:`COMPOSE_SELECTORS` with retries.
+
+        The Teams SPA takes several seconds to render after navigation.
+        Retries every 2s up to *timeout_ms* before giving up.
+        Returns the first locator that matches, or ``None``.
         """
-        for selector in COMPOSE_SELECTORS:
-            locator = page.locator(selector)
-            if await locator.count() > 0:
-                return locator
+        elapsed = 0
+        interval_ms = 2_000
+        while elapsed < timeout_ms:
+            for selector in COMPOSE_SELECTORS:
+                locator = page.locator(selector)
+                if await locator.count() > 0:
+                    logger.debug("Compose box found: %s", selector)
+                    return locator
+            logger.debug("Compose box not found yet, retrying in %ds...", interval_ms // 1000)
+            await asyncio.sleep(interval_ms / 1_000)
+            elapsed += interval_ms
         return None
 
     # ------------------------------------------------------------------
