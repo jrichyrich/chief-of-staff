@@ -3,6 +3,12 @@
 Uses a headed Chromium browser with persistent session storage to post
 messages to Teams channels. Handles Microsoft/Okta SSO login detection
 and waits for the user to complete authentication when needed.
+
+Two-phase posting flow:
+1. ``prepare_message`` — opens browser, navigates, detects active
+   channel, and returns confirmation info **without** sending.
+2. ``send_prepared_message`` — types the message and presses Enter.
+3. ``cancel_prepared_message`` — closes the browser without sending.
 """
 
 import asyncio
@@ -53,18 +59,42 @@ COMPOSE_SELECTORS = (
     'div[contenteditable="true"][data-tid]',
 )
 
+# CSS selectors to detect the active channel / conversation name.
+CHANNEL_NAME_SELECTORS = (
+    '[data-tid="chat-header-title"]',
+    'h1[data-tid]',
+    'h2[data-tid]',
+    'span[data-tid="chat-header-channel-name"]',
+    '[data-tid="thread-header"] h2',
+    '[data-tid="channel-header"] span',
+)
+
+# Timeout (ms) for user to navigate to correct channel and confirm.
+CONFIRM_TIMEOUT_MS = 300_000  # 5 minutes
+
 
 class PlaywrightTeamsPoster:
     """Post messages to Microsoft Teams channels via Playwright automation.
 
-    The poster launches a headed Chromium instance, navigates to the given
-    channel URL, waits for authentication if needed, finds the compose box,
-    types the message, and presses Enter.  Browser session state is
-    persisted to disk so subsequent calls skip login.
+    Uses a two-phase flow to prevent sending to the wrong channel:
+
+    1. :meth:`prepare_message` opens the browser, navigates to Teams,
+       detects the active channel, and returns confirmation info.
+    2. :meth:`send_prepared_message` types the message and sends it.
+    3. :meth:`cancel_prepared_message` closes the browser without sending.
+
+    Browser session state is persisted to disk so subsequent calls skip login.
     """
 
     def __init__(self, session_path: Optional[Path] = None):
         self.session_path = session_path or SESSION_PATH
+        # Pending state for two-phase posting
+        self._pw = None
+        self._browser = None
+        self._context = None
+        self._page = None
+        self._compose = None
+        self._pending_message: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Session persistence
@@ -145,42 +175,117 @@ class PlaywrightTeamsPoster:
         return None
 
     # ------------------------------------------------------------------
-    # Public API
+    # Channel name detection
     # ------------------------------------------------------------------
 
-    async def post_message(self, channel_url: str, message: str) -> dict:
-        """Post *message* to the Teams channel at *channel_url*.
+    @staticmethod
+    async def _detect_channel_name(page) -> str:
+        """Try to extract the active channel or conversation name from the DOM.
 
-        Returns a dict with ``"status"`` (``"sent"``, ``"auth_required"``,
-        or ``"error"``) and optional ``"error"`` detail.
+        Returns the detected name, or ``"(unknown)"`` if detection fails.
+        """
+        # Try known selectors first
+        for selector in CHANNEL_NAME_SELECTORS:
+            try:
+                locator = page.locator(selector)
+                if await locator.count() > 0:
+                    text = await locator.first.inner_text()
+                    text = text.strip()
+                    if text:
+                        return text
+            except Exception:
+                continue
+
+        # Fall back to page title (Teams usually sets it to the channel name)
+        try:
+            title = await page.title()
+            if title and title not in ("Microsoft Teams", ""):
+                # Strip common suffixes like "| Microsoft Teams"
+                for suffix in (" | Microsoft Teams", " - Microsoft Teams"):
+                    if title.endswith(suffix):
+                        title = title[: -len(suffix)]
+                return title.strip() or "(unknown)"
+        except Exception:
+            pass
+
+        return "(unknown)"
+
+    # ------------------------------------------------------------------
+    # Internal cleanup
+    # ------------------------------------------------------------------
+
+    async def _cleanup(self) -> None:
+        """Close browser and Playwright, reset pending state."""
+        if self._context is not None:
+            try:
+                state = await self._context.storage_state()
+                self._save_session_sync(state)
+            except Exception:
+                pass
+        if self._browser is not None:
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
+        if self._pw is not None:
+            try:
+                await self._pw.stop()
+            except Exception:
+                pass
+        self._pw = None
+        self._browser = None
+        self._context = None
+        self._page = None
+        self._compose = None
+        self._pending_message = None
+
+    @property
+    def has_pending_message(self) -> bool:
+        """Return True if there is a prepared message waiting to send."""
+        return self._pending_message is not None and self._page is not None
+
+    # ------------------------------------------------------------------
+    # Public API — two-phase posting
+    # ------------------------------------------------------------------
+
+    async def prepare_message(self, channel_url: str, message: str) -> dict:
+        """Phase 1: open browser, navigate, find compose box, detect channel.
+
+        The browser stays open so the user can verify the active channel.
+        Returns a dict with ``"status"`` of ``"confirm_required"`` on
+        success (with ``"detected_channel"`` and ``"message"``), or
+        ``"auth_required"`` / ``"error"`` on failure.
         """
         if async_playwright is None:
             return {
                 "status": "error",
                 "error": "playwright is not installed. Run: pip install playwright && playwright install chromium",
             }
-        browser = None
-        pw = None
+
+        # Clean up any leftover state from a previous prepare
+        if self.has_pending_message:
+            await self._cleanup()
+
         try:
-            pw = await async_playwright().start()
+            self._pw = await async_playwright().start()
             session = self._load_session()
-            launch_kwargs = {"headless": False}
-            browser = await pw.chromium.launch(**launch_kwargs)
+            self._browser = await self._pw.chromium.launch(headless=False)
 
             context_kwargs: dict = {}
             if session is not None:
                 context_kwargs["storage_state"] = session
-            context = await browser.new_context(**context_kwargs)
-            page = await context.new_page()
+            self._context = await self._browser.new_context(**context_kwargs)
+            self._page = await self._context.new_page()
 
-            await page.goto(channel_url, wait_until="domcontentloaded",
-                            timeout=POST_TIMEOUT_MS)
+            await self._page.goto(channel_url, wait_until="domcontentloaded",
+                                  timeout=POST_TIMEOUT_MS)
 
             # Handle SSO login if redirected
-            if self._is_login_page(page.url):
+            if self._is_login_page(self._page.url):
                 logger.info("Login page detected — waiting for user auth")
-                authed = await self._wait_for_auth(page)
+                authed = await self._wait_for_auth(self._page)
                 if not authed:
+                    await self._cleanup()
                     return {
                         "status": "auth_required",
                         "error": (
@@ -189,12 +294,13 @@ class PlaywrightTeamsPoster:
                         ),
                     }
                 # Persist session after successful login
-                state = await context.storage_state()
+                state = await self._context.storage_state()
                 self._save_session_sync(state)
 
             # Locate the compose box
-            compose = await self._find_compose_box(page)
-            if compose is None:
+            self._compose = await self._find_compose_box(self._page)
+            if self._compose is None:
+                await self._cleanup()
                 return {
                     "status": "error",
                     "error": (
@@ -203,26 +309,81 @@ class PlaywrightTeamsPoster:
                     ),
                 }
 
-            # Type and send
-            await compose.click()
-            await compose.fill(message)
-            await page.keyboard.press("Enter")
+            # Detect which channel/conversation is active
+            detected = await self._detect_channel_name(self._page)
+            self._pending_message = message
 
-            # Allow a moment for the message to dispatch
-            await page.wait_for_timeout(1_000)
-
-            # Persist session for next time
-            state = await context.storage_state()
-            self._save_session_sync(state)
-
-            return {"status": "sent", "channel_url": channel_url}
+            return {
+                "status": "confirm_required",
+                "detected_channel": detected,
+                "message": message,
+                "channel_url": channel_url,
+            }
 
         except Exception as exc:
-            logger.exception("Failed to post Teams message")
+            logger.exception("Failed to prepare Teams message")
+            await self._cleanup()
             return {"status": "error", "error": str(exc)}
 
+    async def send_prepared_message(self) -> dict:
+        """Phase 2: type the pending message into the compose box and send.
+
+        Must be called after :meth:`prepare_message` returned
+        ``"confirm_required"``.  Closes the browser after sending.
+        """
+        if not self.has_pending_message:
+            return {
+                "status": "error",
+                "error": "No pending message. Call prepare_message first.",
+            }
+
+        try:
+            # Re-detect the channel in case user navigated during confirmation
+            detected = await self._detect_channel_name(self._page)
+
+            await self._compose.click()
+            await self._compose.fill(self._pending_message)
+            await self._page.keyboard.press("Enter")
+
+            # Allow a moment for the message to dispatch
+            await self._page.wait_for_timeout(1_000)
+
+            message = self._pending_message
+            result = {
+                "status": "sent",
+                "detected_channel": detected,
+                "message": message,
+            }
+
+        except Exception as exc:
+            logger.exception("Failed to send prepared Teams message")
+            result = {"status": "error", "error": str(exc)}
+
         finally:
-            if browser is not None:
-                await browser.close()
-            if pw is not None:
-                await pw.stop()
+            await self._cleanup()
+
+        return result
+
+    async def cancel_prepared_message(self) -> dict:
+        """Cancel a prepared message and close the browser without sending."""
+        had_pending = self.has_pending_message
+        await self._cleanup()
+        if had_pending:
+            return {"status": "cancelled"}
+        return {"status": "error", "error": "No pending message to cancel."}
+
+    # ------------------------------------------------------------------
+    # Legacy one-shot API (kept for backward compatibility)
+    # ------------------------------------------------------------------
+
+    async def post_message(self, channel_url: str, message: str) -> dict:
+        """One-shot post: prepare, auto-confirm, and send in one call.
+
+        .. deprecated::
+            Use :meth:`prepare_message` + :meth:`send_prepared_message`
+            for the safer two-phase flow.
+        """
+        result = await self.prepare_message(channel_url, message)
+        if result["status"] != "confirm_required":
+            return result
+        return await self.send_prepared_message()

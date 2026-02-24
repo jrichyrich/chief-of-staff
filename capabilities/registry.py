@@ -257,7 +257,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
     },
     "post_teams_message": {
         "name": "post_teams_message",
-        "description": "Post a message to a Microsoft Teams channel via browser automation.",
+        "description": "Prepare a message for posting to a Microsoft Teams channel. Returns confirmation info — call confirm_teams_post to send.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -271,6 +271,22 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
             },
             "required": ["channel_url", "message"],
+        },
+    },
+    "confirm_teams_post": {
+        "name": "confirm_teams_post",
+        "description": "Send the previously prepared Teams message after user confirmation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    "cancel_teams_post": {
+        "name": "cancel_teams_post",
+        "description": "Cancel the previously prepared Teams message and close the browser.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
         },
     },
     "create_decision": {
@@ -733,7 +749,7 @@ CAPABILITY_DEFINITIONS: dict[str, CapabilityDefinition] = {
     "teams_write": CapabilityDefinition(
         name="teams_write",
         description="Post messages to Microsoft Teams channels via browser automation",
-        tool_names=("post_teams_message",),
+        tool_names=("post_teams_message", "confirm_teams_post", "cancel_teams_post"),
     ),
     "decision_read": CapabilityDefinition(
         name="decision_read",

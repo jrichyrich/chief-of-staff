@@ -9,23 +9,27 @@ import pytest
 import mcp_server  # noqa: F401 — triggers tool registrations
 
 # The module must be registered before importing the tool function.
-# Since mcp_server does NOT yet register teams_browser_tools (Task 5),
-# we call register() manually so the module-level function is available.
 from mcp_tools import teams_browser_tools
 from mcp_tools.state import ServerState
 
-# Manually register to expose post_teams_message at module level.
+# Manually register to expose tool functions at module level.
 teams_browser_tools.register(mcp_server.mcp, mcp_server._state)
-from mcp_tools.teams_browser_tools import post_teams_message
+from mcp_tools.teams_browser_tools import (
+    cancel_teams_post,
+    confirm_teams_post,
+    post_teams_message,
+)
 
 
 @pytest.mark.asyncio
 class TestPostTeamsMessage:
-    async def test_post_teams_message_success(self):
-        """Mock _get_poster so post_message returns a 'sent' result."""
+    async def test_post_teams_message_returns_confirm(self):
+        """post_teams_message calls prepare_message and returns confirm_required."""
         mock_poster = AsyncMock()
-        mock_poster.post_message.return_value = {
-            "status": "sent",
+        mock_poster.prepare_message.return_value = {
+            "status": "confirm_required",
+            "detected_channel": "General",
+            "message": "Hello from test",
             "channel_url": "https://teams.microsoft.com/l/channel/test",
         }
 
@@ -36,19 +40,20 @@ class TestPostTeamsMessage:
             )
 
         result = json.loads(raw)
-        assert result["status"] == "sent"
-        assert "teams.microsoft.com" in result["channel_url"]
-        mock_poster.post_message.assert_awaited_once_with(
+        assert result["status"] == "confirm_required"
+        assert result["detected_channel"] == "General"
+        assert result["message"] == "Hello from test"
+        mock_poster.prepare_message.assert_awaited_once_with(
             "https://teams.microsoft.com/l/channel/test",
             "Hello from test",
         )
 
     async def test_post_teams_message_auth_required(self):
-        """Mock _get_poster so post_message returns an 'auth_required' result."""
+        """Mock prepare_message returning 'auth_required'."""
         mock_poster = AsyncMock()
-        mock_poster.post_message.return_value = {
+        mock_poster.prepare_message.return_value = {
             "status": "auth_required",
-            "error": "Authentication timed out. Please re-run and complete login within the browser window.",
+            "error": "Authentication timed out.",
         }
 
         with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
@@ -62,11 +67,11 @@ class TestPostTeamsMessage:
         assert "error" in result
 
     async def test_post_teams_message_error(self):
-        """Mock _get_poster so post_message returns an error about compose box."""
+        """Mock prepare_message returning an error about compose box."""
         mock_poster = AsyncMock()
-        mock_poster.post_message.return_value = {
+        mock_poster.prepare_message.return_value = {
             "status": "error",
-            "error": "Could not find compose box. The Teams UI may have changed or the page did not load completely.",
+            "error": "Could not find compose box.",
         }
 
         with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
@@ -89,3 +94,66 @@ class TestPostTeamsMessage:
         result = json.loads(raw)
         assert result["status"] == "error"
         assert "teams.microsoft.com" in result["error"]
+
+
+@pytest.mark.asyncio
+class TestConfirmTeamsPost:
+    async def test_confirm_sends_message(self):
+        """confirm_teams_post calls send_prepared_message."""
+        mock_poster = AsyncMock()
+        mock_poster.send_prepared_message.return_value = {
+            "status": "sent",
+            "detected_channel": "General",
+            "message": "Hello",
+        }
+
+        with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+            raw = await confirm_teams_post()
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        mock_poster.send_prepared_message.assert_awaited_once()
+
+    async def test_confirm_without_prepare(self):
+        """confirm_teams_post without prepare returns error."""
+        mock_poster = AsyncMock()
+        mock_poster.send_prepared_message.return_value = {
+            "status": "error",
+            "error": "No pending message. Call prepare_message first.",
+        }
+
+        with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+            raw = await confirm_teams_post()
+
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "No pending message" in result["error"]
+
+
+@pytest.mark.asyncio
+class TestCancelTeamsPost:
+    async def test_cancel_returns_cancelled(self):
+        """cancel_teams_post calls cancel_prepared_message."""
+        mock_poster = AsyncMock()
+        mock_poster.cancel_prepared_message.return_value = {"status": "cancelled"}
+
+        with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+            raw = await cancel_teams_post()
+
+        result = json.loads(raw)
+        assert result["status"] == "cancelled"
+        mock_poster.cancel_prepared_message.assert_awaited_once()
+
+    async def test_cancel_without_prepare(self):
+        """cancel_teams_post without prepare returns error."""
+        mock_poster = AsyncMock()
+        mock_poster.cancel_prepared_message.return_value = {
+            "status": "error",
+            "error": "No pending message to cancel.",
+        }
+
+        with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+            raw = await cancel_teams_post()
+
+        result = json.loads(raw)
+        assert result["status"] == "error"
