@@ -3,16 +3,15 @@
 import json
 import sys
 
-from browser.teams_poster import PlaywrightTeamsPoster
-
 # Module-level poster instance (lazy, replaceable for tests)
 _poster = None
 
 
-def _get_poster() -> PlaywrightTeamsPoster:
+def _get_poster():
     """Get or create the poster singleton."""
     global _poster
     if _poster is None:
+        from browser.teams_poster import PlaywrightTeamsPoster
         _poster = PlaywrightTeamsPoster()
     return _poster
 

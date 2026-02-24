@@ -11,7 +11,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from playwright.async_api import async_playwright
+try:
+    from playwright.async_api import async_playwright
+except ImportError:
+    async_playwright = None
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +101,7 @@ class PlaywrightTeamsPoster:
         elapsed = 0
         interval_ms = 1_000
         while elapsed < AUTH_TIMEOUT_MS:
-            if not self._is_login_page(page.url):
+            if not self._is_login_page(page.url) and "teams.microsoft.com" in page.url:
                 return True
             await asyncio.sleep(interval_ms / 1_000)
             elapsed += interval_ms
@@ -129,6 +132,11 @@ class PlaywrightTeamsPoster:
         Returns a dict with ``"status"`` (``"sent"``, ``"auth_required"``,
         or ``"error"``) and optional ``"error"`` detail.
         """
+        if async_playwright is None:
+            return {
+                "status": "error",
+                "error": "playwright is not installed. Run: pip install playwright && playwright install chromium",
+            }
         browser = None
         pw = None
         try:
