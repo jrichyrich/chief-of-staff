@@ -337,7 +337,11 @@ class TestSendMessage:
         pw_mock = AsyncMock()
         browser_mock = MagicMock()
         ctx_mock = MagicMock()
-        page_mock = AsyncMock()
+        page_mock = _make_mock_page()
+        page_mock.title = AsyncMock(return_value="Jonas De Oliveira | Microsoft Teams")
+        # locator returns empty for channel detection (falls through to title)
+        empty_loc = _make_compose_locator(count=0)
+        page_mock.locator = MagicMock(return_value=empty_loc)
         ctx_mock.pages = [page_mock]
         browser_mock.contexts = [ctx_mock]
         manager.connect = AsyncMock(return_value=(pw_mock, browser_mock))

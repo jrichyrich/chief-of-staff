@@ -3,11 +3,16 @@
 Uses a persistent browser managed by TeamsBrowserManager and navigates
 to channels/people by name via TeamsNavigator.
 
-Two-phase posting flow:
+Two posting modes:
+
+**Two-phase** (with confirmation):
 1. ``prepare_message`` -- connects to running browser, navigates to
    target, detects active channel, returns confirmation info.
 2. ``send_prepared_message`` -- types the message and presses Enter.
 3. ``cancel_prepared_message`` -- disconnects without sending.
+
+**One-shot** (no confirmation):
+- ``send_message`` -- prepare + send in a single call.
 """
 
 import asyncio
@@ -24,11 +29,13 @@ logger = logging.getLogger(__name__)
 class PlaywrightTeamsPoster:
     """Post messages to Microsoft Teams via a persistent browser.
 
-    Two-phase flow:
+    Two-phase flow (with confirmation):
     1. :meth:`prepare_message` connects to the running browser,
        navigates to the target, and returns confirmation info.
     2. :meth:`send_prepared_message` types and sends the message.
     3. :meth:`cancel_prepared_message` disconnects without sending.
+
+    One-shot flow: :meth:`send_message` combines prepare + send.
     """
 
     def __init__(
@@ -177,51 +184,10 @@ class PlaywrightTeamsPoster:
         Combines :meth:`prepare_message` and :meth:`send_prepared_message`
         into a single call without requiring confirmation.
         """
-        if not self._manager.is_alive():
-            return {
-                "status": "error",
-                "error": "Browser is not running. Call open_teams_browser first.",
-            }
-
-        if self.has_pending_message:
-            await self._disconnect()
-
-        try:
-            self._pw, browser = await self._manager.connect()
-            ctx = browser.contexts[0]
-            self._page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-
-            nav_result = await self._navigator.search_and_navigate(self._page, target)
-            if nav_result["status"] != "navigated":
-                await self._disconnect()
-                return nav_result
-
-            compose = await self._find_compose_box(self._page)
-            if compose is None:
-                await self._disconnect()
-                return {
-                    "status": "error",
-                    "error": "Could not find compose box after navigation.",
-                }
-
-            detected = nav_result["detected_channel"]
-            await compose.click()
-            await compose.fill(message)
-            await self._page.keyboard.press("Enter")
-            await self._page.wait_for_timeout(1_000)
-
-            return {
-                "status": "sent",
-                "detected_channel": detected,
-                "message": message,
-            }
-
-        except Exception as exc:
-            logger.exception("Failed to send Teams message")
-            return {"status": "error", "error": str(exc)}
-
-        finally:
-            await self._disconnect()
+        result = await self.prepare_message(target, message)
+        if result["status"] != "confirm_required":
+            return result
+        return await self.send_prepared_message()
 
     async def cancel_prepared_message(self) -> dict:
         """Cancel a prepared message and disconnect without sending."""
