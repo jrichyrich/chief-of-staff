@@ -49,7 +49,7 @@ class TestSearchAndNavigate:
         channel_loc = _make_locator(count=1, texts=["Engineering"])
         empty_loc = _make_locator(count=0)
 
-        from browser.teams_poster import COMPOSE_SELECTORS, CHANNEL_NAME_SELECTORS
+        from browser.constants import COMPOSE_SELECTORS, CHANNEL_NAME_SELECTORS
 
         def locator_effect(selector):
             if selector in SEARCH_SELECTORS:
@@ -113,7 +113,7 @@ class TestSearchAndNavigate:
         result_loc = _make_locator(count=1)
         empty_loc = _make_locator(count=0)
 
-        from browser.teams_poster import COMPOSE_SELECTORS
+        from browser.constants import COMPOSE_SELECTORS
 
         def locator_effect(selector):
             if selector in SEARCH_SELECTORS:
@@ -170,7 +170,7 @@ class TestDetectChannelName:
         channel_loc = _make_locator(count=1, texts=["General"])
         empty_loc = _make_locator(count=0)
 
-        from browser.teams_poster import CHANNEL_NAME_SELECTORS
+        from browser.constants import CHANNEL_NAME_SELECTORS
 
         def locator_effect(selector):
             if selector in CHANNEL_NAME_SELECTORS:

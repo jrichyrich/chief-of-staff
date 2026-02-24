@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from browser.teams_poster import (
+from browser.constants import (
     COMPOSE_SELECTORS,
     CHANNEL_NAME_SELECTORS,
     POST_TIMEOUT_MS,
