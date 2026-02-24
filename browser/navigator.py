@@ -88,6 +88,23 @@ class TeamsNavigator:
                 continue
         return None
 
+    @staticmethod
+    def _name_fallbacks(target: str) -> list[str]:
+        """Generate shorter name variants for search fallback.
+
+        For "Jonas de Oliveira" returns ["Jonas Oliveira", "Jonas"].
+        For "Jonas Oliveira" returns ["Jonas"].
+        For "Jonas" returns [].
+        """
+        words = target.split()
+        if len(words) <= 1:
+            return []
+        fallbacks = []
+        if len(words) > 2:
+            fallbacks.append(f"{words[0]} {words[-1]}")
+        fallbacks.append(words[0])
+        return fallbacks
+
     async def search_and_navigate(self, page, target: str) -> dict:
         """Search for *target* in Teams and navigate to it.
 
@@ -112,17 +129,35 @@ class TeamsNavigator:
                     "error": "Could not find Teams search bar. Is Teams loaded?",
                 }
 
-        # Click search bar and type the target name
+        # Click search bar
         await search_bar.click()
         await asyncio.sleep(0.5)
-        await page.keyboard.press("Meta+a")  # Select all existing text
-        await page.keyboard.type(target, delay=50)
-        await asyncio.sleep(2)  # Wait for search results to populate
 
-        # Find search results (TOPHITS only — skip category filters)
-        result_items = await self._find_element(
-            page, (SEARCH_RESULT_SELECTOR,), timeout_ms=10_000
-        )
+        queries = [target] + self._name_fallbacks(target)
+        result_items = None
+        match = None
+
+        for query in queries:
+            await page.keyboard.press("Meta+a")  # Select all existing text
+            await page.keyboard.type(query, delay=50)
+            await asyncio.sleep(2)  # Wait for search results
+
+            # Find search results (TOPHITS only)
+            result_items = await self._find_element(
+                page, (SEARCH_RESULT_SELECTOR,), timeout_ms=10_000
+            )
+            if result_items is None:
+                logger.info("No results for '%s', trying next fallback", query)
+                continue
+
+            # Match against the ORIGINAL full target name
+            match = await self._find_matching_result(result_items, target)
+            if match is not None:
+                break
+            # If TOPHITS exist but none match the full name, still use them
+            logger.info("Results found for '%s' but no text match for '%s'", query, target)
+            break
+
         if result_items is None:
             await page.keyboard.press("Escape")
             return {
@@ -130,10 +165,7 @@ class TeamsNavigator:
                 "error": f"No search results found for '{target}'.",
             }
 
-        # Find the result whose text best matches the target
-        match = await self._find_matching_result(result_items, target)
         if match is None:
-            # Fall back to clicking the first TOPHITS result
             logger.info("No exact match for '%s', clicking first result", target)
             match = result_items.first
 

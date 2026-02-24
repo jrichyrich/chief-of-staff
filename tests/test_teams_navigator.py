@@ -133,6 +133,52 @@ class TestSearchAndNavigate:
         assert result["status"] == "navigated"
         page.reload.assert_awaited_once()
 
+    async def test_search_falls_back_to_shorter_query(self):
+        """Falls back to first name when full name returns no results."""
+        page = AsyncMock()
+        search_loc = _make_locator(count=1)
+        empty_loc = _make_locator(count=0)
+        result_loc = _make_locator(count=1, texts=["Jonas De Oliveira | DIR II"])
+        compose_loc = _make_locator(count=1)
+        channel_loc = _make_locator(count=1, texts=["Jonas De Oliveira"])
+
+        from browser.constants import COMPOSE_SELECTORS, CHANNEL_NAME_SELECTORS
+
+        search_queries_typed = []
+        active_query = {"value": None}
+
+        def locator_effect(selector):
+            if selector in SEARCH_SELECTORS:
+                return search_loc
+            if selector == SEARCH_RESULT_SELECTOR:
+                # Only return results for single-word queries
+                if active_query["value"] and len(active_query["value"].split()) == 1:
+                    return result_loc
+                return empty_loc
+            if selector in COMPOSE_SELECTORS:
+                return compose_loc
+            if selector in CHANNEL_NAME_SELECTORS:
+                return channel_loc
+            return empty_loc
+
+        async def fake_keyboard_type(text, delay=0):
+            active_query["value"] = text
+            search_queries_typed.append(text)
+
+        page.locator = MagicMock(side_effect=locator_effect)
+        page.keyboard = AsyncMock()
+        page.keyboard.type = AsyncMock(side_effect=fake_keyboard_type)
+        page.keyboard.press = AsyncMock()
+        page.reload = AsyncMock()
+        page.title = AsyncMock(return_value="Jonas De Oliveira | Microsoft Teams")
+
+        nav = TeamsNavigator()
+        result = await nav.search_and_navigate(page, "Jonas de Oliveira")
+
+        assert result["status"] == "navigated"
+        assert len(search_queries_typed) > 1
+        assert "Jonas" in search_queries_typed
+
     async def test_search_no_search_bar(self):
         """Error when search bar not found."""
         page = AsyncMock()
@@ -289,3 +335,19 @@ class TestDetectChannelName:
 
         result = await TeamsNavigator._detect_channel_name(page)
         assert result == "(unknown)"
+
+
+class TestNameFallbacks:
+    def test_single_word_no_fallbacks(self):
+        assert TeamsNavigator._name_fallbacks("Jonas") == []
+
+    def test_two_word_name(self):
+        assert TeamsNavigator._name_fallbacks("Jonas Oliveira") == ["Jonas"]
+
+    def test_three_word_name(self):
+        result = TeamsNavigator._name_fallbacks("Jonas de Oliveira")
+        assert result == ["Jonas Oliveira", "Jonas"]
+
+    def test_four_word_name(self):
+        result = TeamsNavigator._name_fallbacks("Mary Jane Watson Parker")
+        assert result == ["Mary Parker", "Mary"]
