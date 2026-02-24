@@ -20,15 +20,11 @@ SEARCH_SELECTORS = (
     '[data-tid="app-search-input"]',
 )
 
-# Selector for search result items in the dropdown.
-# Confirmed via scripts/teams_search_results_explore.py
-SEARCH_RESULT_SELECTORS = (
-    'div[role="option"]',
-    '[data-tid*="entity"]',
-    'li[role="option"]',
-    '[data-tid="search-result"]',
-    '[data-tid*="suggestion"]',
-)
+# Selector for actual search result items (TOPHITS), not category filters.
+# The dropdown has PRIMARYDOMAIN* items (filter shortcuts like "Messages",
+# "Files") and TOPHITS* items (actual people/channel results).
+# Confirmed via live DOM exploration 2026-02-23.
+SEARCH_RESULT_SELECTOR = 'div[role="option"][data-tid*="TOPHITS"]'
 
 
 class TeamsNavigator:
@@ -75,6 +71,23 @@ class TeamsNavigator:
 
         return "(unknown)"
 
+    @staticmethod
+    async def _find_matching_result(locator, target: str):
+        """Find the search result whose text contains *target*.
+
+        Returns the matching element locator, or ``None`` if no match.
+        """
+        target_lower = target.lower()
+        count = await locator.count()
+        for i in range(count):
+            try:
+                text = await locator.nth(i).inner_text()
+                if target_lower in text.lower():
+                    return locator.nth(i)
+            except Exception:
+                continue
+        return None
+
     async def search_and_navigate(self, page, target: str) -> dict:
         """Search for *target* in Teams and navigate to it.
 
@@ -97,18 +110,25 @@ class TeamsNavigator:
         await page.keyboard.type(target, delay=50)
         await asyncio.sleep(2)  # Wait for search results to populate
 
-        # Find and click the first search result
-        result_item = await self._find_element(
-            page, SEARCH_RESULT_SELECTORS, timeout_ms=10_000
+        # Find search results (TOPHITS only — skip category filters)
+        result_items = await self._find_element(
+            page, (SEARCH_RESULT_SELECTOR,), timeout_ms=10_000
         )
-        if result_item is None:
+        if result_items is None:
             await page.keyboard.press("Escape")
             return {
                 "status": "error",
                 "error": f"No search results found for '{target}'.",
             }
 
-        await result_item.first.click()
+        # Find the result whose text best matches the target
+        match = await self._find_matching_result(result_items, target)
+        if match is None:
+            # Fall back to clicking the first TOPHITS result
+            logger.info("No exact match for '%s', clicking first result", target)
+            match = result_items.first
+
+        await match.click()
         await asyncio.sleep(2)  # Wait for navigation
 
         # Wait for compose box to confirm we're in a conversation
