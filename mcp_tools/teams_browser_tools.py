@@ -8,7 +8,6 @@ Five tools:
 5. ``close_teams_browser`` — kill the browser process
 """
 
-import asyncio
 import json
 import logging
 import sys
@@ -44,7 +43,7 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> bool:
 
         if "teams" not in page.url.lower():
             await page.goto("https://teams.cloud.microsoft/",
-                            wait_until="domcontentloaded", timeout=30_000)
+                            wait_until="domcontentloaded", timeout=timeout_s * 1_000)
 
         await pw.stop()
         return True
@@ -71,7 +70,9 @@ def register(mcp, state):
         result = mgr.launch()
 
         if result["status"] in ("launched", "already_running"):
-            await _wait_for_teams(mgr)
+            navigated = await _wait_for_teams(mgr)
+            if not navigated:
+                logger.warning("Browser launched but initial Teams navigation failed")
             result["status"] = "running"
 
         return json.dumps(result)
