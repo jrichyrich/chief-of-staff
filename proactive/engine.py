@@ -15,10 +15,11 @@ PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 class ProactiveSuggestionEngine:
-    def __init__(self, memory_store: MemoryStore, session_health=None, session_manager=None):
+    def __init__(self, memory_store: MemoryStore, session_health=None, session_manager=None, session_brain=None):
         self.memory_store = memory_store
         self.session_health = session_health
         self.session_manager = session_manager
+        self.session_brain = session_brain
 
     def generate_suggestions(self) -> list[Suggestion]:
         suggestions: list[Suggestion] = []
@@ -30,6 +31,7 @@ class ProactiveSuggestionEngine:
         suggestions.extend(self._check_session_checkpoint_needed())
         suggestions.extend(self._check_session_token_limit())
         suggestions.extend(self._check_session_unflushed_items())
+        suggestions.extend(self._check_session_brain_items())
         # Sort by priority: high first, then medium, then low
         suggestions.sort(key=lambda s: PRIORITY_ORDER.get(s.priority, 3))
         return suggestions
@@ -184,6 +186,33 @@ class ProactiveSuggestionEngine:
             ),
             action="flush_session_memory",
         )]
+
+    def _check_session_brain_items(self) -> list[Suggestion]:
+        """Surface open action items and active workstreams from Session Brain."""
+        if self.session_brain is None:
+            return []
+        results = []
+        open_items = [a for a in self.session_brain.action_items if not a.get("done")]
+        if open_items:
+            item_list = ", ".join(a["text"][:50] for a in open_items[:5])
+            results.append(Suggestion(
+                category="session",
+                priority="medium",
+                title=f"{len(open_items)} open action item(s) from previous sessions",
+                description=f"Items: {item_list}",
+                action="get_session_brain",
+            ))
+        active_ws = [w for w in self.session_brain.workstreams if w.get("status") not in ("completed", "cancelled")]
+        if active_ws:
+            ws_list = ", ".join(w["name"] for w in active_ws[:5])
+            results.append(Suggestion(
+                category="session",
+                priority="low",
+                title=f"{len(active_ws)} active workstream(s)",
+                description=f"Workstreams: {ws_list}",
+                action="get_session_brain",
+            ))
+        return results
 
     def push_suggestions(
         self,

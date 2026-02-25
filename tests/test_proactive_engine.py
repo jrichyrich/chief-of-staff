@@ -8,6 +8,7 @@ from memory.models import Decision, Delegation, SkillSuggestion, WebhookEvent
 from memory.store import MemoryStore
 from mcp_tools.state import SessionHealth
 from proactive.engine import ProactiveSuggestionEngine
+from session.brain import SessionBrain
 
 
 @pytest.fixture
@@ -279,3 +280,46 @@ class TestCheckSessionCheckpointNeeded:
         suggestions = engine.generate_suggestions()
         checkpoint_suggestions = [s for s in suggestions if s.category == "checkpoint"]
         assert len(checkpoint_suggestions) == 1
+
+
+class TestSessionBrainChecks:
+    def test_no_brain_returns_empty(self, memory_store):
+        engine = ProactiveSuggestionEngine(memory_store, session_brain=None)
+        suggestions = engine._check_session_brain_items()
+        assert suggestions == []
+
+    def test_open_action_items_suggestion(self, memory_store, tmp_path):
+        brain = SessionBrain(tmp_path / "brain.md")
+        brain.add_action_item("File IC3 report", source="email")
+        brain.add_action_item("Review PR", source="session")
+        engine = ProactiveSuggestionEngine(memory_store, session_brain=brain)
+        suggestions = engine._check_session_brain_items()
+        found = [s for s in suggestions if "action item" in s.title.lower()]
+        assert len(found) == 1
+        assert "2" in found[0].title
+
+    def test_completed_items_not_surfaced(self, memory_store, tmp_path):
+        brain = SessionBrain(tmp_path / "brain.md")
+        brain.add_action_item("Done task")
+        brain.complete_action_item("Done task")
+        engine = ProactiveSuggestionEngine(memory_store, session_brain=brain)
+        suggestions = engine._check_session_brain_items()
+        action_suggestions = [s for s in suggestions if "action item" in s.title.lower()]
+        assert len(action_suggestions) == 0
+
+    def test_active_workstreams_suggestion(self, memory_store, tmp_path):
+        brain = SessionBrain(tmp_path / "brain.md")
+        brain.add_workstream("Project X", "active", "Phase 1")
+        brain.add_workstream("Project Y", "completed", "Done")
+        engine = ProactiveSuggestionEngine(memory_store, session_brain=brain)
+        suggestions = engine._check_session_brain_items()
+        ws_suggestions = [s for s in suggestions if "workstream" in s.title.lower()]
+        assert len(ws_suggestions) == 1
+        assert "1" in ws_suggestions[0].title  # only 1 active
+
+    def test_brain_items_in_generate_suggestions(self, memory_store, tmp_path):
+        brain = SessionBrain(tmp_path / "brain.md")
+        brain.add_action_item("Test item")
+        engine = ProactiveSuggestionEngine(memory_store, session_brain=brain)
+        suggestions = engine.generate_suggestions()
+        assert any("action item" in s.title.lower() for s in suggestions)
