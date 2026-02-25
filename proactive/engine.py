@@ -243,6 +243,36 @@ class ProactiveSuggestionEngine:
                 logger.debug("Push notification for %s: %s", s.title, result)
         return results
 
+    def push_via_channel(
+        self,
+        suggestions: list[Suggestion],
+        channel: str,
+        config: dict,
+        push_threshold: str = "high",
+    ) -> list[dict]:
+        """Push suggestions via a delivery channel (email, imessage, teams, notification).
+
+        Args:
+            suggestions: List of Suggestion objects to potentially push.
+            channel: Delivery channel name.
+            config: Channel-specific config (e.g. {"to": ["email@example.com"]}).
+            push_threshold: Minimum priority to push.
+
+        Returns:
+            List of delivery result dicts for pushed suggestions.
+        """
+        from scheduler.delivery import deliver_result
+
+        threshold_val = PRIORITY_ORDER.get(push_threshold, 0)
+        results = []
+        for s in suggestions:
+            if PRIORITY_ORDER.get(s.priority, 3) <= threshold_val:
+                text = f"[{s.category.upper()}] {s.title}\n{s.description}"
+                result = deliver_result(channel, config, text, task_name=f"proactive_{s.category}")
+                results.append(result)
+                logger.debug("Pushed %s via %s: %s", s.title, channel, result)
+        return results
+
     def check_all(self, push_enabled: bool = False, push_threshold: str = "high") -> dict:
         """Generate suggestions and optionally push notifications.
 

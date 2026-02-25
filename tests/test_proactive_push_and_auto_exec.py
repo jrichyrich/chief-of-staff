@@ -370,3 +370,86 @@ class TestConfigFlags:
         assert result["status"] == "ok"
         assert result["agents_created"] == 1
         assert "test_agent" in result["agent_names"]
+
+
+# --- Part 3: Push via delivery channels ---
+
+
+class TestPushViaDeliveryChannels:
+    @patch("scheduler.delivery.deliver_result")
+    def test_push_via_email(self, mock_deliver, memory_store):
+        mock_deliver.return_value = {"status": "delivered"}
+        engine = ProactiveSuggestionEngine(memory_store)
+        suggestions = [Suggestion(
+            category="delegation",
+            priority="high",
+            title="Overdue task",
+            description="Task X is 3 days overdue",
+            action="check_overdue_delegations",
+        )]
+        results = engine.push_via_channel(
+            suggestions, channel="email",
+            config={"to": ["jason@test.com"]},
+        )
+        assert len(results) == 1
+        mock_deliver.assert_called_once()
+
+    @patch("scheduler.delivery.deliver_result")
+    def test_push_filters_by_threshold(self, mock_deliver, memory_store):
+        mock_deliver.return_value = {"status": "delivered"}
+        engine = ProactiveSuggestionEngine(memory_store)
+        suggestions = [
+            Suggestion(category="delegation", priority="high",
+                       title="High", description="", action=""),
+            Suggestion(category="skill", priority="low",
+                       title="Low", description="", action=""),
+        ]
+        results = engine.push_via_channel(
+            suggestions, channel="email",
+            config={"to": ["jason@test.com"]},
+            push_threshold="high",
+        )
+        assert len(results) == 1
+
+    @patch("scheduler.delivery.deliver_result")
+    def test_push_medium_threshold_includes_medium(self, mock_deliver, memory_store):
+        mock_deliver.return_value = {"status": "delivered"}
+        engine = ProactiveSuggestionEngine(memory_store)
+        suggestions = [
+            Suggestion(category="delegation", priority="high",
+                       title="High", description="", action=""),
+            Suggestion(category="decision", priority="medium",
+                       title="Medium", description="", action=""),
+            Suggestion(category="skill", priority="low",
+                       title="Low", description="", action=""),
+        ]
+        results = engine.push_via_channel(
+            suggestions, channel="imessage",
+            config={"recipient": "+18015551234"},
+            push_threshold="medium",
+        )
+        assert len(results) == 2
+
+    @patch("scheduler.delivery.deliver_result")
+    def test_push_empty_suggestions(self, mock_deliver, memory_store):
+        engine = ProactiveSuggestionEngine(memory_store)
+        results = engine.push_via_channel([], channel="email", config={})
+        assert results == []
+        mock_deliver.assert_not_called()
+
+    @patch("scheduler.delivery.deliver_result")
+    def test_push_formats_text(self, mock_deliver, memory_store):
+        mock_deliver.return_value = {"status": "delivered"}
+        engine = ProactiveSuggestionEngine(memory_store)
+        suggestions = [Suggestion(
+            category="delegation",
+            priority="high",
+            title="Overdue task",
+            description="3 days overdue",
+            action="check",
+        )]
+        engine.push_via_channel(suggestions, channel="email", config={"to": ["test@test.com"]})
+        call_args = mock_deliver.call_args
+        text = call_args[0][2]  # third positional arg is result_text
+        assert "[DELEGATION]" in text
+        assert "Overdue task" in text
