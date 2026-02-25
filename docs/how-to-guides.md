@@ -18,6 +18,8 @@ Practical guides for getting things done with Jarvis (Chief of Staff) through Cl
 10. [Creating Custom Agents](#10-creating-custom-agents)
 11. [Document Ingestion and Search](#11-document-ingestion-and-search)
 12. [Setting Up Alert Rules](#12-setting-up-alert-rules)
+13. [Using Session Brain for Cross-Session Context](#13-using-session-brain-for-cross-session-context)
+14. [Running Team Playbooks](#14-running-team-playbooks)
 
 ---
 
@@ -808,6 +810,231 @@ Then create a scheduled task called "morning_alert_run" that runs alert_eval eve
 ```
 
 This gives you automatic, proactive surfacing of things that need attention without having to ask.
+
+---
+
+## 13. Using Session Brain for Cross-Session Context
+
+### What it does
+
+The Session Brain is a persistent markdown file (`data/session_brain.md`) that carries structured context across Claude Code sessions. Unlike memory facts (which store isolated key-value pairs), the brain maintains a living document with active workstreams, open action items, recent decisions, key people context, and handoff notes. When a new session starts, the brain loads automatically so you pick up right where you left off.
+
+### Brain sections
+
+| Section | Purpose |
+|---------|---------|
+| Active Workstreams | Projects or threads you are actively working on, with status and context |
+| Open Action Items | Tasks tracked as a checklist with source attribution and dates |
+| Recent Decisions | Decisions made during sessions, dated for reference |
+| Key People Context | Notes about people relevant to current work |
+| Session Handoff Notes | Free-form notes for your future self about what to do next |
+
+### Tools involved
+
+| Tool | Purpose |
+|------|---------|
+| `get_session_brain` | Read the full brain state (all five sections) |
+| `update_session_brain` | Modify the brain with a specific action |
+
+### Viewing the brain
+
+```
+Jarvis, show me the Session Brain.
+```
+
+```
+Jarvis, what workstreams and action items are open right now?
+```
+
+This calls `get_session_brain` and returns all sections with their current content.
+
+### Adding workstreams
+
+```
+Jarvis, add a workstream to the brain: "OAuth Migration" with status "in-progress" and context "Migrating auth service from SAML to OAuth 2.0, targeting March 15 launch."
+```
+
+This calls `update_session_brain` with `action="add_workstream"`. If a workstream with the same name already exists, it updates the status and context instead of creating a duplicate.
+
+### Tracking action items
+
+**Adding:**
+```
+Jarvis, add an action item to the brain: "Review Sarah's PR for the calendar connector."
+```
+
+**Completing:**
+```
+Jarvis, mark the action item "Review Sarah's PR for the calendar connector" as complete in the brain.
+```
+
+Action items are stored as checkbox items with metadata (source, date added). The `complete_action_item` action marks the first matching item as done.
+
+### Recording decisions and people context
+
+**Decisions:**
+```
+Jarvis, add a decision to the brain: "Decided to use ChromaDB over Pinecone for the vector store."
+```
+
+Decisions are automatically dated with today's date.
+
+**People context:**
+```
+Jarvis, add to the brain that Kelly is the new VP of Engineering and prefers async updates over meetings.
+```
+
+People entries are upserted by name, so updating someone's context replaces the previous entry.
+
+### Handoff notes
+
+```
+Jarvis, add a handoff note: "Left off debugging the M365 bridge timeout issue. Check the logs in data/m365-bridge.log. Next step is to increase M365_BRIDGE_TIMEOUT_SECONDS and retest."
+```
+
+Handoff notes are free-form and deduplicated. They are the best place to leave yourself a note about exactly where you stopped.
+
+### Automatic updates during session flush
+
+When you call `flush_session_memory` (via the session tools), the session manager automatically extracts decisions and action items from the session and writes them to the brain. You do not need to manually add every item. The flush process:
+
+1. Extracts structured data from the session (decisions, action items)
+2. Calls `brain.add_decision()` for each decision found
+3. Calls `brain.add_action_item()` for each action item (with source "session_flush")
+4. Saves the brain file
+
+### Example workflow
+
+1. **Start a session** -- Jarvis loads the brain automatically
+   ```
+   Jarvis, show me the Session Brain so I know where we left off.
+   ```
+2. **Work through tasks** -- update the brain as you go
+   ```
+   Jarvis, mark "Draft the architecture RFC" as complete. Add a new action item: "Get sign-off from platform team on RFC."
+   ```
+3. **End the session** -- flush captures remaining context
+   ```
+   Jarvis, flush the session memory.
+   ```
+4. **Next session** -- the brain has everything
+   ```
+   Jarvis, what's in the brain? What was I working on last time?
+   ```
+
+The brain file is plain markdown, so you can also read or edit it directly at `data/session_brain.md` if you prefer.
+
+---
+
+## 14. Running Team Playbooks
+
+### What it does
+
+Team Playbooks are YAML-defined templates for parallel workstreams. Instead of manually asking Jarvis to query five different sources one at a time, a playbook fans out all workstreams simultaneously using the Task tool, then synthesizes the results into a single deliverable. Think of them as reusable recipes for common multi-source workflows.
+
+### Tools involved
+
+| Tool | Purpose |
+|------|---------|
+| `list_playbooks` | List all available playbooks with descriptions |
+| `get_playbook` | View a playbook's inputs, workstreams, synthesis, and delivery options |
+
+### Listing available playbooks
+
+```
+Jarvis, list all available playbooks.
+```
+
+```
+Jarvis, what playbooks do I have?
+```
+
+### Viewing playbook details
+
+```
+Jarvis, show me the meeting_prep playbook.
+```
+
+This returns the playbook's description, required inputs, workstream definitions, synthesis prompt, and delivery options.
+
+### Built-in playbooks
+
+| Playbook | When to use | Inputs |
+|----------|-------------|--------|
+| `meeting_prep` | Before an important meeting. Pulls email threads, documents, decision history, and calendar context for attendees. | `meeting_subject`, `meeting_time`, `attendees` |
+| `expert_research` | Deep-dive on any topic. Queries memory, documents, email, calendar, and identity data in parallel. Optionally includes web research. | `topic`, `context`, `depth` |
+| `software_dev_team` | Before implementing code changes. Runs architecture analysis, code review, test analysis, dependency scanning, and docs checking in parallel. | `task`, `scope` |
+| `daily_briefing` | Automated morning briefing. Queries calendar, email, Teams, iMessages, memory, and reminders all at once. | `briefing_date`, `email_recipient` |
+
+### How playbooks work
+
+1. **Inputs** -- You provide values for the playbook's declared inputs (e.g., `meeting_subject`, `attendees`). These get substituted into workstream prompts wherever `$variable_name` appears.
+2. **Workstreams** -- Each workstream runs in parallel via the Task tool. Every workstream has a name and a prompt that may reference input variables. Some workstreams have a `condition` field (e.g., `depth == thorough`) that determines whether they run.
+3. **Synthesis** -- After all workstreams complete, their results are combined using the synthesis prompt. This prompt defines the structure and format of the final output.
+4. **Delivery** -- Each playbook has a default delivery method (`inline`, `email`, `teams`, or `confluence`) and a list of alternative options.
+
+### Running a playbook
+
+```
+Jarvis, run the meeting_prep playbook:
+- meeting_subject: "Q1 Platform Review"
+- meeting_time: "2026-02-25 at 2pm"
+- attendees: "Kelly Johnson, Brad Smith, Sarah Chen"
+```
+
+```
+Jarvis, run expert_research on topic "vendor contract renewal" with context "Our SaaS vendor contract expires in April, need to decide whether to renew or switch" and depth "thorough".
+```
+
+```
+Jarvis, run the software_dev_team playbook for task "Add webhook retry logic" with scope "webhook/ and scheduler/".
+```
+
+```
+Jarvis, run the daily_briefing playbook for today.
+```
+
+### Creating custom playbooks
+
+Playbooks are YAML files in the `playbooks/` directory. To create a custom playbook, add a new `.yaml` file following this format:
+
+```yaml
+name: my_playbook
+description: Brief description of what this playbook does
+inputs:
+  - input_one
+  - input_two
+workstreams:
+  - name: workstream_a
+    prompt: |
+      Instructions for this workstream.
+      Use $input_one and $input_two to reference inputs.
+  - name: workstream_b
+    condition: "input_two == detailed"
+    prompt: |
+      This workstream only runs when the condition is met.
+      Analyze $input_one in detail.
+synthesis:
+  prompt: |
+    Combine all workstream results into a structured output:
+    1. Section one
+    2. Section two
+    Context: $input_one
+delivery:
+  default: inline
+  options:
+    - email
+    - teams
+```
+
+Key points about the YAML format:
+
+- **inputs**: List of variable names. Users provide values when running the playbook. Variables are referenced as `$variable_name` in prompts.
+- **workstreams**: Each needs a `name` and `prompt`. The optional `condition` field is a simple expression evaluated against the inputs to decide whether the workstream runs.
+- **synthesis**: The `prompt` field defines how results are combined. Reference inputs here too.
+- **delivery**: `default` is the delivery method used unless overridden. `options` lists all supported methods.
+
+Place the file in the `playbooks/` directory (configurable via `PLAYBOOKS_DIR`) and it will appear in `list_playbooks` immediately.
 
 ---
 

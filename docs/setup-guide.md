@@ -69,6 +69,8 @@ All settings are read from environment variables. The `.env.example` file docume
 | `SCHEDULER_ENABLED` | No | `true` | Enable built-in task scheduler |
 | `SKILL_SUGGESTION_THRESHOLD` | No | `0.7` | Minimum confidence for skill auto-suggestions |
 | `SKILL_MIN_OCCURRENCES` | No | `5` | Minimum usage count before suggesting a skill |
+| `SESSION_BRAIN_PATH` | No | `$JARVIS_DATA_DIR/session_brain.md` | Path to the Session Brain markdown file |
+| `PLAYBOOKS_DIR` | No | `$JARVIS_PROJECT_DIR/playbooks` | Directory containing playbook YAML definitions |
 
 The inbox monitor and iMessage daemon have additional env vars documented in [docs/inbox-monitor-setup.md](inbox-monitor-setup.md).
 
@@ -264,7 +266,7 @@ If Teams shows a login page when trying to post:
 pytest
 ```
 
-All tests should pass (1582 expected). Tests mock all external APIs -- no Anthropic key or macOS permissions needed.
+All tests should pass (1723 expected). Tests mock all external APIs -- no Anthropic key or macOS permissions needed.
 
 ### Start the MCP server
 
