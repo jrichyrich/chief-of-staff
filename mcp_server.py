@@ -117,14 +117,14 @@ async def app_lifespan(server: FastMCP):
     _state.okr_store = okr_store
     _state.hook_registry = hook_registry
 
-    # Initialize session manager
-    from session.manager import SessionManager
-    _state.session_manager = SessionManager(memory_store)
-
     # Initialize session brain
     from session.brain import SessionBrain
     _state.session_brain = SessionBrain(app_config.SESSION_BRAIN_PATH)
     _state.session_brain.load()
+
+    # Initialize session manager (with brain for cross-session persistence)
+    from session.manager import SessionManager
+    _state.session_manager = SessionManager(memory_store, session_brain=_state.session_brain)
 
     # Seed default scheduled tasks if they don't already exist
     _default_tasks = [
@@ -219,6 +219,7 @@ from mcp_tools import (
     enrichment,
     teams_browser_tools,
     brain_tools,
+    routing_tools,
 )
 
 # Register all tool groups
@@ -243,6 +244,7 @@ resources.register(mcp, _state)
 enrichment.register(mcp, _state)
 teams_browser_tools.register(mcp, _state)
 brain_tools.register(mcp, _state)
+routing_tools.register(mcp, _state)
 
 
 # --- Entry point ---
