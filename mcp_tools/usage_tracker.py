@@ -63,7 +63,15 @@ def _extract_query_pattern(tool_name: str, arguments: dict | None) -> str:
 
 
 def install_usage_tracker(mcp, state):
-    """Wrap mcp.call_tool to automatically record tool usage.
+    """Wrap the ToolManager's call_tool to automatically record tool usage.
+
+    Wraps ``mcp._tool_manager.call_tool`` rather than ``mcp.call_tool``
+    because FastMCP registers its ``call_tool`` bound method with the
+    low-level MCP server during ``__init__``.  That reference is captured
+    in a closure and never updated, so replacing the instance attribute on
+    the FastMCP object is invisible to the stdio transport.  By wrapping
+    one level deeper (the ToolManager), every code path — including the
+    low-level handler — flows through the tracker.
 
     Idempotent — calling multiple times does not double-wrap.
 
@@ -71,13 +79,14 @@ def install_usage_tracker(mcp, state):
         mcp: The FastMCP server instance.
         state: ServerState with memory_store for recording.
     """
-    if getattr(mcp.call_tool, "_usage_tracked", False):
+    tool_mgr = mcp._tool_manager
+    if getattr(tool_mgr.call_tool, "_usage_tracked", False):
         return
 
-    original_call_tool = mcp.call_tool
+    original_call_tool = tool_mgr.call_tool  # bound method
 
     @functools.wraps(original_call_tool)
-    async def tracked_call_tool(name, arguments):
+    async def tracked_call_tool(name, arguments, **kwargs):
         if name not in _EXCLUDED_TOOLS:
             pattern = _extract_query_pattern(name, arguments)
 
@@ -93,7 +102,7 @@ def install_usage_tracker(mcp, state):
             start = time.monotonic()
             success = True
             try:
-                result = await original_call_tool(name, arguments)
+                result = await original_call_tool(name, arguments, **kwargs)
                 return result
             except Exception:
                 success = False
@@ -112,7 +121,7 @@ def install_usage_tracker(mcp, state):
                 except Exception:
                     logger.debug("Failed to log invocation for %s", name, exc_info=True)
         else:
-            return await original_call_tool(name, arguments)
+            return await original_call_tool(name, arguments, **kwargs)
 
     tracked_call_tool._usage_tracked = True
-    mcp.call_tool = tracked_call_tool
+    tool_mgr.call_tool = tracked_call_tool

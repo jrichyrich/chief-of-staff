@@ -33,10 +33,10 @@ class TestUsageTracker:
     """Tests for the install_usage_tracker middleware."""
 
     def test_tracker_is_installed(self):
-        """mcp.call_tool should be wrapped after mcp_server import."""
+        """ToolManager.call_tool should be wrapped after mcp_server import."""
         import mcp_server
 
-        assert getattr(mcp_server.mcp.call_tool, "_usage_tracked", False)
+        assert getattr(mcp_server.mcp._tool_manager.call_tool, "_usage_tracked", False)
 
     @pytest.mark.asyncio
     async def test_tool_call_is_recorded(self, tracked_mcp, memory_store):
@@ -186,9 +186,9 @@ class TestUsageTracker:
         import mcp_server
         from mcp_tools.usage_tracker import install_usage_tracker
 
-        wrapper = mcp_server.mcp.call_tool
+        wrapper = mcp_server.mcp._tool_manager.call_tool
         install_usage_tracker(mcp_server.mcp, mcp_server._state)
-        assert mcp_server.mcp.call_tool is wrapper
+        assert mcp_server.mcp._tool_manager.call_tool is wrapper
 
 
 class TestExtractQueryPattern:
