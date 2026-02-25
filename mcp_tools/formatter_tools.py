@@ -1,4 +1,12 @@
-"""MCP tool wrappers for the formatter module."""
+"""MCP tool wrappers for the formatter module.
+
+These tools are intended for **delivery channels** (scheduled tasks, email,
+iMessage, macOS notifications) where the consumer is a human reading rendered
+output.  In interactive Claude Code sessions the formatter adds ~2x token
+overhead for no visual benefit — ANSI codes are not interpreted and box-drawing
+art must be re-parsed by the model.  For Claude Code, skip these tools and
+present raw structured data with markdown commentary instead.
+"""
 
 import json
 import logging
@@ -43,8 +51,26 @@ def register(mcp, state):
     async def format_brief(data: str, mode: str = "terminal") -> str:
         """Render a daily brief from structured JSON data.
 
+        **Intended for delivery channels** (email, iMessage, notification).
+        In interactive Claude Code sessions, skip this tool — present the raw
+        data as markdown instead to save ~50% tokens.
+
+        Plain strings are accepted wherever dicts are expected — they will be
+        coerced automatically (e.g. "Fix bug" becomes {"text": "Fix bug", "priority": "medium"}).
+
         Args:
-            data: JSON object with keys: date, calendar, action_items, conflicts, email_highlights, personal, delegations, decisions
+            data: JSON object with these keys (all optional except date):
+                date        — "YYYY-MM-DD" or human-readable like "Wednesday, February 25, 2026"
+                calendar    — [{"time": "9 AM", "event": "Standup", "status": "Teams"}] or ["9 AM - Standup"]
+                action_items — [{"text": "Review RBAC", "priority": "high|medium|low"}] or ["Review RBAC"]
+                conflicts   — [{"time": "2 PM", "a": "Meeting A", "b": "Meeting B"}] or ["2 PM: A vs B"]
+                email_highlights — [{"sender": "Mike", "subject": "Budget", "tag": "action"}] or ["Check Outlook"]
+                personal    — ["Pick up dry cleaning"]
+                delegations — "2 active delegations" (summary string)
+                decisions   — "1 pending decision" (summary string)
+                delegation_items — [{"task": "X", "delegated_to": "Y", "priority": "high", "status": "active"}]
+                decision_items   — [{"title": "X", "status": "pending_execution", "owner": "Y"}]
+                okr_highlights   — [{"initiative": "X", "team": "IAM", "status": "On Track", "progress": "80%"}]
             mode: Render mode — "terminal" for ANSI color, "plain" for no-color text (default: terminal)
         """
         try:

@@ -54,6 +54,17 @@ class TestFormatBrief:
         assert "Standup" in result
 
     @pytest.mark.asyncio
+    async def test_format_brief_with_plain_string_action_items(self):
+        """Plain strings passed as action_items should coerce and render."""
+        data = json.dumps({
+            "date": "2026-02-25",
+            "action_items": ["Fix the bug", "Deploy to prod"],
+        })
+        result = await format_brief(data=data, mode="plain")
+        assert "Fix the bug" in result
+        assert "Deploy to prod" in result
+
+    @pytest.mark.asyncio
     async def test_format_brief_invalid_json(self):
         result = await format_brief(data="not json", mode="plain")
         parsed = json.loads(result)

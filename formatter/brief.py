@@ -15,13 +15,19 @@ from formatter.types import ActionItem, CalendarEntry, Conflict, EmailHighlight
 def _format_date(date_str: str) -> str:
     """Convert ISO date string to human-readable format.
 
+    If *date_str* is already human-readable (not ISO), it is returned as-is.
+
     Args:
-        date_str: Date in YYYY-MM-DD format.
+        date_str: Date in YYYY-MM-DD format, or already human-readable.
 
     Returns:
         Human-readable date like 'Wednesday, February 25, 2026'.
     """
-    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        # Already human-readable or non-ISO — pass through unchanged
+        return date_str
     try:
         return dt.strftime("%A, %B %-d, %Y")
     except ValueError:
@@ -85,7 +91,13 @@ def _build_conflicts(conflicts: Sequence[Conflict]) -> Text:
         time = conflict.get("time", "")
         a = conflict.get("a", "")
         b = conflict.get("b", "")
-        line = f"  {time}: {a} \u2190\u2192 {b}"
+        if time and b:
+            line = f"  {time}: {a} \u2190\u2192 {b}"
+        elif time:
+            line = f"  {time}: {a}"
+        else:
+            # Plain string was coerced — just display it
+            line = f"  {a}"
         if i < len(conflicts) - 1:
             line += "\n"
         text.append(line)
@@ -181,6 +193,16 @@ def _build_personal(items: Sequence[str]) -> Text:
     return text
 
 
+def _coerce_item(item, wrap_key: str, defaults: dict | None = None) -> dict:
+    """Coerce a plain string into a dict, or return the dict unchanged."""
+    if isinstance(item, str):
+        d = {wrap_key: item}
+        if defaults:
+            d.update(defaults)
+        return d
+    return item
+
+
 def render_daily(
     date: str,
     calendar: Optional[Sequence[CalendarEntry]] = None,
@@ -219,6 +241,16 @@ def render_daily(
     Returns:
         Rendered string, or empty string if no sections have data.
     """
+    # Coerce plain strings into the expected dict shapes
+    if calendar:
+        calendar = [_coerce_item(e, "event") for e in calendar]
+    if action_items:
+        action_items = [_coerce_item(a, "text", {"priority": "medium"}) for a in action_items]
+    if conflicts:
+        conflicts = [_coerce_item(c, "a") for c in conflicts]
+    if email_highlights:
+        email_highlights = [_coerce_item(e, "subject") for e in email_highlights]
+
     sections = []
 
     # Calendar section

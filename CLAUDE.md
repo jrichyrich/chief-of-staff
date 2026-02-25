@@ -195,6 +195,18 @@ SQLite (`data/memory.db`) with 14 tables:
 - Tool functions are imported from `mcp_tools.*` modules (e.g. `from mcp_tools.calendar_tools import list_calendars`)
 - Tests must `import mcp_server` first to trigger `register()` calls before importing tool functions
 
+## Formatter Tools — When to Use
+
+The `format_brief`, `format_table`, `format_card`, and `format_dashboard` MCP tools are for **delivery channels only** (scheduled tasks → email, iMessage, macOS notification). Do **NOT** call them during interactive Claude Code sessions:
+
+- Claude Code renders text as markdown — ANSI escape codes display as raw `[1m` garbage
+- The formatted box-art output costs ~2x the tokens of raw JSON, and Claude must re-parse it to summarize anyway
+- **Instead**: collect raw data from MCP sources, then present it directly as markdown with analysis
+
+**Daily brief in Claude Code**: query all sources in parallel → assemble raw results → write markdown with callouts, conflicts, and action items. Never call `format_brief`.
+
+**Daily brief via scheduled delivery**: `scheduler/delivery.py` auto-detects brief JSON and calls `render_daily(mode="plain")` — this is correct and should stay.
+
 ## Agent Teams
 
 When a task involves 3+ independent subtasks that can run in parallel (e.g., multi-source research, OKR analysis, meeting prep, daily briefs, code analysis across multiple files), **proactively create a team of agents**. Do not wait for explicit user instruction to parallelize — default to spinning up teams whenever there is a clear parallelization opportunity.
