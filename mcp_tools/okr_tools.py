@@ -1,9 +1,35 @@
 """OKR tools for MCP server."""
 
 import json
+import logging
 from pathlib import Path
 
 import config as app_config
+
+logger = logging.getLogger("jarvis-mcp")
+
+
+def _format_okr_results(results):
+    """Add formatted table to OKR query results."""
+    try:
+        from formatter.tables import render
+        items = results.get("results", [])
+        if not items:
+            results["formatted"] = ""
+            return results
+        columns = ["Initiative", "Team", "Status", "Progress"]
+        rows = []
+        for item in items:
+            rows.append((
+                item.get("initiative", item.get("name", "")),
+                item.get("team", ""),
+                item.get("status", ""),
+                item.get("progress", ""),
+            ))
+        results["formatted"] = render(columns=columns, rows=rows, title="OKR Status", mode="plain")
+    except Exception:
+        results["formatted"] = ""
+    return results
 
 
 def register(mcp, state):
@@ -88,7 +114,7 @@ def register(mcp, state):
             okr_id=okr_id, team=team, status=status,
             blocked_only=blocked_only, text=query,
         )
-        return json.dumps(results)
+        return json.dumps(_format_okr_results(results))
 
     # Expose tool functions at module level for testing
     import sys

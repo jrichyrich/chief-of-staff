@@ -137,6 +137,103 @@ class TestRenderDaily:
         assert "Saturday, July 4, 2026" in result
 
 
+class TestBriefEnhancements:
+    """Tests for enhanced brief with structured delegations/decisions/OKR."""
+
+    def test_structured_delegations(self):
+        """Structured delegation data renders as a table in the brief."""
+        result = render_daily(
+            date="2026-02-25",
+            calendar=[{"time": "9 AM", "event": "Standup", "status": "Teams"}],
+            delegation_items=[
+                {"task": "Review RBAC", "delegated_to": "Shawn", "priority": "high", "status": "active"},
+            ],
+            mode="plain",
+            width=120,
+        )
+        assert "DELEGATIONS" in result
+        assert "Review RBAC" in result
+        assert "Shawn" in result
+
+    def test_structured_decisions(self):
+        """Structured decision data renders as a table in the brief."""
+        result = render_daily(
+            date="2026-02-25",
+            calendar=[{"time": "9 AM", "event": "Standup", "status": "Teams"}],
+            decision_items=[
+                {"title": "Approve rollout", "status": "pending_execution", "owner": "Jason"},
+            ],
+            mode="plain",
+            width=120,
+        )
+        assert "DECISIONS" in result
+        assert "Approve rollout" in result
+
+    def test_okr_highlights(self):
+        """OKR highlights render as a section in the brief."""
+        result = render_daily(
+            date="2026-02-25",
+            calendar=[{"time": "9 AM", "event": "Standup", "status": "Teams"}],
+            okr_highlights=[
+                {"initiative": "RBAC rollout", "team": "IAM", "status": "At Risk", "progress": "5%"},
+            ],
+            mode="plain",
+            width=120,
+        )
+        assert "OKR" in result
+        assert "RBAC rollout" in result
+        assert "At Risk" in result or "5%" in result
+
+    def test_structured_and_string_delegations_coexist(self):
+        """String delegations param still works alongside new structured param."""
+        result = render_daily(
+            date="2026-02-25",
+            calendar=[{"time": "9 AM", "event": "Standup", "status": "Teams"}],
+            delegations="2 active delegations",
+            mode="plain",
+        )
+        assert "DELEGATIONS" in result
+        assert "2 active delegations" in result
+
+    def test_structured_delegation_items_override_string(self):
+        """Structured delegation_items take priority over string delegations."""
+        result = render_daily(
+            date="2026-02-25",
+            calendar=[{"time": "9 AM", "event": "Standup", "status": "Teams"}],
+            delegations="old string form",
+            delegation_items=[
+                {"task": "New task", "delegated_to": "Alice", "priority": "high", "status": "active"},
+            ],
+            mode="plain",
+            width=120,
+        )
+        assert "New task" in result
+        assert "Alice" in result
+        # String form should not appear since structured takes priority
+        assert "old string form" not in result
+
+    def test_all_enhanced_sections(self):
+        """All new structured sections render together."""
+        result = render_daily(
+            date="2026-02-25",
+            calendar=[{"time": "9 AM", "event": "Standup", "status": "Teams"}],
+            delegation_items=[
+                {"task": "Task A", "delegated_to": "Alice", "priority": "high", "status": "active"},
+            ],
+            decision_items=[
+                {"title": "Decision X", "status": "pending_execution", "owner": "Bob"},
+            ],
+            okr_highlights=[
+                {"initiative": "OKR item", "team": "SecOps", "status": "On Track", "progress": "80%"},
+            ],
+            mode="plain",
+            width=120,
+        )
+        assert "DELEGATIONS" in result
+        assert "DECISIONS" in result
+        assert "OKR" in result
+
+
 class TestFormatDate:
     """Tests for _format_date helper."""
 

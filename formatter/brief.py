@@ -114,6 +114,55 @@ def _build_email_table(highlights: Sequence[EmailHighlight]) -> Table:
     return table
 
 
+def _build_delegation_table(items: Sequence[dict]) -> Table:
+    """Build a rich Table for structured delegation data."""
+    table = Table(box=INNER_BOX, expand=True, show_edge=False)
+    table.add_column("Task", style="white")
+    table.add_column("Assigned To", style="cyan", no_wrap=True)
+    table.add_column("Priority", style="dim")
+    table.add_column("Status", style="dim")
+    for item in items:
+        table.add_row(
+            item.get("task", ""),
+            item.get("delegated_to", ""),
+            item.get("priority", ""),
+            item.get("status", ""),
+        )
+    return table
+
+
+def _build_decision_table(items: Sequence[dict]) -> Table:
+    """Build a rich Table for structured decision data."""
+    table = Table(box=INNER_BOX, expand=True, show_edge=False)
+    table.add_column("Decision", style="white")
+    table.add_column("Status", style="dim")
+    table.add_column("Owner", style="cyan", no_wrap=True)
+    for item in items:
+        table.add_row(
+            item.get("title", ""),
+            item.get("status", ""),
+            item.get("owner", ""),
+        )
+    return table
+
+
+def _build_okr_table(items: Sequence[dict]) -> Table:
+    """Build a rich Table for OKR highlights."""
+    table = Table(box=INNER_BOX, expand=True, show_edge=False)
+    table.add_column("Initiative", style="white")
+    table.add_column("Team", style="cyan", no_wrap=True)
+    table.add_column("Status", style="dim")
+    table.add_column("Progress", style="dim")
+    for item in items:
+        table.add_row(
+            item.get("initiative", item.get("name", "")),
+            item.get("team", ""),
+            item.get("status", ""),
+            item.get("progress", ""),
+        )
+    return table
+
+
 def _build_personal(items: Sequence[str]) -> Text:
     """Build a bulleted list for personal items.
 
@@ -141,6 +190,9 @@ def render_daily(
     personal: Optional[Sequence[str]] = None,
     delegations: Optional[str] = None,
     decisions: Optional[str] = None,
+    delegation_items: Optional[Sequence[dict]] = None,
+    decision_items: Optional[Sequence[dict]] = None,
+    okr_highlights: Optional[Sequence[dict]] = None,
     mode: str = "terminal",
     width: int = 80,
 ) -> str:
@@ -158,6 +210,9 @@ def render_daily(
         personal: Personal reminders/notes.
         delegations: Summary text for active delegations.
         decisions: Summary text for pending decisions.
+        delegation_items: Structured delegation dicts (takes priority over string form).
+        decision_items: Structured decision dicts (takes priority over string form).
+        okr_highlights: Structured OKR highlight dicts.
         mode: "terminal" for ANSI output, "plain" for plain text.
         width: Console width in characters.
 
@@ -201,8 +256,13 @@ def render_daily(
             Panel(text, title="[bold]PERSONAL[/bold]", title_align="left", box=BOX)
         )
 
-    # Delegations section
-    if delegations:
+    # Delegations section — structured table takes priority over string summary
+    if delegation_items:
+        table = _build_delegation_table(delegation_items)
+        sections.append(
+            Panel(table, title="[bold]DELEGATIONS[/bold]", title_align="left", box=BOX)
+        )
+    elif delegations:
         sections.append(
             Panel(
                 Text(f"  {delegations}"),
@@ -212,8 +272,13 @@ def render_daily(
             )
         )
 
-    # Decisions section
-    if decisions:
+    # Decisions section — structured table takes priority over string summary
+    if decision_items:
+        table = _build_decision_table(decision_items)
+        sections.append(
+            Panel(table, title="[bold]DECISIONS[/bold]", title_align="left", box=BOX)
+        )
+    elif decisions:
         sections.append(
             Panel(
                 Text(f"  {decisions}"),
@@ -221,6 +286,13 @@ def render_daily(
                 title_align="left",
                 box=BOX,
             )
+        )
+
+    # OKR highlights section
+    if okr_highlights:
+        table = _build_okr_table(okr_highlights)
+        sections.append(
+            Panel(table, title="[bold]OKR HIGHLIGHTS[/bold]", title_align="left", box=BOX)
         )
 
     # Return empty string if no sections

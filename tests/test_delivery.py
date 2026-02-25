@@ -717,3 +717,57 @@ class TestMCPSchedulerToolsDelivery:
         found = [t for t in data["tasks"] if t["name"] == "list_delivery_test"]
         assert len(found) == 1
         assert found[0]["delivery_channel"] == "email"
+
+
+# --- Formatted Brief Delivery ---
+
+
+class TestFormattedDelivery:
+    """Tests for formatter-aware delivery."""
+
+    def test_deliver_result_formats_brief_json(self):
+        """When result_text is JSON with brief keys, render via formatter."""
+        brief_data = json.dumps({
+            "date": "2026-02-25",
+            "calendar": [{"time": "9 AM", "event": "Standup", "status": "Teams"}],
+            "action_items": [{"priority": "high", "text": "Review PR"}],
+        })
+        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+            mock_adapter = MagicMock()
+            mock_adapter.deliver.return_value = {"status": "delivered"}
+            mock_get.return_value = mock_adapter
+
+            deliver_result("email", {}, brief_data, "daily_brief")
+
+            delivered_text = mock_adapter.deliver.call_args[0][0]
+            # Should be formatted, not raw JSON
+            assert "DAILY BRIEFING" in delivered_text or "CALENDAR" in delivered_text
+            assert "Standup" in delivered_text
+            # Should NOT be raw JSON
+            assert '"calendar"' not in delivered_text
+
+    def test_deliver_result_passes_plain_text_through(self):
+        """Non-JSON result_text passes through unchanged (after humanize)."""
+        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+            mock_adapter = MagicMock()
+            mock_adapter.deliver.return_value = {"status": "delivered"}
+            mock_get.return_value = mock_adapter
+
+            deliver_result("email", {}, "Simple text result", "task_name")
+
+            delivered_text = mock_adapter.deliver.call_args[0][0]
+            assert "Simple text result" in delivered_text
+
+    def test_deliver_result_handles_non_brief_json(self):
+        """JSON without brief keys passes through as-is."""
+        data = json.dumps({"status": "ok", "count": 5})
+        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+            mock_adapter = MagicMock()
+            mock_adapter.deliver.return_value = {"status": "delivered"}
+            mock_get.return_value = mock_adapter
+
+            deliver_result("email", {}, data, "other_task")
+
+            delivered_text = mock_adapter.deliver.call_args[0][0]
+            # Should not be formatted as a brief
+            assert "DAILY BRIEFING" not in delivered_text

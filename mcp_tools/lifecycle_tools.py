@@ -1,8 +1,65 @@
 """Decision log, delegation tracking, and alert tools for the Chief of Staff MCP server."""
 
 import json
+import logging
 
 from tools import lifecycle as lifecycle_tools
+
+logger = logging.getLogger("jarvis-mcp")
+
+
+def _format_delegations(results):
+    """Add formatted table to delegation results."""
+    try:
+        from formatter.data_helpers import delegations_to_table_data
+        from formatter.tables import render
+        items = results.get("results", [])
+        if not items:
+            results["formatted"] = ""
+            return results
+        columns, rows = delegations_to_table_data(items)
+        results["formatted"] = render(columns=columns, rows=rows, title="Delegations", mode="plain")
+    except Exception:
+        results["formatted"] = ""
+    return results
+
+
+def _format_decisions(results):
+    """Add formatted table to decision results."""
+    try:
+        from formatter.data_helpers import decisions_to_table_data
+        from formatter.tables import render
+        items = results.get("results", [])
+        if not items:
+            results["formatted"] = ""
+            return results
+        columns, rows = decisions_to_table_data(items)
+        results["formatted"] = render(columns=columns, rows=rows, title="Decisions", mode="plain")
+    except Exception:
+        results["formatted"] = ""
+    return results
+
+
+def _format_alerts(results):
+    """Add formatted text to alert results."""
+    try:
+        from formatter.cards import render as render_card
+        alerts = results.get("alerts", [])
+        if not alerts:
+            results["formatted"] = ""
+            return results
+        fields = {}
+        for i, alert in enumerate(alerts):
+            fields[f"Alert {i+1}"] = alert.get("message", str(alert))
+        results["formatted"] = render_card(
+            title="Active Alerts",
+            fields=fields,
+            status="red" if len(alerts) > 0 else "green",
+            mode="plain",
+        )
+    except Exception:
+        results["formatted"] = ""
+    return results
 
 
 def register(mcp, state):
@@ -77,7 +134,8 @@ def register(mcp, state):
     async def list_pending_decisions() -> str:
         """List all decisions with status 'pending_execution'."""
         memory_store = state.memory_store
-        return json.dumps(lifecycle_tools.list_pending_decisions(memory_store))
+        result = lifecycle_tools.list_pending_decisions(memory_store)
+        return json.dumps(_format_decisions(result))
 
     @mcp.tool()
     async def delete_decision(decision_id: int) -> str:
@@ -131,7 +189,8 @@ def register(mcp, state):
             delegated_to: Filter by who the task is delegated to
         """
         memory_store = state.memory_store
-        return json.dumps(lifecycle_tools.list_delegations(memory_store, status=status, delegated_to=delegated_to))
+        result = lifecycle_tools.list_delegations(memory_store, status=status, delegated_to=delegated_to)
+        return json.dumps(_format_delegations(result))
 
     @mcp.tool()
     async def update_delegation(delegation_id: int, status: str = "", notes: str = "") -> str:
@@ -206,7 +265,8 @@ def register(mcp, state):
     async def check_alerts() -> str:
         """Run alert checks: overdue delegations, stale pending decisions (>7 days), and upcoming deadlines (within 3 days)."""
         memory_store = state.memory_store
-        return json.dumps(lifecycle_tools.check_alerts(memory_store))
+        result = lifecycle_tools.check_alerts(memory_store)
+        return json.dumps(_format_alerts(result))
 
     @mcp.tool()
     async def dismiss_alert(rule_id: int) -> str:

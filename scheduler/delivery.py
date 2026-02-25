@@ -19,6 +19,32 @@ logger = logging.getLogger(__name__)
 # Valid delivery channel names
 VALID_CHANNELS = frozenset({"email", "imessage", "notification", "teams"})
 
+# Keys that signal the result_text is daily-brief JSON
+_BRIEF_KEYS = {"date", "calendar", "action_items", "conflicts", "email_highlights", "personal"}
+
+
+def _maybe_format_brief(result_text: str) -> str:
+    """If result_text is JSON with daily-brief keys, render via formatter.
+
+    Returns the original text unchanged if it's not brief-like JSON.
+    """
+    import json as _json
+    try:
+        data = _json.loads(result_text)
+    except (ValueError, TypeError):
+        return result_text
+
+    if not isinstance(data, dict) or not (_BRIEF_KEYS & set(data.keys())):
+        return result_text
+
+    try:
+        from formatter.brief import render_daily
+        rendered = render_daily(**data, mode="plain")
+        return rendered if rendered else result_text
+    except Exception:
+        logger.debug("Failed to format brief, using raw text", exc_info=True)
+        return result_text
+
 
 class DeliveryAdapter:
     """Base class for delivery adapters."""
@@ -165,6 +191,7 @@ def deliver_result(
         return {"status": "error", "error": f"Unknown delivery channel: {channel}"}
 
     try:
+        result_text = _maybe_format_brief(result_text)
         result_text = humanize(result_text)
         return adapter.deliver(result_text, config or {}, task_name)
     except Exception as e:
