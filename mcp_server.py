@@ -250,6 +250,10 @@ routing_tools.register(mcp, _state)
 playbook_tools.register(mcp, _state)
 formatter_tools.register(mcp, _state)
 
+# Install automatic tool usage tracking (must come after all tools are registered)
+from mcp_tools.usage_tracker import install_usage_tracker
+install_usage_tracker(mcp, _state)
+
 
 # --- Entry point ---
 
