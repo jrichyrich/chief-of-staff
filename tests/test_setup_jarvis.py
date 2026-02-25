@@ -351,6 +351,87 @@ class TestServerVerifyStep:
 
 
 # ---------------------------------------------------------------------------
+# PlaywrightStep
+# ---------------------------------------------------------------------------
+
+
+class TestPlaywrightStep:
+    def test_profiles(self):
+        step = PlaywrightStep()
+        assert step.applies_to("personal")
+        assert step.applies_to("full")
+        assert not step.applies_to("minimal")
+
+    def test_is_auto_false(self):
+        step = PlaywrightStep()
+        assert step.is_auto is False
+
+    def test_guide_includes_playwright(self):
+        step = PlaywrightStep()
+        assert "playwright install chromium" in step.guide()
+
+
+# ---------------------------------------------------------------------------
+# LaunchAgentsStep
+# ---------------------------------------------------------------------------
+
+
+class TestLaunchAgentsStep:
+    def test_check_missing_when_no_plists(self, tmp_path):
+        step = LaunchAgentsStep(project_dir=tmp_path, launch_agents_dir=tmp_path / "LaunchAgents")
+        assert step.check() == Status.MISSING
+
+    def test_check_ok_when_plists_exist(self, tmp_path):
+        la_dir = tmp_path / "LaunchAgents"
+        la_dir.mkdir()
+        for label in LaunchAgentsStep.PLIST_LABELS:
+            (la_dir / f"{label}.plist").touch()
+        step = LaunchAgentsStep(project_dir=tmp_path, launch_agents_dir=la_dir)
+        assert step.check() == Status.OK
+
+    def test_is_auto(self, tmp_path):
+        step = LaunchAgentsStep(project_dir=tmp_path)
+        assert step.is_auto is True
+
+    def test_profiles(self, tmp_path):
+        step = LaunchAgentsStep(project_dir=tmp_path)
+        assert step.applies_to("personal")
+        assert step.applies_to("full")
+        assert not step.applies_to("minimal")
+
+
+# ---------------------------------------------------------------------------
+# Manual permission steps & M365BridgeStep
+# ---------------------------------------------------------------------------
+
+
+class TestManualSteps:
+    def test_imessage_perms_is_manual(self):
+        step = IMessagePermsStep()
+        assert step.is_manual is True
+        assert step.check() == Status.MISSING
+
+    def test_calendar_perms_is_manual(self):
+        step = CalendarPermsStep()
+        assert step.is_manual is True
+        assert step.check() == Status.MISSING
+
+    def test_m365_bridge_profiles(self):
+        step = M365BridgeStep()
+        assert step.applies_to("full")
+        assert not step.applies_to("personal")
+        assert not step.applies_to("minimal")
+
+    def test_imessage_guide_mentions_full_disk(self):
+        step = IMessagePermsStep()
+        assert "Full Disk Access" in step.guide()
+
+    def test_calendar_guide_mentions_privacy(self):
+        step = CalendarPermsStep()
+        assert "Privacy" in step.guide()
+
+
+# ---------------------------------------------------------------------------
 # format_scan_line / format_scan_summary
 # ---------------------------------------------------------------------------
 

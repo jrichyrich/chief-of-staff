@@ -476,16 +476,13 @@ class PlaywrightStep(SetupStep):
 class LaunchAgentsStep(SetupStep):
     """Install macOS LaunchAgent plist files for background daemons."""
 
-    PLIST_LABELS: list[str] = field(
-        default_factory=lambda: [
-            "com.chg.inbox-monitor",
-            "com.chg.jarvis-backup",
-            "com.chg.alert-evaluator",
-            "com.chg.imessage-daemon",
-            "com.chg.scheduler-engine",
-        ],
-        init=False,
-    )
+    PLIST_LABELS = [
+        "com.chg.inbox-monitor",
+        "com.chg.jarvis-backup",
+        "com.chg.alert-evaluator",
+        "com.chg.imessage-daemon",
+        "com.chg.scheduler-engine",
+    ]
 
     project_dir: Path = field(default_factory=lambda: PROJECT_DIR)
     launch_agents_dir: Optional[Path] = None
