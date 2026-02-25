@@ -1,0 +1,48 @@
+name: software_dev_team
+description: Parallel code analysis, review, and planning for a development task
+inputs:
+  - task
+  - scope
+workstreams:
+  - name: architect
+    prompt: |
+      Analyze the architecture relevant to: $task
+      Scope: $scope
+      Map module dependencies, identify integration points,
+      flag coupling risks. Review CLAUDE.md and architecture docs.
+  - name: code_reviewer
+    prompt: |
+      Review current code in $scope for:
+      - Patterns and conventions used
+      - Test coverage gaps
+      - Security concerns (OWASP top 10)
+      - Performance bottlenecks
+      Related to: $task
+  - name: test_analyst
+    prompt: |
+      Examine existing tests for $scope.
+      Identify: what is tested, what is not, edge cases missing,
+      test patterns used. Run pytest on relevant test files.
+  - name: dependency_scanner
+    prompt: |
+      Check how $scope connects to the rest of the system.
+      Find all callers, importers, and downstream consumers.
+      Flag breaking change risks for: $task
+  - name: docs_checker
+    prompt: |
+      Check if documentation matches current code for $scope.
+      Find stale docstrings, missing tool references,
+      outdated architecture diagrams.
+synthesis:
+  prompt: |
+    You are a tech lead. Combine all findings into:
+    1. Architecture assessment
+    2. Risk areas
+    3. Implementation plan (ordered steps)
+    4. Test plan
+    5. Documentation updates needed
+    Task: $task
+delivery:
+  default: inline
+  options:
+    - confluence

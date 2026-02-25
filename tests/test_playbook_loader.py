@@ -3,6 +3,7 @@
 import pytest
 from pathlib import Path
 
+import config as app_config
 from playbooks.loader import Playbook, Workstream, PlaybookLoader
 
 
@@ -362,3 +363,43 @@ class TestPlaybookLoader:
         active = pb.active_workstreams({"scope": "quick"})
         assert len(active) == 1
         assert active[0].name == "code"
+
+
+class TestBuiltInPlaybooks:
+    """Validate all YAML playbooks in the playbooks/ directory."""
+
+    def test_all_playbooks_load_successfully(self):
+        playbooks_dir = app_config.BASE_DIR / "playbooks"
+        loader = PlaybookLoader(playbooks_dir)
+        names = loader.list_playbooks()
+        assert len(names) >= 4, f"Expected at least 4 playbooks, got {names}"
+        for name in names:
+            pb = loader.get_playbook(name)
+            assert pb is not None, f"Playbook {name} failed to load"
+            assert pb.name == name
+            assert len(pb.workstreams) >= 1
+            assert pb.description
+
+    def test_meeting_prep_has_expected_workstreams(self):
+        playbooks_dir = app_config.BASE_DIR / "playbooks"
+        loader = PlaybookLoader(playbooks_dir)
+        pb = loader.get_playbook("meeting_prep")
+        assert pb is not None
+        ws_names = [w.name for w in pb.workstreams]
+        assert "email_context" in ws_names
+        assert "calendar_context" in ws_names
+
+    def test_daily_briefing_has_expected_workstreams(self):
+        playbooks_dir = app_config.BASE_DIR / "playbooks"
+        loader = PlaybookLoader(playbooks_dir)
+        pb = loader.get_playbook("daily_briefing")
+        assert pb is not None
+        assert len(pb.workstreams) >= 4
+
+    def test_expert_research_has_conditional_workstream(self):
+        playbooks_dir = app_config.BASE_DIR / "playbooks"
+        loader = PlaybookLoader(playbooks_dir)
+        pb = loader.get_playbook("expert_research")
+        assert pb is not None
+        conditions = [w.condition for w in pb.workstreams if w.condition]
+        assert len(conditions) >= 1

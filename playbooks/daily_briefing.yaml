@@ -1,0 +1,48 @@
+name: daily_briefing
+description: Comprehensive daily briefing from all sources
+inputs:
+  - briefing_date
+  - email_recipient
+workstreams:
+  - name: calendar_review
+    prompt: |
+      Get all calendar events for $briefing_date from both
+      M365 (Outlook) and Apple Calendar. List each event with
+      time, title, attendees, and location.
+  - name: email_digest
+    prompt: |
+      Search M365 email for messages from the last 24 hours.
+      Identify action items, questions needing response, and
+      important updates. Group by urgency.
+  - name: teams_digest
+    prompt: |
+      Search Teams messages from the last 24 hours for DMs,
+      mentions, and important thread updates.
+  - name: imessage_digest
+    prompt: |
+      Check recent iMessages for any work-related or
+      important personal messages from the last 24 hours.
+  - name: memory_review
+    prompt: |
+      Check Jarvis memory for: overdue delegations, upcoming
+      deadlines (next 3 days), pending decisions, and open
+      action items from the Session Brain.
+  - name: reminders_check
+    prompt: |
+      List all incomplete reminders, especially those due
+      today or overdue.
+synthesis:
+  prompt: |
+    Create a daily briefing for $briefing_date:
+    1. Today's Schedule (chronological)
+    2. Action Items Requiring Attention (urgent first)
+    3. Email Summary (grouped by priority)
+    4. Teams/Messages Highlights
+    5. Open Delegations and Deadlines
+    6. Reminders Due Today
+    Keep it concise. Flag anything that needs immediate action.
+delivery:
+  default: email
+  options:
+    - email
+    - inline

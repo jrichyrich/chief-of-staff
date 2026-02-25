@@ -1,0 +1,41 @@
+name: meeting_prep
+description: Prepare briefing materials for an upcoming meeting
+inputs:
+  - meeting_subject
+  - meeting_time
+  - attendees
+workstreams:
+  - name: email_context
+    prompt: |
+      Search M365 email for all threads involving $attendees
+      related to $meeting_subject in the last 30 days.
+      Extract key discussion points, decisions, and open questions.
+  - name: document_context
+    prompt: |
+      Search Confluence for pages related to $meeting_subject.
+      Also search Jarvis documents for relevant ingested files.
+      Summarize key findings and link to source pages.
+  - name: decision_history
+    prompt: |
+      Query Jarvis memory for decisions and delegations involving $attendees
+      or related to $meeting_subject. Note any overdue items.
+  - name: calendar_context
+    prompt: |
+      Find previous meetings with $attendees in the last 30 days
+      and upcoming meetings in the next 7 days.
+      Note patterns, frequency, and related topics.
+synthesis:
+  prompt: |
+    Combine all workstream results into a meeting briefing:
+    1. Meeting context (subject, time, attendees)
+    2. Recent email threads and key points
+    3. Relevant documents and findings
+    4. Decision/delegation history with attendees
+    5. Previous meeting patterns
+    6. Suggested talking points and open questions
+delivery:
+  default: inline
+  options:
+    - email
+    - teams
+    - confluence

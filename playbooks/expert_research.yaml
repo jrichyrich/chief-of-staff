@@ -1,0 +1,48 @@
+name: expert_research
+description: Deep parallel research on a topic across all available sources
+inputs:
+  - topic
+  - context
+  - depth
+workstreams:
+  - name: memory_analyst
+    prompt: |
+      Query Jarvis memory for everything related to $topic.
+      Include facts, decisions, delegations, and past conversations.
+      Identify what we already know vs gaps.
+  - name: document_researcher
+    prompt: |
+      Search ingested documents and Confluence for $topic.
+      Extract key findings, dates, stakeholders, and open questions.
+  - name: email_intel
+    prompt: |
+      Search M365 email and Teams messages for $topic.
+      Find recent threads, action items, commitments made.
+  - name: calendar_context
+    prompt: |
+      Find meetings related to $topic in the last 30 days and next 14 days.
+      Note attendees, patterns, and upcoming deadlines.
+  - name: identity_mapper
+    prompt: |
+      Identify all people connected to $topic across all channels.
+      Use identity linking to build a complete stakeholder map.
+  - name: web_researcher
+    condition: "depth == thorough"
+    prompt: |
+      Search the web for external context on $topic.
+      Industry trends, competitor moves, regulatory changes.
+synthesis:
+  prompt: |
+    You are a senior analyst. Combine all workstream results into:
+    1. Executive summary (3 bullets)
+    2. What we know (with sources)
+    3. What we don't know (gaps)
+    4. Stakeholder map
+    5. Recommended next steps
+    Context for this research: $context
+delivery:
+  default: inline
+  options:
+    - email
+    - teams
+    - confluence
