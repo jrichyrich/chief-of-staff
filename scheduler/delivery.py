@@ -17,7 +17,7 @@ from humanizer.rules import humanize
 logger = logging.getLogger(__name__)
 
 # Valid delivery channel names
-VALID_CHANNELS = frozenset({"email", "imessage", "notification"})
+VALID_CHANNELS = frozenset({"email", "imessage", "notification", "teams"})
 
 
 class DeliveryAdapter:
@@ -104,10 +104,36 @@ class NotificationDeliveryAdapter(DeliveryAdapter):
         return {"status": "delivered", "channel": "notification", "detail": result}
 
 
+class TeamsDeliveryAdapter(DeliveryAdapter):
+    """Deliver task results via Microsoft Teams (Playwright browser)."""
+
+    def _get_poster(self):
+        from browser.teams_poster import PlaywrightTeamsPoster
+        from browser.manager import TeamsBrowserManager
+        return PlaywrightTeamsPoster(manager=TeamsBrowserManager())
+
+    def deliver(self, result_text: str, config: dict, task_name: str = "") -> dict:
+        target = config.get("target", "")
+        if not target:
+            return {"status": "error", "error": "No target in delivery_config.target"}
+
+        template_vars = _build_template_vars(result_text, task_name)
+        body_template = config.get("body_template", "$result")
+        body = Template(body_template).safe_substitute(template_vars)
+
+        auto_send = config.get("auto_send", True)
+        poster = self._get_poster()
+        result = poster.prepare_message(target=target, message=body)
+        if auto_send:
+            result = poster.send_prepared()
+        return {"status": "delivered", "channel": "teams", "detail": result}
+
+
 _ADAPTERS: dict[str, type[DeliveryAdapter]] = {
     "email": EmailDeliveryAdapter,
     "imessage": IMessageDeliveryAdapter,
     "notification": NotificationDeliveryAdapter,
+    "teams": TeamsDeliveryAdapter,
 }
 
 

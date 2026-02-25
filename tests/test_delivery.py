@@ -15,6 +15,7 @@ from scheduler.delivery import (
     EmailDeliveryAdapter,
     IMessageDeliveryAdapter,
     NotificationDeliveryAdapter,
+    TeamsDeliveryAdapter,
     _build_template_vars,
     deliver_result,
     get_delivery_adapter,
@@ -78,7 +79,7 @@ class TestGetDeliveryAdapter:
         assert get_delivery_adapter("") is None
 
     def test_valid_channels_constant(self):
-        assert VALID_CHANNELS == {"email", "imessage", "notification"}
+        assert VALID_CHANNELS == {"email", "imessage", "notification", "teams"}
 
 
 # --- Email Delivery Adapter ---
@@ -231,6 +232,48 @@ class TestNotificationDeliveryAdapter:
             adapter.deliver(long_result, {}, "test")
             call_kwargs = mock_send.call_args.kwargs
             assert len(call_kwargs["message"]) <= 200
+
+
+# --- Teams Delivery Adapter ---
+
+
+class TestTeamsDeliveryAdapter:
+    @patch("scheduler.delivery.TeamsDeliveryAdapter._get_poster")
+    def test_deliver_with_target(self, mock_poster_fn):
+        mock_poster = MagicMock()
+        mock_poster.prepare_message.return_value = {"status": "prepared"}
+        mock_poster.send_prepared.return_value = {"status": "sent"}
+        mock_poster_fn.return_value = mock_poster
+
+        adapter = TeamsDeliveryAdapter()
+        result = adapter.deliver("Hello team", {"target": "General"}, task_name="test")
+        assert result["status"] == "delivered"
+        assert result["channel"] == "teams"
+        mock_poster.prepare_message.assert_called_once()
+
+    @patch("scheduler.delivery.TeamsDeliveryAdapter._get_poster")
+    def test_deliver_no_target_returns_error(self, mock_poster_fn):
+        adapter = TeamsDeliveryAdapter()
+        result = adapter.deliver("Hello", {}, task_name="test")
+        assert result["status"] == "error"
+
+    def test_teams_in_valid_channels(self):
+        assert "teams" in VALID_CHANNELS
+
+    def test_get_delivery_adapter_teams(self):
+        adapter = get_delivery_adapter("teams")
+        assert isinstance(adapter, TeamsDeliveryAdapter)
+
+    @patch("scheduler.delivery.TeamsDeliveryAdapter._get_poster")
+    def test_deliver_without_auto_send(self, mock_poster_fn):
+        mock_poster = MagicMock()
+        mock_poster.prepare_message.return_value = {"status": "prepared"}
+        mock_poster_fn.return_value = mock_poster
+
+        adapter = TeamsDeliveryAdapter()
+        result = adapter.deliver("Hello", {"target": "General", "auto_send": False})
+        assert result["status"] == "delivered"
+        mock_poster.send_prepared.assert_not_called()
 
 
 # --- deliver_result convenience function ---
