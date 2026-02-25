@@ -7,6 +7,7 @@ import pytest
 from memory.store import MemoryStore
 from mcp_tools.state import ServerState, SessionHealth
 from proactive.engine import ProactiveSuggestionEngine
+from session.brain import SessionBrain
 from session.manager import SessionManager
 
 
@@ -563,3 +564,45 @@ class TestCheckpointSessionEnrichment:
         result = json.loads(result_json)
         assert result["status"] == "checkpoint_saved"
         assert result["enriched_facts"] == 0
+
+
+# --- Session Brain Integration Tests ---
+
+
+class TestFlushUpdatesSessionBrain:
+    def test_flush_stores_decisions_in_brain(self, tmp_path):
+        store = MemoryStore(tmp_path / "test.db")
+        brain = SessionBrain(tmp_path / "brain.md")
+        mgr = SessionManager(store, session_brain=brain)
+        mgr.track_interaction("assistant", "We decided to use Python 3.11")
+        mgr.flush()
+        assert len(brain.decisions) >= 1
+        store.close()
+
+    def test_flush_stores_action_items_in_brain(self, tmp_path):
+        store = MemoryStore(tmp_path / "test.db")
+        brain = SessionBrain(tmp_path / "brain.md")
+        mgr = SessionManager(store, session_brain=brain)
+        mgr.track_interaction("assistant", "TODO: file the IC3 report")
+        mgr.flush()
+        assert len(brain.action_items) >= 1
+        store.close()
+
+    def test_flush_saves_brain_to_disk(self, tmp_path):
+        store = MemoryStore(tmp_path / "test.db")
+        brain_path = tmp_path / "brain.md"
+        brain = SessionBrain(brain_path)
+        mgr = SessionManager(store, session_brain=brain)
+        mgr.track_interaction("assistant", "We decided to use Python")
+        mgr.flush()
+        assert brain_path.exists()
+        store.close()
+
+    def test_flush_without_brain_works(self, tmp_path):
+        """Ensure backward compatibility when no brain is provided."""
+        store = MemoryStore(tmp_path / "test.db")
+        mgr = SessionManager(store)
+        mgr.track_interaction("assistant", "We decided something")
+        result = mgr.flush()
+        assert result["decisions_stored"] >= 1
+        store.close()

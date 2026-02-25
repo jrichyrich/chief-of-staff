@@ -38,11 +38,12 @@ _FACT_PATTERNS = re.compile(
 class SessionManager:
     """Manages session lifecycle: tracking, extraction, flush, and restore."""
 
-    def __init__(self, memory_store: MemoryStore, session_id: Optional[str] = None):
+    def __init__(self, memory_store: MemoryStore, session_id: Optional[str] = None, session_brain=None):
         self.memory_store = memory_store
         self.session_id = session_id or str(uuid.uuid4())
         self._buffer: list[Interaction] = []
         self._created_at = datetime.now().isoformat()
+        self._session_brain = session_brain
 
     def track_interaction(
         self,
@@ -168,6 +169,14 @@ class SessionManager:
             agent="jarvis",
         )
         self.memory_store.store_context(entry)
+
+        # Update session brain if available
+        if self._session_brain is not None:
+            for content in extracted["decisions"]:
+                self._session_brain.add_decision(content[:200])
+            for content in extracted["action_items"]:
+                self._session_brain.add_action_item(content[:200], source="session_flush")
+            self._session_brain.save()
 
         return {
             "decisions_stored": decisions_stored,
