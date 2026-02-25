@@ -29,7 +29,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["memory*", "agents*", "documents*", "chief*", "tools*", "utils*", "apple_calendar*", "apple_notifications*", "apple_reminders*", "apple_mail*", "apple_messages*", "connectors*", "okr*", "browser*"]
+include = ["memory*", "agents*", "documents*", "chief*", "tools*", "utils*", "apple_calendar*", "apple_notifications*", "apple_reminders*", "apple_mail*", "apple_messages*", "connectors*", "okr*", "browser*", "mcp_tools*", "channels*", "playbooks*", "session*", "scheduler*", "hooks*", "proactive*", "webhook*", "skills*", "capabilities*", "humanizer*"]
 
 [tool.setuptools.package-data]
 "agent_configs" = ["*.yaml"]
