@@ -29,7 +29,7 @@
     },
     {
       "name": "query_memory",
-      "description": "Search stored facts about the user. Returns matching facts."
+      "description": "Search stored facts about the user. Returns matching facts ranked by relevance (recency + confidence)."
     },
     {
       "name": "store_location",
@@ -38,6 +38,14 @@
     {
       "name": "list_locations",
       "description": "List all stored locations."
+    },
+    {
+      "name": "checkpoint_session",
+      "description": "Save important session context to persistent memory before context compaction."
+    },
+    {
+      "name": "get_session_health",
+      "description": "Return session activity metrics: tool call count, session start time, last checkpoint."
     },
     {
       "name": "search_documents",
@@ -60,7 +68,23 @@
       "description": "Create or update an expert agent configuration."
     },
     {
-      "name": "log_decision",
+      "name": "get_agent_memory",
+      "description": "Get all memories stored by a specific agent."
+    },
+    {
+      "name": "clear_agent_memory",
+      "description": "Delete all memories for a specific agent."
+    },
+    {
+      "name": "store_shared_memory",
+      "description": "Store a memory in a shared namespace for cross-agent collaboration."
+    },
+    {
+      "name": "get_shared_memory",
+      "description": "Retrieve shared memories from a namespace."
+    },
+    {
+      "name": "create_decision",
       "description": "Log a decision for tracking and follow-up."
     },
     {
@@ -80,7 +104,7 @@
       "description": "Delete a decision by ID."
     },
     {
-      "name": "add_delegation",
+      "name": "create_delegation",
       "description": "Create a new delegation to track a task assigned to someone."
     },
     {
@@ -140,11 +164,19 @@
       "description": "Search events by title text. Defaults to +/- 30 days if no dates provided."
     },
     {
+      "name": "find_my_open_slots",
+      "description": "Find available time slots in your calendar within a date range."
+    },
+    {
+      "name": "find_group_availability",
+      "description": "GUIDANCE TOOL: Explains workflow for finding group meeting times."
+    },
+    {
       "name": "list_reminder_lists",
       "description": "List all reminder lists available on this Mac."
     },
     {
-      "name": "get_reminders",
+      "name": "list_reminders",
       "description": "Get reminders, optionally filtered by list and completion status."
     },
     {
@@ -196,6 +228,10 @@
       "description": "Move a message to a different mailbox."
     },
     {
+      "name": "reply_to_email",
+      "description": "Reply to an existing email within its thread. REQUIRES confirm_send=True after user explicitly confirms."
+    },
+    {
       "name": "send_email",
       "description": "Compose and send an email. REQUIRES confirm_send=True after user explicitly confirms they want to send."
     },
@@ -234,6 +270,170 @@
     {
       "name": "query_okr_status",
       "description": "Query the latest OKR data. Use after refresh_okr_data has been called."
+    },
+    {
+      "name": "list_webhook_events",
+      "description": "List webhook events with optional filters."
+    },
+    {
+      "name": "get_webhook_event",
+      "description": "Get full details of a webhook event including its payload."
+    },
+    {
+      "name": "process_webhook_event",
+      "description": "Mark a webhook event as processed."
+    },
+    {
+      "name": "record_tool_usage",
+      "description": "Record a tool usage pattern for skill analysis."
+    },
+    {
+      "name": "analyze_skill_patterns",
+      "description": "Analyze recorded tool usage patterns and generate skill suggestions."
+    },
+    {
+      "name": "list_skill_suggestions",
+      "description": "List skill suggestions filtered by status."
+    },
+    {
+      "name": "auto_create_skill",
+      "description": "Accept a skill suggestion and create an agent from it using AgentFactory."
+    },
+    {
+      "name": "auto_execute_skills",
+      "description": "Auto-create agents from high-confidence pending skill suggestions."
+    },
+    {
+      "name": "create_scheduled_task",
+      "description": "Create a new scheduled task."
+    },
+    {
+      "name": "list_scheduled_tasks",
+      "description": "List all scheduled tasks."
+    },
+    {
+      "name": "update_scheduled_task",
+      "description": "Update a scheduled task's configuration."
+    },
+    {
+      "name": "delete_scheduled_task",
+      "description": "Delete a scheduled task by ID."
+    },
+    {
+      "name": "run_scheduled_task",
+      "description": "Manually trigger a scheduled task to run now."
+    },
+    {
+      "name": "get_scheduler_status",
+      "description": "Get a summary of all scheduled tasks with their last and next run times."
+    },
+    {
+      "name": "get_proactive_suggestions",
+      "description": "Run the proactive suggestion engine and return prioritized suggestions."
+    },
+    {
+      "name": "dismiss_suggestion",
+      "description": "Dismiss a proactive suggestion so it doesn't reappear."
+    },
+    {
+      "name": "list_inbound_events",
+      "description": "List recent inbound events normalized across channels (iMessage, Mail, Webhook)."
+    },
+    {
+      "name": "get_event_summary",
+      "description": "Get a count of recent inbound events by channel."
+    },
+    {
+      "name": "link_identity",
+      "description": "Link a provider identity to a canonical person name."
+    },
+    {
+      "name": "unlink_identity",
+      "description": "Remove an identity link for a specific provider account."
+    },
+    {
+      "name": "get_identity",
+      "description": "Get all linked accounts for a person by their canonical name."
+    },
+    {
+      "name": "search_identity",
+      "description": "Search identities by name, email, or provider ID."
+    },
+    {
+      "name": "create_event_rule",
+      "description": "Create an event rule that triggers an agent when a matching webhook event arrives."
+    },
+    {
+      "name": "update_event_rule",
+      "description": "Update an existing event rule."
+    },
+    {
+      "name": "delete_event_rule",
+      "description": "Delete an event rule by ID."
+    },
+    {
+      "name": "list_event_rules",
+      "description": "List event rules."
+    },
+    {
+      "name": "process_webhook_event_with_agents",
+      "description": "Manually trigger agent dispatch for a specific webhook event."
+    },
+    {
+      "name": "get_session_status",
+      "description": "Return current session status: token estimate, interaction count, time since last checkpoint."
+    },
+    {
+      "name": "flush_session_memory",
+      "description": "Persist structured session data to long-term memory."
+    },
+    {
+      "name": "restore_session",
+      "description": "Restore context from a previous session checkpoint."
+    },
+    {
+      "name": "enrich_person",
+      "description": "Get a consolidated profile for a person: identities, facts, delegations, decisions, recent messages, and emails."
+    },
+    {
+      "name": "open_teams_browser",
+      "description": "Launch a persistent Chromium browser and navigate to Teams."
+    },
+    {
+      "name": "post_teams_message",
+      "description": "Prepare a message for posting to a Teams channel or person."
+    },
+    {
+      "name": "confirm_teams_post",
+      "description": "Send the previously prepared Teams message."
+    },
+    {
+      "name": "cancel_teams_post",
+      "description": "Cancel the previously prepared Teams message."
+    },
+    {
+      "name": "close_teams_browser",
+      "description": "Close the persistent Teams browser."
+    },
+    {
+      "name": "get_session_brain",
+      "description": "Get the current Session Brain -- persistent cross-session context."
+    },
+    {
+      "name": "update_session_brain",
+      "description": "Update the Session Brain with new information."
+    },
+    {
+      "name": "route_message",
+      "description": "Determine the safety tier and delivery channel for an outbound message."
+    },
+    {
+      "name": "list_playbooks",
+      "description": "List all available team playbooks."
+    },
+    {
+      "name": "get_playbook",
+      "description": "Get details of a specific playbook including its workstreams and inputs."
     }
   ],
   "compatibility": {
