@@ -129,6 +129,24 @@ class TestUsageTracker:
         finally:
             mcp_server._state.clear()
 
+    @pytest.mark.asyncio
+    async def test_tracks_query_argument(self, tracked_mcp, memory_store):
+        """Tools with a 'query' arg should record the query value, not 'auto'."""
+        await tracked_mcp.call_tool("query_memory", {"query": "weekly priorities"})
+
+        patterns = memory_store.get_skill_usage_patterns()
+        qm = [p for p in patterns if p["tool_name"] == "query_memory"]
+        assert any(p["query_pattern"] == "weekly priorities" for p in qm)
+
+    @pytest.mark.asyncio
+    async def test_no_args_still_tracks_auto(self, tracked_mcp, memory_store):
+        """Tools with no meaningful args should still record 'auto'."""
+        await tracked_mcp.call_tool("list_locations", {})
+
+        patterns = memory_store.get_skill_usage_patterns()
+        loc = [p for p in patterns if p["tool_name"] == "list_locations"]
+        assert any(p["query_pattern"] == "auto" for p in loc)
+
     def test_install_is_idempotent(self):
         """Calling install_usage_tracker twice should not double-wrap."""
         import mcp_server

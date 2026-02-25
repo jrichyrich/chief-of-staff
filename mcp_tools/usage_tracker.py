@@ -19,8 +19,6 @@ _EXCLUDED_TOOLS = frozenset({
     "auto_execute_skills",
 })
 
-_QUERY_PATTERN = "auto"
-
 # Ordered priority of argument keys to extract as query_pattern
 _PATTERN_KEYS = (
     "query",
@@ -83,7 +81,8 @@ def install_usage_tracker(mcp, state):
             try:
                 memory_store = state.memory_store
                 if memory_store is not None:
-                    memory_store.record_skill_usage(name, _QUERY_PATTERN)
+                    pattern = _extract_query_pattern(name, arguments)
+                    memory_store.record_skill_usage(name, pattern)
             except Exception:
                 logger.debug("Failed to record usage for %s", name, exc_info=True)
 
