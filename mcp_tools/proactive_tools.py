@@ -21,7 +21,12 @@ def register(mcp, state):
 
         memory_store = state.memory_store
         try:
-            engine = ProactiveSuggestionEngine(memory_store, session_health=state.session_health)
+            engine = ProactiveSuggestionEngine(
+                memory_store,
+                session_health=state.session_health,
+                session_manager=getattr(state, "session_manager", None),
+                session_brain=getattr(state, "session_brain", None),
+            )
             suggestions = engine.generate_suggestions()
             if not suggestions:
                 return json.dumps({"message": "No suggestions at this time.", "suggestions": []})
