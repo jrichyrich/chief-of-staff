@@ -12,6 +12,8 @@ import pytest
 from setup_jarvis import (
     Status, SetupStep, StepRunner, VenvStep, PipStep, DataDirsStep,
     SystemDepsStep, EnvConfigStep, TestSuiteStep, ServerVerifyStep,
+    PlaywrightStep, LaunchAgentsStep, IMessagePermsStep, CalendarPermsStep,
+    M365BridgeStep,
     format_scan_line, format_scan_summary, format_final_summary,
 )
 
@@ -346,6 +348,66 @@ class TestServerVerifyStep:
     def test_guide(self):
         step = ServerVerifyStep()
         assert "jarvis-mcp" in step.guide()
+
+
+# ---------------------------------------------------------------------------
+# format_scan_line / format_scan_summary
+# ---------------------------------------------------------------------------
+
+
+class TestFormatScan:
+    def test_format_scan_summary(self):
+        results = [
+            ("venv", Status.OK, True, False),
+            ("pip", Status.MISSING, True, False),
+            ("perms", Status.MISSING, False, True),
+        ]
+        summary = format_scan_summary(results)
+        assert "1 auto-install" in summary
+        assert "1 manual" in summary
+        assert "1 already done" in summary
+
+    def test_format_scan_line(self):
+        assert "[ok]" in format_scan_line("Python 3.13", Status.OK)
+        assert "[--]" in format_scan_line("pip deps", Status.MISSING)
+        assert "[!!]" in format_scan_line("perms", Status.ERROR)
+
+    def test_format_scan_line_contains_name(self):
+        assert "Python 3.13" in format_scan_line("Python 3.13", Status.OK)
+
+    def test_format_scan_summary_empty(self):
+        summary = format_scan_summary([])
+        assert isinstance(summary, str)
+
+
+# ---------------------------------------------------------------------------
+# format_final_summary
+# ---------------------------------------------------------------------------
+
+
+class TestFormatFinalSummary:
+    def test_final_summary_includes_manual_steps(self):
+        manual_guides = [
+            "Grant Calendar access: System Settings > Privacy > Calendars",
+            "Grant Full Disk Access for scripts/imessage-reader",
+        ]
+        summary = format_final_summary(completed=5, failed=0, manual_guides=manual_guides)
+        assert "5 steps configured" in summary
+        assert "Calendar" in summary
+        assert "Full Disk Access" in summary
+
+    def test_final_summary_no_manual(self):
+        summary = format_final_summary(completed=3, failed=0, manual_guides=[])
+        assert "Manual steps" not in summary
+
+    def test_final_summary_shows_failures(self):
+        summary = format_final_summary(completed=3, failed=2, manual_guides=[])
+        assert "2 failed" in summary
+
+    def test_final_summary_includes_quick_start(self):
+        summary = format_final_summary(completed=1, failed=0, manual_guides=[])
+        assert "jarvis-mcp" in summary
+        assert "pytest" in summary
 
 
 # ---------------------------------------------------------------------------

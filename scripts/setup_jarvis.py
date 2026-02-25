@@ -425,6 +425,227 @@ class EnvConfigStep(SetupStep):
 
 
 # ---------------------------------------------------------------------------
+# PlaywrightStep — guided (user runs playwright install themselves)
+# ---------------------------------------------------------------------------
+
+_PERSONAL_FULL = {"personal", "full"}
+
+
+@dataclass
+class PlaywrightStep(SetupStep):
+    """Ensure Playwright and its Chromium browser are installed.
+
+    This is a *guided* step: the user must run ``playwright install chromium``
+    themselves after pip-installing playwright.
+    """
+
+    name: str = field(default="Playwright browser", init=False)
+    key: str = field(default="playwright", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_PERSONAL_FULL), init=False)
+
+    _CACHE_DIRS: list[Path] = field(
+        default_factory=lambda: [
+            Path.home() / "Library" / "Caches" / "ms-playwright",
+            Path.home() / ".cache" / "ms-playwright",
+        ],
+        init=False,
+    )
+
+    def check(self) -> Status:
+        """MISSING if ``playwright`` binary not on PATH or no browser cache."""
+        if shutil.which("playwright") is None:
+            return Status.MISSING
+        for cache_dir in self._CACHE_DIRS:
+            if cache_dir.is_dir() and any(cache_dir.iterdir()):
+                return Status.OK
+        return Status.MISSING
+
+    def guide(self) -> str:
+        return "playwright install chromium"
+
+    @property
+    def is_auto(self) -> bool:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# LaunchAgentsStep — auto (runs install-plists.sh)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LaunchAgentsStep(SetupStep):
+    """Install macOS LaunchAgent plist files for background daemons."""
+
+    PLIST_LABELS: list[str] = field(
+        default_factory=lambda: [
+            "com.chg.inbox-monitor",
+            "com.chg.jarvis-backup",
+            "com.chg.alert-evaluator",
+            "com.chg.imessage-daemon",
+            "com.chg.scheduler-engine",
+        ],
+        init=False,
+    )
+
+    project_dir: Path = field(default_factory=lambda: PROJECT_DIR)
+    launch_agents_dir: Optional[Path] = None
+
+    name: str = field(default="LaunchAgents", init=False)
+    key: str = field(default="launch_agents", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_PERSONAL_FULL), init=False)
+
+    def __post_init__(self) -> None:
+        if self.launch_agents_dir is None:
+            self.launch_agents_dir = Path.home() / "Library" / "LaunchAgents"
+
+    def check(self) -> Status:
+        """OK if all plist files exist in the LaunchAgents directory."""
+        assert self.launch_agents_dir is not None  # satisfy type checker
+        for label in self.PLIST_LABELS:
+            plist_path = self.launch_agents_dir / f"{label}.plist"
+            if not plist_path.exists():
+                return Status.MISSING
+        return Status.OK
+
+    def install(self) -> bool:
+        """Run ``scripts/install-plists.sh`` with JARVIS_PROJECT_DIR."""
+        script = self.project_dir / "scripts" / "install-plists.sh"
+        env = os.environ.copy()
+        env["JARVIS_PROJECT_DIR"] = str(self.project_dir)
+        try:
+            subprocess.run(
+                ["bash", str(script)],
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+            return True
+        except (subprocess.CalledProcessError, OSError):
+            return False
+
+    def guide(self) -> str:
+        return "./scripts/install-plists.sh"
+
+    @property
+    def is_auto(self) -> bool:
+        return True
+
+
+# ---------------------------------------------------------------------------
+# IMessagePermsStep — manual (macOS Full Disk Access)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class IMessagePermsStep(SetupStep):
+    """Grant Full Disk Access to the iMessage reader script.
+
+    This is a *manual* step: the user must open System Settings and
+    add the appropriate binary to the Full Disk Access list.
+    """
+
+    name: str = field(default="iMessage permissions", init=False)
+    key: str = field(default="imessage_perms", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_PERSONAL_FULL), init=False)
+
+    def check(self) -> Status:
+        """Always MISSING — cannot programmatically verify Full Disk Access."""
+        return Status.MISSING
+
+    def guide(self) -> str:
+        return (
+            "Grant Full Disk Access to the iMessage reader:\n"
+            "  1. Open System Settings > Privacy & Security > Full Disk Access\n"
+            "  2. Click '+' and add scripts/imessage-reader\n"
+            "  3. Restart your terminal"
+        )
+
+    @property
+    def is_manual(self) -> bool:
+        return True
+
+
+# ---------------------------------------------------------------------------
+# CalendarPermsStep — manual (Calendar & Reminders)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CalendarPermsStep(SetupStep):
+    """Grant Calendar and Reminders access to the Python process.
+
+    This is a *manual* step: the user must approve the permission prompts
+    or add the binary in System Settings.
+    """
+
+    name: str = field(default="Calendar & Reminders permissions", init=False)
+    key: str = field(default="calendar_perms", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_PERSONAL_FULL), init=False)
+
+    def check(self) -> Status:
+        """Always MISSING — cannot programmatically verify TCC permissions."""
+        return Status.MISSING
+
+    def guide(self) -> str:
+        return (
+            "Grant Calendar and Reminders access:\n"
+            "  1. Open System Settings > Privacy & Security > Calendars\n"
+            "  2. Ensure your terminal / Python is allowed\n"
+            "  3. Repeat for Privacy & Security > Reminders"
+        )
+
+    @property
+    def is_manual(self) -> bool:
+        return True
+
+
+# ---------------------------------------------------------------------------
+# M365BridgeStep — guided (Claude Desktop M365 connector)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class M365BridgeStep(SetupStep):
+    """Verify that the Claude M365 MCP connector is configured.
+
+    Checks by running ``claude mcp list`` and looking for a Microsoft 365
+    entry in the output.
+    """
+
+    name: str = field(default="M365 bridge", init=False)
+    key: str = field(default="m365_bridge", init=False)
+    profiles: set[str] = field(default_factory=lambda: {"full"}, init=False)
+
+    def check(self) -> Status:
+        """OK if ``claude mcp list`` output contains a Microsoft 365 reference."""
+        claude_bin = shutil.which("claude")
+        if claude_bin is None:
+            return Status.MISSING
+        try:
+            result = subprocess.run(
+                [claude_bin, "mcp", "list"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            output = (result.stdout + result.stderr).lower()
+            if "microsoft" in output or "365" in output:
+                return Status.OK
+            return Status.MISSING
+        except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+            return Status.ERROR
+
+    def guide(self) -> str:
+        return (
+            "Set up the Claude M365 bridge:\n"
+            "  1. Install the Claude CLI: npm install -g @anthropic-ai/claude-cli\n"
+            "  2. Run: claude mcp add microsoft-365\n"
+            "  3. Follow the authentication prompts"
+        )
+
+    @property
+    def is_auto(self) -> bool:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # TestSuiteStep — run pytest from the venv
 # ---------------------------------------------------------------------------
 
