@@ -617,3 +617,57 @@ class TestBuildSteps:
         steps = build_steps(profile="minimal")
         env_step = [s for s in steps if s.key == "env_config"][0]
         assert env_step._profile == "minimal"
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — full scan pipeline
+# ---------------------------------------------------------------------------
+
+
+class TestIntegration:
+    def test_check_mode_returns_exit_code(self, tmp_path):
+        """--check mode should detect missing steps in a fresh tmp dir."""
+        steps = build_steps(project_dir=tmp_path, profile="minimal", interactive=False)
+        runner = StepRunner(steps=steps, profile="minimal", interactive=False)
+        results = runner.scan()
+        has_missing = any(s != Status.OK for _, s in results)
+        assert has_missing  # fresh tmp_path should have missing steps
+
+    def test_scan_all_steps_return_valid_status(self, tmp_path):
+        """Every step's check() should return a valid Status."""
+        steps = build_steps(project_dir=tmp_path, profile="full", interactive=False)
+        for step in steps:
+            status = step.check()
+            assert isinstance(status, Status), f"{step.key} returned {type(status)}"
+
+    def test_all_steps_have_guide(self, tmp_path):
+        """Every step should have a non-empty guide string."""
+        steps = build_steps(project_dir=tmp_path, profile="full", interactive=False)
+        for step in steps:
+            guide = step.guide()
+            assert isinstance(guide, str), f"{step.key}.guide() returned {type(guide)}"
+            assert len(guide) > 0, f"{step.key}.guide() is empty"
+
+    def test_scan_summary_formatting(self, tmp_path):
+        """Scan results should produce valid format_scan_summary output."""
+        steps = build_steps(project_dir=tmp_path, profile="full", interactive=False)
+        runner = StepRunner(steps=steps, profile="full", interactive=False)
+        results = runner.scan()
+        scan_display = [(s.name, st, s.is_auto, s.is_manual) for s, st in results]
+        summary = format_scan_summary(scan_display)
+        assert isinstance(summary, str)
+        assert len(summary) > 0
+
+    def test_all_profiles_produce_steps(self):
+        """Each profile should produce at least 1 applicable step."""
+        for profile in ("minimal", "personal", "full"):
+            steps = build_steps(profile=profile, interactive=False)
+            applicable = [s for s in steps if s.applies_to(profile)]
+            assert len(applicable) > 0, f"Profile {profile} has no applicable steps"
+
+    def test_full_profile_has_most_steps(self):
+        """Full profile should have >= steps as other profiles."""
+        for profile in ("minimal", "personal"):
+            full_steps = [s for s in build_steps(profile="full", interactive=False) if s.applies_to("full")]
+            other_steps = [s for s in build_steps(profile=profile, interactive=False) if s.applies_to(profile)]
+            assert len(full_steps) >= len(other_steps)
