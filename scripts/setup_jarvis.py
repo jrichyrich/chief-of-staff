@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import abc
+import argparse
 import enum
 import json
 import os
@@ -122,6 +123,7 @@ class StepRunner:
 # ---------------------------------------------------------------------------
 
 _ALL_PROFILES = {"minimal", "personal", "full"}
+PROFILES = ("minimal", "personal", "full")
 
 
 @dataclass
@@ -827,3 +829,240 @@ def format_final_summary(
     lines.append("  pytest              # run test suite")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Parameters
+    ----------
+    argv:
+        Argument list (defaults to ``sys.argv[1:]``).
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments with ``.profile`` and ``.check`` attributes.
+    """
+    parser = argparse.ArgumentParser(
+        description="Jarvis (Chief of Staff) setup and environment checker.",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default=None,
+        help="Setup profile: minimal, personal, or full",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        default=False,
+        help="Scan-only mode: report status without making changes",
+    )
+    return parser.parse_args(argv)
+
+
+# ---------------------------------------------------------------------------
+# Interactive profile prompt
+# ---------------------------------------------------------------------------
+
+
+def prompt_profile() -> str:
+    """Interactively prompt the user to choose a setup profile.
+
+    Displays a welcome message with three numbered options and loops
+    until a valid selection (1/2/3 or profile name) is received.
+
+    Returns
+    -------
+    str
+        One of ``"minimal"``, ``"personal"``, or ``"full"``.
+    """
+    print()
+    print("Welcome to Jarvis Setup")
+    print("=======================")
+    print()
+    print("Choose a profile:")
+    print("  1) minimal  — venv, pip, data dirs, env config, server verify")
+    print("  2) personal — adds Playwright, LaunchAgents, iMessage & Calendar perms")
+    print("  3) full     — adds M365 bridge, test suite")
+    print()
+
+    _map = {"1": "minimal", "2": "personal", "3": "full"}
+
+    while True:
+        choice = input("Profile [1/2/3]: ").strip().lower()
+        if choice in _map:
+            return _map[choice]
+        if choice in PROFILES:
+            return choice
+        print(f"  Invalid choice: {choice!r}. Enter 1, 2, 3 or a profile name.")
+
+
+# ---------------------------------------------------------------------------
+# Step builder
+# ---------------------------------------------------------------------------
+
+
+def build_steps(
+    project_dir: Path | None = None,
+    profile: str = "full",
+    interactive: bool = True,
+) -> list[SetupStep]:
+    """Build the ordered list of all setup steps.
+
+    Parameters
+    ----------
+    project_dir:
+        Project root directory (defaults to ``PROJECT_DIR``).
+    profile:
+        The selected profile (used to configure profile-aware steps).
+    interactive:
+        Whether the session is interactive (affects ``EnvConfigStep``).
+
+    Returns
+    -------
+    list[SetupStep]
+        Steps in dependency order: venv -> pip -> ... -> server_verify.
+    """
+    if project_dir is None:
+        project_dir = PROJECT_DIR
+
+    return [
+        VenvStep(project_dir=project_dir),
+        PipStep(project_dir=project_dir),
+        SystemDepsStep(),
+        EnvConfigStep(project_dir=project_dir, _profile=profile, interactive=interactive),
+        DataDirsStep(project_dir=project_dir),
+        PlaywrightStep(),
+        LaunchAgentsStep(project_dir=project_dir),
+        IMessagePermsStep(),
+        CalendarPermsStep(),
+        M365BridgeStep(),
+        TestSuiteStep(project_dir=project_dir),
+        ServerVerifyStep(project_dir=project_dir),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Main orchestration
+# ---------------------------------------------------------------------------
+
+
+def run_setup(args: argparse.Namespace) -> int:
+    """Run the full setup workflow.
+
+    1. Determine the profile (from ``--profile`` flag or interactive prompt).
+    2. Build steps and run the scan phase.
+    3. In ``--check`` mode, return 0 if all OK, 1 if any missing.
+    4. Otherwise, walk through actionable steps: auto-install, guided, or
+       manual — then print the final summary.
+
+    Returns
+    -------
+    int
+        Exit code: 0 on success, 1 if ``--check`` found problems.
+    """
+    # -- Determine profile ---------------------------------------------------
+    profile: str = args.profile if args.profile else prompt_profile()
+    interactive = not args.check
+
+    # -- Build steps and scan -----------------------------------------------
+    steps = build_steps(profile=profile, interactive=interactive)
+    runner = StepRunner(steps=steps, profile=profile, interactive=interactive)
+    results = runner.scan()
+
+    # -- Print scan results --------------------------------------------------
+    print()
+    print(f"Scan results ({profile} profile):")
+    for step, status in results:
+        print(format_scan_line(step.name, status))
+
+    summary_data = [
+        (step.name, status, step.is_auto, step.is_manual)
+        for step, status in results
+    ]
+    print()
+    print(format_scan_summary(summary_data))
+    print()
+
+    # -- Check mode: report and exit ----------------------------------------
+    if args.check:
+        has_missing = any(status != Status.OK for _, status in results)
+        return 1 if has_missing else 0
+
+    # -- Walkthrough phase ---------------------------------------------------
+    completed = 0
+    failed = 0
+    manual_guides: list[str] = []
+
+    for step, status in results:
+        if status == Status.OK:
+            completed += 1
+            continue
+
+        print(f"\n--- {step.name} ---")
+
+        if step.is_manual:
+            guide = step.guide()
+            print(guide)
+            manual_guides.append(step.name)
+            continue
+
+        if step.is_auto:
+            print(f"  Installing {step.name}...")
+            if step.install():
+                print(f"  Done.")
+                completed += 1
+            else:
+                print(f"  FAILED.")
+                failed += 1
+            continue
+
+        # Guided step
+        guide = step.guide()
+        print(guide)
+        if interactive:
+            while True:
+                answer = input("  Done? [Y/n/skip]: ").strip().lower()
+                if answer in ("", "y", "yes"):
+                    new_status = step.check()
+                    if new_status == Status.OK:
+                        print("  Verified.")
+                        completed += 1
+                    else:
+                        print("  Still not detected — noted for follow-up.")
+                        manual_guides.append(step.name)
+                    break
+                elif answer in ("n", "no"):
+                    print("  Try again when ready.")
+                    continue
+                elif answer == "skip":
+                    print("  Skipped.")
+                    manual_guides.append(step.name)
+                    break
+                else:
+                    print("  Enter Y, n, or skip.")
+        else:
+            manual_guides.append(step.name)
+
+    # -- Final summary -------------------------------------------------------
+    print()
+    print(format_final_summary(completed, failed, manual_guides))
+
+    return 0
+
+
+def main() -> None:
+    """Entry point: parse arguments and run setup."""
+    args = parse_args()
+    sys.exit(run_setup(args))
+
+
+if __name__ == "__main__":
+    main()

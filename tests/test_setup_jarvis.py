@@ -15,6 +15,7 @@ from setup_jarvis import (
     PlaywrightStep, LaunchAgentsStep, IMessagePermsStep, CalendarPermsStep,
     M365BridgeStep,
     format_scan_line, format_scan_summary, format_final_summary,
+    parse_args, build_steps,
 )
 
 
@@ -526,3 +527,93 @@ class TestSetupSh:
         setup_sh = Path(__file__).parent.parent / "setup.sh"
         content = setup_sh.read_text()
         assert "setup_jarvis.py" in content, "setup.sh must reference setup_jarvis.py"
+
+
+# ---------------------------------------------------------------------------
+# parse_args
+# ---------------------------------------------------------------------------
+
+
+class TestParseArgs:
+    def test_defaults(self):
+        args = parse_args([])
+        assert args.profile is None
+        assert args.check is False
+
+    def test_profile_flag(self):
+        args = parse_args(["--profile", "full"])
+        assert args.profile == "full"
+
+    def test_check_flag(self):
+        args = parse_args(["--check"])
+        assert args.check is True
+
+    def test_invalid_profile_rejected(self):
+        with pytest.raises(SystemExit):
+            parse_args(["--profile", "invalid"])
+
+    def test_profile_minimal(self):
+        args = parse_args(["--profile", "minimal"])
+        assert args.profile == "minimal"
+
+    def test_profile_personal(self):
+        args = parse_args(["--profile", "personal"])
+        assert args.profile == "personal"
+
+    def test_profile_and_check_combined(self):
+        args = parse_args(["--profile", "full", "--check"])
+        assert args.profile == "full"
+        assert args.check is True
+
+
+# ---------------------------------------------------------------------------
+# build_steps
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSteps:
+    def test_build_steps_returns_all_step_types(self):
+        steps = build_steps()
+        keys = {s.key for s in steps}
+        assert "venv" in keys
+        assert "pip" in keys
+        assert "data_dirs" in keys
+        assert "system_deps" in keys
+        assert "env_config" in keys
+        assert "server_verify" in keys
+
+    def test_build_steps_order_preserved(self):
+        steps = build_steps()
+        keys = [s.key for s in steps]
+        assert keys.index("venv") < keys.index("pip")
+        assert keys.index("pip") < keys.index("server_verify")
+
+    def test_build_steps_contains_all_twelve(self):
+        steps = build_steps()
+        assert len(steps) == 12
+
+    def test_build_steps_all_keys(self):
+        steps = build_steps()
+        keys = {s.key for s in steps}
+        expected = {
+            "venv", "pip", "system_deps", "env_config", "data_dirs",
+            "playwright", "launch_agents", "imessage_perms", "calendar_perms",
+            "m365_bridge", "test_suite", "server_verify",
+        }
+        assert keys == expected
+
+    def test_build_steps_custom_project_dir(self, tmp_path):
+        steps = build_steps(project_dir=tmp_path)
+        venv = [s for s in steps if s.key == "venv"][0]
+        assert hasattr(venv, "project_dir")
+        assert venv.project_dir == tmp_path
+
+    def test_build_steps_default_profile(self):
+        steps = build_steps()
+        env_step = [s for s in steps if s.key == "env_config"][0]
+        assert env_step._profile == "full"
+
+    def test_build_steps_custom_profile(self):
+        steps = build_steps(profile="minimal")
+        env_step = [s for s in steps if s.key == "env_config"][0]
+        assert env_step._profile == "minimal"
