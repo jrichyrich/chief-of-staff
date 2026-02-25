@@ -2,6 +2,25 @@
 
 Step-by-step instructions for installing and configuring Chief of Staff (Jarvis).
 
+## Quick Start
+
+Run the interactive setup script:
+
+```bash
+./setup.sh
+```
+
+This detects your environment, installs what it can automatically, and guides you through the rest. For options:
+
+```bash
+./setup.sh --profile minimal    # Core features only
+./setup.sh --profile personal   # + Apple integrations, LaunchAgents, Teams
+./setup.sh --profile full       # Everything including M365, tests
+./setup.sh --check              # Scan-only (no changes)
+```
+
+For manual setup or more details, continue reading below.
+
 ## Prerequisites
 
 - **Python 3.11+** -- required by the project (`requires-python = ">=3.11"` in pyproject.toml)
