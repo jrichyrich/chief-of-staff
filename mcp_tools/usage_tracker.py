@@ -18,6 +18,7 @@ _EXCLUDED_TOOLS = frozenset({
     "list_skill_suggestions",
     "auto_create_skill",
     "auto_execute_skills",
+    "get_tool_statistics",
 })
 
 # Ordered priority of argument keys to extract as query_pattern

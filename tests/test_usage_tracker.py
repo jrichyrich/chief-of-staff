@@ -1,5 +1,7 @@
 # tests/test_usage_tracker.py
 """Tests for automatic tool usage tracking middleware."""
+import json
+
 import pytest
 
 from memory.store import MemoryStore
@@ -298,3 +300,55 @@ class TestToolUsageLog:
         assert qm["success_count"] == 2
         assert qm["failure_count"] == 1
         assert qm["avg_duration_ms"] == pytest.approx(11.67, abs=0.1)
+
+
+class TestGetToolStatistics:
+    """Tests for the get_tool_statistics MCP tool."""
+
+    @pytest.fixture
+    def setup_state(self, memory_store):
+        import mcp_server
+        mcp_server._state.memory_store = memory_store
+        yield mcp_server._state
+        mcp_server._state.clear()
+
+    @pytest.mark.asyncio
+    async def test_returns_summary_stats(self, setup_state, memory_store):
+        from mcp_tools.skill_tools import get_tool_statistics
+
+        # Seed some log data
+        memory_store.log_tool_invocation("query_memory", "backlog", True, 10)
+        memory_store.log_tool_invocation("query_memory", "OKR", True, 20)
+        memory_store.log_tool_invocation("search_mail", "budget", True, 50)
+
+        result = json.loads(await get_tool_statistics())
+        assert result["total_unique_tools"] == 2
+        assert result["total_invocations"] == 3
+        assert len(result["tools"]) == 2
+        qm = next(t for t in result["tools"] if t["tool_name"] == "query_memory")
+        assert qm["total_calls"] == 2
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_data(self, setup_state):
+        from mcp_tools.skill_tools import get_tool_statistics
+
+        result = json.loads(await get_tool_statistics())
+        assert result["total_unique_tools"] == 0
+        assert result["total_invocations"] == 0
+        assert result["tools"] == []
+
+    @pytest.mark.asyncio
+    async def test_includes_top_patterns(self, setup_state, memory_store):
+        from mcp_tools.skill_tools import get_tool_statistics
+
+        memory_store.log_tool_invocation("query_memory", "backlog", True, 10)
+        memory_store.log_tool_invocation("query_memory", "backlog", True, 15)
+        memory_store.log_tool_invocation("query_memory", "OKR", True, 20)
+
+        result = json.loads(await get_tool_statistics(tool_name="query_memory"))
+        assert "top_patterns" in result
+        patterns = result["top_patterns"]
+        assert len(patterns) >= 1
+        # "backlog" used twice should be first
+        assert patterns[0]["query_pattern"] == "backlog"
+        assert patterns[0]["count"] == 2

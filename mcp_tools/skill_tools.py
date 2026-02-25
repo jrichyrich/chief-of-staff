@@ -153,6 +153,52 @@ def register(mcp, state):
             logger.exception("Error auto-executing skills")
             return json.dumps({"error": f"Failed to auto-execute skills: {e}"})
 
+    @mcp.tool()
+    async def get_tool_statistics(tool_name: str = "") -> str:
+        """Get usage statistics for Jarvis MCP tools.
+
+        Returns aggregated stats from the invocation log: call counts,
+        success/failure rates, average duration, and top query patterns.
+
+        Args:
+            tool_name: Optional — filter to a specific tool for detailed breakdown.
+                       If empty, returns summary across all tools.
+        """
+        memory_store = state.memory_store
+        try:
+            stats = memory_store.get_tool_stats_summary()
+
+            if tool_name:
+                stats = [s for s in stats if s["tool_name"] == tool_name]
+                # Get top patterns for the specific tool
+                log = memory_store.get_tool_usage_log(tool_name=tool_name, limit=500)
+                pattern_counts: dict[str, int] = {}
+                for entry in log:
+                    p = entry["query_pattern"]
+                    pattern_counts[p] = pattern_counts.get(p, 0) + 1
+                top_patterns = sorted(
+                    [{"query_pattern": k, "count": v} for k, v in pattern_counts.items()],
+                    key=lambda x: x["count"],
+                    reverse=True,
+                )[:20]
+                return json.dumps({
+                    "tool_name": tool_name,
+                    "total_unique_tools": len(stats),
+                    "total_invocations": sum(s["total_calls"] for s in stats),
+                    "tools": stats,
+                    "top_patterns": top_patterns,
+                })
+
+            total_invocations = sum(s["total_calls"] for s in stats)
+            return json.dumps({
+                "total_unique_tools": len(stats),
+                "total_invocations": total_invocations,
+                "tools": stats,
+            })
+        except Exception as e:
+            logger.exception("Error getting tool statistics")
+            return json.dumps({"error": f"Failed to get statistics: {e}"})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
@@ -161,3 +207,4 @@ def register(mcp, state):
     module.list_skill_suggestions = list_skill_suggestions
     module.auto_create_skill = auto_create_skill
     module.auto_execute_skills = auto_execute_skills
+    module.get_tool_statistics = get_tool_statistics
