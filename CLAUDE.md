@@ -59,6 +59,7 @@ jarvis-mcp
 | `mcp_tools/skill_tools.py` | record_tool_usage, analyze_skill_patterns, list_skill_suggestions, auto_create_skill, auto_execute_skills |
 | `mcp_tools/scheduler_tools.py` | create_scheduled_task, list_scheduled_tasks, update_scheduled_task, delete_scheduled_task, run_scheduled_task, get_scheduler_status |
 | `mcp_tools/enrichment.py` | enrich_person (parallel person data fetching from 6 sources) |
+| `mcp_tools/teams_browser_tools.py` | open_teams_browser, post_teams_message, confirm_teams_post, cancel_teams_post, close_teams_browser |
 | `mcp_tools/channel_tools.py` | list_inbound_events, get_event_summary |
 | `mcp_tools/proactive_tools.py` | get_proactive_suggestions, dismiss_suggestion |
 | `mcp_tools/identity_tools.py` | link_identity, unlink_identity, get_identity, search_identity |
@@ -95,6 +96,8 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `session/manager.py` | Session lifecycle manager: interaction tracking, structured data extraction, flush to memory, restore |
 | `scheduler/delivery.py` | Delivery adapters for scheduled task results: email, iMessage, macOS notification channels |
 | `scheduler/availability.py` | Availability analysis for finding open calendar slots |
+| `mcp_tools/enrichment.py` | Person enrichment: parallel data from memory, identity, calendar, email, iMessage, Teams |
+| `mcp_tools/teams_browser_tools.py` | Teams messaging via persistent Playwright Chromium browser |
 | `config.py` | All paths, model names, constants, and environment variable settings |
 
 ### Apple Platform Integrations (macOS only)
@@ -177,7 +180,7 @@ SQLite (`data/memory.db`) with 14 tables:
 
 ## Testing Conventions
 
-- ~1400 tests across 64 test files
+- ~1582 tests across 72 test files
 - Async tests use `@pytest.mark.asyncio` decorator on each async test function (no global asyncio_mode setting)
 - Anthropic API calls are mocked — tests never hit real APIs
 - Fixtures create isolated MemoryStore, DocumentStore, AgentRegistry instances using `tmp_path`

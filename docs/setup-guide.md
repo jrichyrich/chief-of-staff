@@ -9,6 +9,7 @@ Step-by-step instructions for installing and configuring Chief of Staff (Jarvis)
 - **Homebrew** -- for installing system dependencies (`jq`, `sqlite3`)
 - **Anthropic API key** -- powers all Claude-based agent reasoning
 - **Claude CLI** (optional) -- needed for the inbox monitor, iMessage daemon, and Microsoft 365 bridge (`claude` command in PATH)
+- **Playwright + Chromium** (optional) -- needed for the Teams messaging feature; install with `pip install playwright && playwright install chromium`
 
 ## Installation
 
@@ -202,6 +203,59 @@ M365_BRIDGE_DETECT_TIMEOUT_SECONDS=5  # Connector detection timeout
 
 If the M365 connector is not detected at startup, M365 calendar operations are silently skipped and only Apple Calendar is used.
 
+## Teams Browser (Playwright)
+
+The Teams messaging feature uses a persistent Chromium browser controlled via Playwright and the Chrome DevTools Protocol (CDP). This lets Jarvis post messages to Teams channels and people without requiring the Teams desktop app.
+
+### Prerequisites
+
+Install Playwright and its Chromium browser:
+
+```bash
+pip install playwright
+playwright install chromium
+```
+
+The Chromium binary is cached at `~/Library/Caches/ms-playwright/` (macOS) or `~/.cache/ms-playwright/` (Linux).
+
+### Authentication
+
+The browser uses a persistent user profile stored at `data/playwright/profile/`. The first time you launch the browser, you must authenticate manually:
+
+1. Call `open_teams_browser` -- this launches Chromium and navigates to `https://teams.cloud.microsoft/`
+2. Complete SSO / Microsoft login in the browser window (up to 120 seconds allowed)
+3. Once authenticated, the session is cached in the profile directory and reused on future calls
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `open_teams_browser` | Launch Chromium and navigate to Teams. Idempotent -- returns current status if the browser is already running |
+| `post_teams_message` | Search for a target (channel or person name) in Teams and prepare a message. By default requires confirmation before sending; pass `auto_send=True` to send immediately |
+| `confirm_teams_post` | Send the message prepared by `post_teams_message` |
+| `cancel_teams_post` | Cancel the prepared message without sending |
+| `close_teams_browser` | Stop the Chromium process (sends SIGTERM) |
+
+### How it works
+
+The browser runs as a detached subprocess with `--remote-debugging-port=9222`. Its PID and port are persisted in `data/playwright/browser.json` so the browser survives MCP server restarts. Each tool call reconnects via CDP, performs its action, and disconnects -- the browser process keeps running in the background.
+
+### Troubleshooting: Chromium not found
+
+If `open_teams_browser` returns `"Chromium not found"`:
+
+```bash
+playwright install chromium
+```
+
+### Troubleshooting: Teams session expired
+
+If Teams shows a login page when trying to post:
+
+1. Call `open_teams_browser` to ensure the browser is running
+2. Manually authenticate in the Chromium window
+3. The new session will be cached automatically
+
 ## Verification
 
 ### Run the test suite
@@ -210,7 +264,7 @@ If the M365 connector is not detected at startup, M365 calendar operations are s
 pytest
 ```
 
-All tests should pass (1092 expected). Tests mock all external APIs -- no Anthropic key or macOS permissions needed.
+All tests should pass (1582 expected). Tests mock all external APIs -- no Anthropic key or macOS permissions needed.
 
 ### Start the MCP server
 

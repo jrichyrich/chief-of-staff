@@ -8,7 +8,7 @@
 
 Chief of Staff (Jarvis) is a Python AI orchestration system built on Anthropic's Claude. A "Chief of Staff" agent manages a roster of expert agents, each configured with YAML and granted scoped capabilities. It interprets user requests, routes to the right specialists, dispatches them in parallel when possible, and synthesizes results.
 
-The system exposes 93 tools via the Model Context Protocol (MCP), covering persistent memory (with temporal decay, FTS5, MMR reranking, and vector search), semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, a full decision/delegation lifecycle, webhook ingestion, event-driven agent dispatch, scheduled tasks, self-authoring skills, proactive suggestions, unified channel adapters, cross-channel identity linking, session compaction, and plugin hooks. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
+The system exposes 99 tools across 21 modules via the Model Context Protocol (MCP), covering persistent memory (with temporal decay, FTS5, MMR reranking, and vector search), semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, a full decision/delegation lifecycle, webhook ingestion, event-driven agent dispatch, scheduled tasks, self-authoring skills, proactive suggestions, unified channel adapters, cross-channel identity linking, session compaction, and plugin hooks. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
 
 Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (for Claude Desktop), making it usable from any MCP-compatible host.
 
@@ -42,6 +42,8 @@ Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (fo
 - **Delivery adapters** -- Task and event results delivered via email, iMessage, or macOS notification channels
 - **Scheduled alerts** -- Configurable alert rules evaluated on a schedule (via launchd); checks for overdue delegations, stale decisions, and upcoming deadlines
 - **iMessage inbox monitor** -- Autonomous daemon that processes incoming commands via iMessage
+- **Microsoft Teams messaging** -- Send messages to Teams channels and people via persistent Playwright browser
+- **Person enrichment** -- Parallel data fetching from 6 sources for person intelligence
 
 ## Quick Start
 
@@ -150,6 +152,8 @@ chief_of_staff/
 |   |-- identity_tools.py      # Cross-channel identity linking
 |   |-- session_tools.py       # Session status, flush, restore
 |   |-- event_rule_tools.py    # Event rules for agent dispatch
+|   |-- enrichment.py          # Person data enrichment (6 sources)
+|   |-- teams_browser_tools.py # Teams messaging via Playwright
 |   +-- resources.py           # MCP resources
 |
 |-- agents/                    # Expert agent framework
@@ -191,7 +195,7 @@ chief_of_staff/
 |-- tools/                     # Decision/delegation execution logic
 |-- utils/                     # Shared utilities (retry logic)
 |-- scripts/                   # Shell scripts and launchd plists
-|-- tests/                     # Test suite (1378 tests, 61 files)
+|-- tests/                     # Test suite (1582 tests, 72 files)
 +-- docs/                      # Documentation
 ```
 
@@ -199,7 +203,7 @@ chief_of_staff/
 
 - [Architecture](docs/architecture.md) -- System design, data flow, and module interactions
 - [iMessage Inbox Monitor Setup](docs/inbox-monitor-setup.md) -- Configuring the autonomous iMessage daemon
-- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 93 MCP tools
+- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 99 MCP tools
 - [Agent System](docs/agents.md) -- Agent architecture, capabilities, and configuration guide
 - [Setup Guide](docs/setup-guide.md) -- Installation, environment variables, and troubleshooting
 - [Project Review Team](docs/project-review-team.md) -- Running structured project reviews with specialist agents
@@ -220,7 +224,7 @@ pytest tests/test_mcp_server.py::TestMCPTools::test_query_memory -v
 pytest --cov=agents --cov=memory --cov=documents --cov=mcp_tools
 ```
 
-The test suite contains 1378 tests across 61 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
+The test suite contains 1582 tests across 72 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
 
 ## License
 

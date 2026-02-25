@@ -2,7 +2,7 @@
 
 Complete reference for all MCP tools and resources exposed by the Chief of Staff (Jarvis) server.
 
-**Total: 93 tools across 17 modules, plus 3 MCP resources.**
+**Total: 99 tools across 21 modules, plus 3 MCP resources.**
 
 ---
 
@@ -25,7 +25,9 @@ Complete reference for all MCP tools and resources exposed by the Chief of Staff
 15. [Identity Tools](#identity-tools) (4 tools)
 16. [Event Rule Tools](#event-rule-tools) (5 tools)
 17. [Session Tools](#session-tools) (3 tools)
-18. [Resources](#resources) (3 resources)
+18. [Enrichment Tools](#enrichment-tools) (1 tool)
+19. [Teams Browser Tools](#teams-browser-tools) (5 tools)
+20. [Resources](#resources) (3 resources)
 
 ---
 
@@ -1282,6 +1284,89 @@ Restore context from a previous session checkpoint.
 
 ---
 
+## Enrichment Tools
+
+**Module:** `mcp_tools/enrichment.py`
+
+Contextual tool chaining — consolidated person profiles assembled from parallel data fetches across six sources. Much faster than calling each source tool individually.
+
+### enrich_person
+
+Get a consolidated profile for a person by fetching from identities, facts, delegations, decisions, recent iMessages, and recent emails in parallel. Empty sections are omitted from the response. If a data source is unavailable (e.g., no mail store configured), that section is silently skipped.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `str` | Yes | Person's name to search for (canonical name or partial match) |
+| `days_back` | `int` | No | How many days back to search communications (default: `7`) |
+
+**Returns:** JSON object keyed by available data sections: `name` (always present), and any of `identities`, `facts`, `delegations`, `decisions`, `recent_messages`, `recent_emails`. Each section contains up to 10 results.
+
+---
+
+## Teams Browser Tools
+
+**Module:** `mcp_tools/teams_browser_tools.py`
+
+Browser automation tools for posting messages to Microsoft Teams. Uses a persistent Chromium browser (via Playwright) that is launched once and reused across calls. The two-step prepare/confirm flow prevents accidental sends; use `auto_send=True` on `post_teams_message` to skip confirmation.
+
+### open_teams_browser
+
+Launch a persistent Chromium browser and navigate to Microsoft Teams.
+
+The browser stays open in the background. If the Teams session has expired, authenticate manually in the browser window — the session is cached in the browser profile for future calls. Idempotent: returns current status if the browser is already running.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `status: "running"` on success, or an error message if launch failed.
+
+### post_teams_message
+
+Prepare a message for posting to a Teams channel or person. Connects to the running browser, uses the Teams search bar to find the target by name, navigates there, and stages the message text in the compose box. Does **not** send unless `auto_send=True`.
+
+After this returns `"confirm_required"`, call `confirm_teams_post` to send or `cancel_teams_post` to abort.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `target` | `str` | Yes | Channel name or person name to search for (e.g. `"Engineering"`, `"John Smith"`) |
+| `message` | `str` | Yes | The message text to post |
+| `auto_send` | `bool` | No | If `True`, send immediately without requiring a confirmation step (default: `False`) |
+
+**Returns:** JSON with `status: "confirm_required"` (two-step flow) or `status: "sent"` (when `auto_send=True`), plus `target` and `message` fields.
+
+### confirm_teams_post
+
+Send the previously prepared Teams message. Must be called after `post_teams_message` returned `"confirm_required"`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `status: "sent"` on success, or an error if no message was prepared.
+
+### cancel_teams_post
+
+Cancel the previously prepared Teams message. Disconnects from the browser without sending.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `status: "cancelled"`.
+
+### close_teams_browser
+
+Close the persistent Teams browser. Sends SIGTERM to the Chromium process. Call `open_teams_browser` to restart.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `status: "closed"` or `status: "not_running"`.
+
+---
+
 ## Resources
 
 **Module:** `mcp_tools/resources.py`
@@ -1335,5 +1420,7 @@ All available expert agents and their descriptions.
 | Identity | 4 | Cross-channel identity linking |
 | Event Rules | 5 | Event-driven agent dispatch |
 | Session | 3 | Session lifecycle and context persistence |
-| **Total** | **93** | |
+| Enrichment | 1 | Parallel person profile aggregation across 6 data sources |
+| Teams Browser | 5 | Playwright-based Teams message posting with confirm flow |
+| **Total** | **99** | |
 | Resources | 3 | Read-only data endpoints |

@@ -26,7 +26,7 @@ graph TB
     end
 
     %% ── Tool Modules ────────────────────────────────────────────
-    subgraph Tools["Tool Modules  (93 tools + 3 resources)"]
+    subgraph Tools["Tool Modules  (99 tools + 3 resources)"]
         direction TB
         TM["memory_tools<br/><i>7 tools</i>"]
         TD["document_tools<br/><i>2 tools</i>"]
@@ -45,6 +45,8 @@ graph TB
         TSES["session_tools<br/><i>3 tools</i>"]
         TER["event_rule_tools<br/><i>5 tools</i>"]
         TID["identity_tools<br/><i>4 tools</i>"]
+        TEN["enrichment<br/><i>1 tool</i>"]
+        TTB["teams_browser_tools<br/><i>5 tools</i>"]
         TRES["resources<br/><i>3 resources</i>"]
     end
 
@@ -102,6 +104,7 @@ graph TB
         M365["Microsoft 365<br/><i>via Claude CLI subprocess</i>"]
         EK["EventKit Framework<br/><i>macOS Calendar + Reminders</i>"]
         CHATDB["chat.db<br/><i>macOS iMessage database</i>"]
+        CHROMIUM["Chromium Browser<br/><i>Playwright persistent profile</i>"]
     end
 
     %% ── Client connections ──────────────────────────────────────
@@ -134,7 +137,7 @@ graph TB
     end
 
     %% ── Tool module wiring ──────────────────────────────────────
-    SS --> TM & TD & TA & TL & TC & TR & TMA & TI & TO & TWH & TSK & TSCHED & TCH & TPR & TSES & TER & TID & TRES
+    SS --> TM & TD & TA & TL & TC & TR & TMA & TI & TO & TWH & TSK & TSCHED & TCH & TPR & TSES & TER & TID & TEN & TTB & TRES
 
     %% ── Tool to Store connections ───────────────────────────────
     TM --> MS
@@ -159,6 +162,8 @@ graph TB
     TER --> ED
     ED --> AR
     TID --> MS
+    TEN --> MS
+    TTB --> CHROMIUM
 
     %% ── Calendar provider to backend ────────────────────────────
     AP --> ACS
@@ -189,13 +194,13 @@ graph TB
 
     class CC,CD,IM client
     class EP,SS server
-    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TWH,TSK,TSCHED,TCH,TPR,TSES,TER,TID,TRES tool
+    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TWH,TSK,TSCHED,TCH,TPR,TSES,TER,TID,TEN,TTB,TRES tool
     class MS,DS,OS,RDB store
     class AR,BE,AF,CR agent
     class UCS,PR,AP,MP calendar
     class ACS,ARS,AMS,MSGS,NOT apple
     class LT lifecycle
-    class CLAUDE_API,M365,EK,CHATDB external
+    class CLAUDE_API,M365,EK,CHATDB,CHROMIUM external
     class HR,SM,EA,ADP,PSE,ED infra
 ```
 
@@ -768,3 +773,167 @@ Lifecycle hooks that fire at key points in the MCP server lifecycle and tool exe
 | `after_tool_call` | After a tool handler executes (includes result) |
 | `session_start` | When the MCP server starts |
 | `session_end` | When the MCP server shuts down |
+
+---
+
+## 14. Person Enrichment
+
+Builds a consolidated profile for a person by fetching from multiple data sources simultaneously. A single `enrich_person` call replaces what would otherwise require six separate tool calls.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `mcp_tools/enrichment.py` | MCP tool: `enrich_person` — parallel data fetching and profile assembly |
+| `memory/store.py` | Source for identity links, facts, delegations, and decisions |
+| `apple_messages/messages.py` | Source for recent iMessage threads |
+| `apple_mail/mail.py` | Source for recent email threads |
+
+### Data Sources (fetched in parallel)
+
+| Source | Data Retrieved | Store |
+|--------|---------------|-------|
+| Identities | Provider links (iMessage, email, Teams, etc.) | `memory_store.search_identity()` |
+| Facts | Stored facts mentioning the person | `memory_store.search_facts()` |
+| Delegations | Active delegations assigned to the person | `memory_store.list_delegations(delegated_to=name)` |
+| Decisions | Decisions referencing the person | `memory_store.search_decisions()` |
+| iMessages | Recent message threads with the person | `messages_store.search_messages()` |
+| Emails | Recent email threads with the person | `mail_store.search_messages()` |
+
+### Flow
+
+```
+enrich_person(name, days_back=7)
+        |
+        v
+asyncio.gather() — all 6 fetches run concurrently
+        |
+        v
+Results merged into context dict (empty sections omitted)
+        |
+        v
+Returns JSON profile: {name, identities?, facts?, delegations?,
+                        decisions?, recent_messages?, recent_emails?}
+```
+
+Key design choices:
+- All fetches run concurrently via `asyncio.gather` — latency is bounded by the slowest source, not the sum of all sources.
+- Failed or unavailable sources are silently skipped (debug-logged only), so the tool degrades gracefully on systems without iMessage or Mail access.
+- Results are capped at 10 items per source to keep response size manageable.
+
+---
+
+## 15. Teams Browser Integration
+
+Playwright-based automation for posting messages to Microsoft Teams channels and DMs through a persistent browser session. Designed as a two-phase flow (prepare + confirm) to prevent accidental sends.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `mcp_tools/teams_browser_tools.py` | Five MCP tools: `open_teams_browser`, `post_teams_message`, `confirm_teams_post`, `cancel_teams_post`, `close_teams_browser` |
+| `browser/manager.py` | `TeamsBrowserManager` — launches and manages a persistent Chromium process with a cached profile |
+| `browser/teams_poster.py` | `PlaywrightTeamsPoster` — connects to the running browser, searches Teams for the target, prepares and sends messages |
+
+### Tool Summary
+
+| Tool | Purpose |
+|------|---------|
+| `open_teams_browser` | Launch Chromium and navigate to `teams.cloud.microsoft`. Idempotent — returns current status if already running. Session is cached in a persistent browser profile. |
+| `post_teams_message` | Search Teams for the target by name (channel or person), navigate to their chat/channel, and stage the message. Returns `confirm_required` unless `auto_send=True`. |
+| `confirm_teams_post` | Send the previously staged message. Must be called after `post_teams_message` returns `confirm_required`. |
+| `cancel_teams_post` | Abort the staged message and disconnect without sending. |
+| `close_teams_browser` | Send SIGTERM to the Chromium process. Call `open_teams_browser` to restart. |
+
+### Flow
+
+```
+open_teams_browser()
+        |  Launch Chromium, navigate to Teams, cache session
+        v
+post_teams_message(target, message)
+        |  Search Teams for target by name, navigate, stage message
+        v
+     confirm_required?
+        |  Yes                    No (auto_send=True)
+        v                               v
+confirm_teams_post()            Message sent immediately
+        |
+        v
+Message delivered
+```
+
+Key design choices:
+- The browser process is persistent across MCP tool calls — `open_teams_browser` is called once; subsequent `post_teams_message` calls reuse the existing session.
+- Target resolution uses the Teams search bar (name-based), so callers do not need to know internal channel IDs or user GUIDs.
+- The two-step prepare/confirm flow gives Claude Code a chance to surface the staged message to the user for review before it is sent.
+- `auto_send=True` collapses the flow to a single call for trusted automation contexts.
+
+---
+
+## 16. Persistent Daemon
+
+`JarvisDaemon` is a long-running asyncio process that wraps `SchedulerEngine` in a configurable tick loop. It replaces three separate launchd agents with a single persistent process, reducing system overhead and simplifying operational management.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `scheduler/daemon.py` | `JarvisDaemon` — asyncio tick loop wrapping `SchedulerEngine`; standalone `__main__` entry point |
+| `scheduler/engine.py` | `SchedulerEngine` — evaluates due tasks from the `scheduled_tasks` SQLite table |
+| `memory/store.py` | SQLite `scheduled_tasks` table — source of truth for all scheduled work |
+| `config.py` | `DAEMON_TICK_INTERVAL_SECONDS`, `DAEMON_LOG_FILE`, `MEMORY_DB_PATH` — runtime configuration |
+
+### Replaced launchd Agents
+
+| Old Agent | Poll Interval | Replacement Handler |
+|-----------|--------------|---------------------|
+| `com.chg.scheduler-engine.plist` | 5 minutes | Daemon tick loop (configurable) |
+| `com.chg.alert-evaluator.plist` | 2 hours | `alert_eval` scheduled task handler |
+| `com.chg.inbox-monitor.plist` | 5 minutes | `webhook_poll` scheduled task handler |
+
+### Flow
+
+```
+python -m scheduler.daemon
+        |
+        v
+JarvisDaemon.run()  -->  asyncio event loop
+        |
+        v
+loop:
+    _tick()  -->  SchedulerEngine.evaluate_due_tasks()
+                        |  Query scheduled_tasks for items where next_run_at <= now
+                        v
+                  Execute due tasks (alert_eval, webhook_poll, skill_analysis, custom)
+                        |
+                        v
+                  Update next_run_at, last_run_at in SQLite
+        |
+    sleep(tick_interval)  [default: 60s, configurable via DAEMON_TICK_INTERVAL_SECONDS]
+        |
+    repeat until SIGTERM / SIGINT received
+        |
+        v
+Graceful shutdown  -->  current tick completes, then exits
+```
+
+Key design choices:
+- SIGTERM and SIGINT are caught via `loop.add_signal_handler` and set a `_shutdown` flag, allowing the current tick to complete cleanly before the process exits.
+- The sleep task is cancelled immediately on shutdown signal, so the daemon does not wait out a full tick interval before stopping.
+- Tick errors are caught and logged at the `_tick` level — a single failing handler never crashes the daemon loop.
+- Logs are written to both `DAEMON_LOG_FILE` and stderr, suitable for `launchd StandardErrorPath` redirection.
+
+### Standalone Entry Point
+
+```bash
+python -m scheduler.daemon
+```
+
+Or run directly:
+
+```bash
+python scheduler/daemon.py
+```
+
+Reads `DAEMON_TICK_INTERVAL_SECONDS` and `MEMORY_DB_PATH` from `config.py` (which reads environment variables). Exits with code 1 if the memory database does not exist.
