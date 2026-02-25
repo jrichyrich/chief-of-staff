@@ -5,6 +5,7 @@ BASE_DIR = Path(__file__).parent
 AGENT_CONFIGS_DIR = BASE_DIR / "agent_configs"
 DATA_DIR = BASE_DIR / "data"
 MEMORY_DB_PATH = DATA_DIR / "memory.db"
+SESSION_BRAIN_PATH = DATA_DIR / "session_brain.md"
 CHROMA_PERSIST_DIR = DATA_DIR / "chroma"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")

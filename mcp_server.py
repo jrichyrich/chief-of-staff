@@ -121,6 +121,11 @@ async def app_lifespan(server: FastMCP):
     from session.manager import SessionManager
     _state.session_manager = SessionManager(memory_store)
 
+    # Initialize session brain
+    from session.brain import SessionBrain
+    _state.session_brain = SessionBrain(app_config.SESSION_BRAIN_PATH)
+    _state.session_brain.load()
+
     # Seed default scheduled tasks if they don't already exist
     _default_tasks = [
         ScheduledTask(
@@ -180,6 +185,7 @@ async def app_lifespan(server: FastMCP):
         _state.okr_store = None
         _state.allowed_ingest_roots = None
         _state.session_manager = None
+        _state.session_brain = None
         memory_store.close()
         logger.info("Jarvis MCP server shut down")
 
@@ -212,6 +218,7 @@ from mcp_tools import (
     resources,
     enrichment,
     teams_browser_tools,
+    brain_tools,
 )
 
 # Register all tool groups
@@ -235,6 +242,7 @@ session_tools.register(mcp, _state)
 resources.register(mcp, _state)
 enrichment.register(mcp, _state)
 teams_browser_tools.register(mcp, _state)
+brain_tools.register(mcp, _state)
 
 
 # --- Entry point ---
