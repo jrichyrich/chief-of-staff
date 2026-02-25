@@ -142,6 +142,18 @@ class MemoryStore:
                 UNIQUE(tool_name, query_pattern)
             );
 
+            CREATE TABLE IF NOT EXISTS tool_usage_log (
+                id INTEGER PRIMARY KEY,
+                tool_name TEXT NOT NULL,
+                query_pattern TEXT NOT NULL DEFAULT 'auto',
+                success INTEGER NOT NULL DEFAULT 1,
+                duration_ms INTEGER,
+                session_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_tool_usage_log_tool ON tool_usage_log(tool_name);
+            CREATE INDEX IF NOT EXISTS idx_tool_usage_log_created ON tool_usage_log(created_at);
+
             CREATE TABLE IF NOT EXISTS skill_suggestions (
                 id INTEGER PRIMARY KEY,
                 description TEXT NOT NULL,
@@ -1185,6 +1197,83 @@ class MemoryStore:
                 "tool_name": row["tool_name"],
                 "query_pattern": row["query_pattern"],
                 "count": row["count"],
+                "last_used": row["last_used"],
+            }
+            for row in rows
+        ]
+
+    # --- Tool Usage Log ---
+
+    def log_tool_invocation(
+        self,
+        tool_name: str,
+        query_pattern: str = "auto",
+        success: bool = True,
+        duration_ms: int | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Log a single tool invocation to the temporal log table."""
+        now = datetime.now().isoformat()
+        self.conn.execute(
+            """INSERT INTO tool_usage_log
+               (tool_name, query_pattern, success, duration_ms, session_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (tool_name, query_pattern, int(success), duration_ms, session_id, now),
+        )
+        self.conn.commit()
+
+    def get_tool_usage_log(
+        self,
+        tool_name: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Retrieve invocation log entries, optionally filtered by tool name."""
+        if tool_name:
+            rows = self.conn.execute(
+                "SELECT * FROM tool_usage_log WHERE tool_name=? ORDER BY created_at DESC LIMIT ?",
+                (tool_name, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM tool_usage_log ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "tool_name": row["tool_name"],
+                "query_pattern": row["query_pattern"],
+                "success": bool(row["success"]),
+                "duration_ms": row["duration_ms"],
+                "session_id": row["session_id"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def get_tool_stats_summary(self) -> list[dict]:
+        """Aggregate tool usage stats from the invocation log."""
+        rows = self.conn.execute(
+            """SELECT
+                   tool_name,
+                   COUNT(*) as total_calls,
+                   SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
+                   SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failure_count,
+                   AVG(CASE WHEN duration_ms IS NOT NULL THEN duration_ms END) as avg_duration_ms,
+                   MIN(created_at) as first_used,
+                   MAX(created_at) as last_used
+               FROM tool_usage_log
+               GROUP BY tool_name
+               ORDER BY total_calls DESC"""
+        ).fetchall()
+        return [
+            {
+                "tool_name": row["tool_name"],
+                "total_calls": row["total_calls"],
+                "success_count": row["success_count"],
+                "failure_count": row["failure_count"],
+                "avg_duration_ms": round(row["avg_duration_ms"], 2) if row["avg_duration_ms"] else None,
+                "first_used": row["first_used"],
                 "last_used": row["last_used"],
             }
             for row in rows

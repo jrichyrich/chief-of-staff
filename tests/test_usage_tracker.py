@@ -199,3 +199,70 @@ class TestExtractQueryPattern:
     def test_extracts_start_date_as_fallback(self):
         result = _extract_query_pattern("get_calendar_events", {"start_date": "2026-02-25", "end_date": "2026-02-26"})
         assert "2026-02-25" in result
+
+
+class TestToolUsageLog:
+    """Tests for the tool_usage_log table."""
+
+    def test_log_invocation(self, memory_store):
+        memory_store.log_tool_invocation(
+            tool_name="query_memory",
+            query_pattern="backlog",
+            success=True,
+            duration_ms=42,
+            session_id="sess-001",
+        )
+        rows = memory_store.get_tool_usage_log(tool_name="query_memory")
+        assert len(rows) == 1
+        assert rows[0]["tool_name"] == "query_memory"
+        assert rows[0]["query_pattern"] == "backlog"
+        assert rows[0]["success"] is True
+        assert rows[0]["duration_ms"] == 42
+        assert rows[0]["session_id"] == "sess-001"
+
+    def test_multiple_invocations_stored_separately(self, memory_store):
+        for i in range(3):
+            memory_store.log_tool_invocation(
+                tool_name="search_mail",
+                query_pattern=f"query-{i}",
+                success=True,
+                duration_ms=10 * i,
+            )
+        rows = memory_store.get_tool_usage_log(tool_name="search_mail")
+        assert len(rows) == 3
+
+    def test_log_with_defaults(self, memory_store):
+        memory_store.log_tool_invocation(tool_name="list_locations")
+        rows = memory_store.get_tool_usage_log(tool_name="list_locations")
+        assert len(rows) == 1
+        assert rows[0]["query_pattern"] == "auto"
+        assert rows[0]["success"] is True
+        assert rows[0]["duration_ms"] is None
+        assert rows[0]["session_id"] is None
+
+    def test_get_log_with_limit(self, memory_store):
+        for i in range(10):
+            memory_store.log_tool_invocation(tool_name="search_mail", query_pattern=f"q{i}")
+        rows = memory_store.get_tool_usage_log(tool_name="search_mail", limit=5)
+        assert len(rows) == 5
+
+    def test_get_log_all_tools(self, memory_store):
+        memory_store.log_tool_invocation(tool_name="query_memory")
+        memory_store.log_tool_invocation(tool_name="search_mail")
+        rows = memory_store.get_tool_usage_log()
+        assert len(rows) == 2
+
+    def test_get_tool_stats_summary(self, memory_store):
+        memory_store.log_tool_invocation(tool_name="query_memory", success=True, duration_ms=10)
+        memory_store.log_tool_invocation(tool_name="query_memory", success=True, duration_ms=20)
+        memory_store.log_tool_invocation(tool_name="query_memory", success=False, duration_ms=5)
+        memory_store.log_tool_invocation(tool_name="search_mail", success=True, duration_ms=30)
+
+        stats = memory_store.get_tool_stats_summary()
+        assert len(stats) == 2
+
+        qm = next(s for s in stats if s["tool_name"] == "query_memory")
+        assert qm["total_calls"] == 3
+        assert qm["success_count"] == 2
+        assert qm["failure_count"] == 1
+        assert qm["avg_duration_ms"] == pytest.approx(11.67, abs=0.1)
