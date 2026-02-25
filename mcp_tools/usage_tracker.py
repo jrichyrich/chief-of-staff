@@ -21,6 +21,46 @@ _EXCLUDED_TOOLS = frozenset({
 
 _QUERY_PATTERN = "auto"
 
+# Ordered priority of argument keys to extract as query_pattern
+_PATTERN_KEYS = (
+    "query",
+    "query_pattern",
+    "tool_name",
+    "name",
+    "title",
+    "canonical_name",
+    "to",
+    "task",
+    "organization_name",
+    "start_date",
+    "mailbox",
+    "calendar_name",
+    "agent_name",
+    "event_id",
+    "message_id",
+    "suggestion_id",
+    "chat_identifier",
+    "recipient_type",
+)
+
+_MAX_PATTERN_LEN = 100
+
+
+def _extract_query_pattern(tool_name: str, arguments: dict | None) -> str:
+    """Extract a meaningful query pattern from tool arguments.
+
+    Walks _PATTERN_KEYS in priority order and returns the first
+    non-empty string value found, truncated to _MAX_PATTERN_LEN.
+    Falls back to "auto" if no meaningful string argument is found.
+    """
+    if not arguments:
+        return "auto"
+    for key in _PATTERN_KEYS:
+        val = arguments.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()[:_MAX_PATTERN_LEN]
+    return "auto"
+
 
 def install_usage_tracker(mcp, state):
     """Wrap mcp.call_tool to automatically record tool usage.

@@ -3,6 +3,7 @@
 import pytest
 
 from memory.store import MemoryStore
+from mcp_tools.usage_tracker import _extract_query_pattern
 
 
 @pytest.fixture
@@ -136,3 +137,47 @@ class TestUsageTracker:
         wrapper = mcp_server.mcp.call_tool
         install_usage_tracker(mcp_server.mcp, mcp_server._state)
         assert mcp_server.mcp.call_tool is wrapper
+
+
+class TestExtractQueryPattern:
+    """Tests for _extract_query_pattern argument summarizer."""
+
+    def test_returns_auto_for_empty_args(self):
+        assert _extract_query_pattern("list_locations", {}) == "auto"
+        assert _extract_query_pattern("list_locations", None) == "auto"
+
+    def test_extracts_query_field(self):
+        assert _extract_query_pattern("query_memory", {"query": "backlog"}) == "backlog"
+
+    def test_extracts_name_field(self):
+        assert _extract_query_pattern("get_agent", {"name": "researcher"}) == "researcher"
+
+    def test_extracts_tool_name_field(self):
+        assert _extract_query_pattern("record_tool_usage", {"tool_name": "search_mail"}) == "search_mail"
+
+    def test_extracts_query_pattern_field(self):
+        assert _extract_query_pattern("record_tool_usage", {"query_pattern": "weekly meeting"}) == "weekly meeting"
+
+    def test_prefers_query_over_name(self):
+        assert _extract_query_pattern("some_tool", {"query": "foo", "name": "bar"}) == "foo"
+
+    def test_extracts_title_field(self):
+        assert _extract_query_pattern("create_decision", {"title": "hire contractor"}) == "hire contractor"
+
+    def test_extracts_canonical_name_field(self):
+        assert _extract_query_pattern("get_identity", {"canonical_name": "John Smith"}) == "John Smith"
+
+    def test_extracts_recipient_from_to_field(self):
+        assert _extract_query_pattern("send_imessage_reply", {"to": "+15551234567", "body": "hello"}) == "+15551234567"
+
+    def test_truncates_long_values(self):
+        long_val = "x" * 200
+        result = _extract_query_pattern("query_memory", {"query": long_val})
+        assert len(result) <= 100
+
+    def test_falls_back_to_auto_for_non_string_args(self):
+        assert _extract_query_pattern("some_tool", {"limit": 10, "enabled": True}) == "auto"
+
+    def test_extracts_start_date_as_fallback(self):
+        result = _extract_query_pattern("get_calendar_events", {"start_date": "2026-02-25", "end_date": "2026-02-26"})
+        assert "2026-02-25" in result
