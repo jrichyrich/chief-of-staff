@@ -20,7 +20,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Project root
@@ -422,3 +422,190 @@ class EnvConfigStep(SetupStep):
     @property
     def is_auto(self) -> bool:
         return True
+
+
+# ---------------------------------------------------------------------------
+# TestSuiteStep — run pytest from the venv
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TestSuiteStep(SetupStep):
+    """Run the full test suite via pytest from the project venv.
+
+    Always returns MISSING from ``check()`` so the suite runs fresh every time.
+    Only applies to the ``full`` profile.
+    """
+
+    project_dir: Path = field(default_factory=lambda: PROJECT_DIR)
+    name: str = field(default="Test suite (pytest)", init=False)
+    key: str = field(default="test_suite", init=False)
+    profiles: set[str] = field(default_factory=lambda: {"full"}, init=False)
+
+    @property
+    def is_auto(self) -> bool:
+        return True
+
+    def check(self) -> Status:
+        return Status.MISSING
+
+    def install(self) -> bool:
+        pytest_bin = self.project_dir / ".venv" / "bin" / "pytest"
+        try:
+            result = subprocess.run(
+                [str(pytest_bin)],
+                cwd=str(self.project_dir),
+                capture_output=True,
+                text=True,
+            )
+            # Print summary line (last non-empty line of stdout)
+            lines = [l for l in result.stdout.splitlines() if l.strip()]
+            if lines:
+                print(lines[-1])
+            return result.returncode == 0
+        except OSError:
+            return False
+
+    def guide(self) -> str:
+        return "pytest"
+
+
+# ---------------------------------------------------------------------------
+# ServerVerifyStep — smoke-test jarvis-mcp startup
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ServerVerifyStep(SetupStep):
+    """Smoke-test the MCP server by spawning ``jarvis-mcp`` briefly.
+
+    Always returns MISSING from ``check()`` so the smoke test runs fresh.
+    Applies to all profiles.
+    """
+
+    project_dir: Path = field(default_factory=lambda: PROJECT_DIR)
+    name: str = field(default="Server verify (jarvis-mcp)", init=False)
+    key: str = field(default="server_verify", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_ALL_PROFILES), init=False)
+
+    @property
+    def is_auto(self) -> bool:
+        return True
+
+    def check(self) -> Status:
+        return Status.MISSING
+
+    def install(self) -> bool:
+        mcp_bin = self.project_dir / ".venv" / "bin" / "jarvis-mcp"
+        try:
+            proc = subprocess.Popen(
+                [str(mcp_bin)],
+                cwd=str(self.project_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                proc.wait(timeout=3)
+                # Process exited within 3 seconds — failure if non-zero
+                return proc.returncode == 0
+            except subprocess.TimeoutExpired:
+                # Still running after 3 seconds — success
+                proc.terminate()
+                proc.wait(timeout=5)
+                return True
+        except OSError:
+            return False
+
+    def guide(self) -> str:
+        return "jarvis-mcp"
+
+
+# ---------------------------------------------------------------------------
+# Output formatting functions
+# ---------------------------------------------------------------------------
+
+
+def format_scan_line(name: str, status: Status) -> str:
+    """Return a formatted scan result line.
+
+    Examples::
+
+        "  [ok] Python 3.13"
+        "  [--] pip deps"
+        "  [!!] perms"
+    """
+    return f"  {status.label} {name}"
+
+
+def format_scan_summary(results: list[tuple[str, Status, bool, bool]]) -> str:
+    """Return a one-line summary of scan results.
+
+    Each element of *results* is ``(name, status, is_auto, is_manual)``.
+
+    Buckets:
+
+    * **auto-install** — status != OK and is_auto
+    * **guided**       — status != OK and not is_auto and not is_manual
+    * **manual**       — status != OK and is_manual
+    * **already done** — status == OK
+
+    Example output::
+
+        "  4 auto-install  |  2 guided  |  2 manual  |  3 already done"
+    """
+    auto = 0
+    guided = 0
+    manual = 0
+    done = 0
+
+    for _name, status, is_auto, is_manual in results:
+        if status == Status.OK:
+            done += 1
+        elif is_auto:
+            auto += 1
+        elif is_manual:
+            manual += 1
+        else:
+            guided += 1
+
+    parts = [
+        f"{auto} auto-install",
+        f"{guided} guided",
+        f"{manual} manual",
+        f"{done} already done",
+    ]
+    return "  " + "  |  ".join(parts)
+
+
+def format_final_summary(
+    completed: int,
+    failed: int,
+    manual_guides: list[str],
+) -> str:
+    """Return the final setup summary block.
+
+    Sections (only included when relevant):
+
+    * ``[ok] N steps configured successfully``
+    * ``[!!] N failed``
+    * ``Manual steps remaining:`` with a bulleted list
+    * ``Quick start:`` with ``jarvis-mcp`` and ``pytest`` commands
+    """
+    lines: list[str] = []
+
+    if completed > 0:
+        lines.append(f"[ok] {completed} steps configured successfully")
+
+    if failed > 0:
+        lines.append(f"[!!] {failed} failed")
+
+    if manual_guides:
+        lines.append("")
+        lines.append("Manual steps remaining:")
+        for guide in manual_guides:
+            lines.append(f"  - {guide}")
+
+    lines.append("")
+    lines.append("Quick start:")
+    lines.append("  jarvis-mcp          # start MCP server")
+    lines.append("  pytest              # run test suite")
+
+    return "\n".join(lines)

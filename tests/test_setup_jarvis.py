@@ -11,7 +11,8 @@ import shutil
 import pytest
 from setup_jarvis import (
     Status, SetupStep, StepRunner, VenvStep, PipStep, DataDirsStep,
-    SystemDepsStep, EnvConfigStep,
+    SystemDepsStep, EnvConfigStep, TestSuiteStep, ServerVerifyStep,
+    format_scan_line, format_scan_summary, format_final_summary,
 )
 
 
@@ -295,6 +296,56 @@ class TestEnvConfigStep:
     def test_parse_env_returns_empty_for_missing_file(self, tmp_path):
         env = EnvConfigStep._parse_env(tmp_path / ".env")
         assert env == {}
+
+
+# ---------------------------------------------------------------------------
+# TestSuiteStep
+# ---------------------------------------------------------------------------
+
+
+class TestTestSuiteStep:
+    def test_profiles_full_only(self):
+        step = TestSuiteStep()
+        assert step.applies_to("full")
+        assert not step.applies_to("personal")
+        assert not step.applies_to("minimal")
+
+    def test_is_auto(self):
+        step = TestSuiteStep()
+        assert step.is_auto is True
+
+    def test_check_always_missing(self):
+        step = TestSuiteStep()
+        assert step.check() == Status.MISSING
+
+    def test_guide(self):
+        step = TestSuiteStep()
+        assert "pytest" in step.guide()
+
+
+# ---------------------------------------------------------------------------
+# ServerVerifyStep
+# ---------------------------------------------------------------------------
+
+
+class TestServerVerifyStep:
+    def test_profiles_all(self):
+        step = ServerVerifyStep()
+        assert step.applies_to("minimal")
+        assert step.applies_to("personal")
+        assert step.applies_to("full")
+
+    def test_is_auto(self):
+        step = ServerVerifyStep()
+        assert step.is_auto is True
+
+    def test_check_always_missing(self):
+        step = ServerVerifyStep()
+        assert step.check() == Status.MISSING
+
+    def test_guide(self):
+        step = ServerVerifyStep()
+        assert "jarvis-mcp" in step.guide()
 
 
 # ---------------------------------------------------------------------------
