@@ -241,3 +241,184 @@ class DataDirsStep(SetupStep):
         data_dir = self.project_dir / "data"
         cmds = [f"mkdir -p {data_dir / subdir}" for subdir in self.SUBDIRS]
         return "\n".join(cmds)
+
+
+# ---------------------------------------------------------------------------
+# SystemDepsStep — guided (user runs brew themselves)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SystemDepsStep(SetupStep):
+    """Check that required system-level dependencies are installed.
+
+    This is a *guided* step: ``is_auto`` is ``False`` because the user
+    must run ``brew install`` (or equivalent) themselves.
+    """
+
+    DEPS: list[str] = field(
+        default_factory=lambda: ["jq", "sqlite3"],
+        init=False,
+    )
+
+    name: str = field(default="System dependencies", init=False)
+    key: str = field(default="system_deps", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_ALL_PROFILES), init=False)
+
+    # -- check ---------------------------------------------------------------
+
+    def check(self) -> Status:
+        """OK if every dep is on ``$PATH``; MISSING otherwise."""
+        for dep in self.DEPS:
+            if shutil.which(dep) is None:
+                return Status.MISSING
+        return Status.OK
+
+    # -- guide ---------------------------------------------------------------
+
+    def guide(self) -> str:
+        """Return a ``brew install`` command for whatever is missing."""
+        missing = [dep for dep in self.DEPS if shutil.which(dep) is None]
+        if not missing:
+            return "brew install jq sqlite3"
+        return f"brew install {' '.join(missing)}"
+
+    @property
+    def is_auto(self) -> bool:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# EnvConfigStep — hybrid (auto-copy template, prompt for values)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EnvConfigStep(SetupStep):
+    """Ensure a ``.env`` file exists and contains required keys.
+
+    * ``is_auto`` is ``True`` because the step can copy ``.env.example``
+      automatically and optionally prompt for values.
+    * ``check()`` returns OK only when ``.env`` exists **and**
+      ``ANTHROPIC_API_KEY`` has a non-empty value.
+    """
+
+    REQUIRED_KEYS: set[str] = field(
+        default_factory=lambda: {"ANTHROPIC_API_KEY"},
+        init=False,
+    )
+    PROFILE_KEYS: dict[str, list[str]] = field(default_factory=lambda: {
+        "minimal": [],
+        "personal": [
+            "JARVIS_IMESSAGE_SELF",
+        ],
+        "full": [
+            "JARVIS_IMESSAGE_SELF",
+            "CLAUDE_BIN",
+            "CLAUDE_MCP_CONFIG",
+            "M365_BRIDGE_MODEL",
+            "JARVIS_ONEDRIVE_BASE",
+        ],
+    }, init=False)
+
+    project_dir: Path = field(default_factory=lambda: PROJECT_DIR)
+    _profile: str = field(default="minimal")
+    interactive: bool = True
+
+    name: str = field(default="Environment config (.env)", init=False)
+    key: str = field(default="env_config", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_ALL_PROFILES), init=False)
+
+    # -- helpers -------------------------------------------------------------
+
+    @staticmethod
+    def _parse_env(path: Path) -> dict[str, str]:
+        """Parse a ``.env`` file into a dict, skipping comments and blanks."""
+        env: dict[str, str] = {}
+        if not path.exists():
+            return env
+        for line in path.read_text().splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" not in stripped:
+                continue
+            key, _, value = stripped.partition("=")
+            env[key.strip()] = value.strip()
+        return env
+
+    # -- check ---------------------------------------------------------------
+
+    def check(self) -> Status:
+        """MISSING if ``.env`` absent or ``ANTHROPIC_API_KEY`` is empty."""
+        env_path = self.project_dir / ".env"
+        if not env_path.exists():
+            return Status.MISSING
+        env = self._parse_env(env_path)
+        for key in self.REQUIRED_KEYS:
+            if not env.get(key):
+                return Status.MISSING
+        return Status.OK
+
+    # -- install -------------------------------------------------------------
+
+    def install(self) -> bool:
+        """Copy ``.env.example`` to ``.env`` if missing, optionally prompt."""
+        env_path = self.project_dir / ".env"
+        example_path = self.project_dir / ".env.example"
+
+        if not env_path.exists() and example_path.exists():
+            shutil.copy2(example_path, env_path)
+
+        if self.interactive:
+            self._prompt_values(env_path)
+
+        return True
+
+    def _prompt_values(self, env_file: Path) -> None:
+        """Prompt the user for required + profile-specific keys."""
+        env = self._parse_env(env_file)
+        profile_keys = self.PROFILE_KEYS.get(self._profile, [])
+        keys_to_prompt = list(self.REQUIRED_KEYS) + profile_keys
+
+        updated = False
+        for key in keys_to_prompt:
+            current = env.get(key, "")
+            prompt_msg = f"  {key} [{current}]: " if current else f"  {key}: "
+            value = input(prompt_msg).strip()
+            if value:
+                env[key] = value
+                updated = True
+
+        if updated:
+            # Rewrite the env file preserving keys we know about
+            lines: list[str] = []
+            if env_file.exists():
+                lines = env_file.read_text().splitlines()
+
+            written_keys: set[str] = set()
+            new_lines: list[str] = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k, _, _ = stripped.partition("=")
+                    k = k.strip()
+                    if k in env:
+                        new_lines.append(f"{k}={env[k]}")
+                        written_keys.add(k)
+                        continue
+                new_lines.append(line)
+
+            # Append any new keys not already in the file
+            for k, v in env.items():
+                if k not in written_keys:
+                    new_lines.append(f"{k}={v}")
+
+            env_file.write_text("\n".join(new_lines) + "\n")
+
+    # -- guide ---------------------------------------------------------------
+
+    def guide(self) -> str:
+        return "cp .env.example .env && edit .env"
+
+    @property
+    def is_auto(self) -> bool:
+        return True
