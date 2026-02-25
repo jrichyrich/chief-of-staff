@@ -7,6 +7,7 @@ break actual tool execution.
 
 import functools
 import logging
+import time
 
 logger = logging.getLogger("jarvis-mcp")
 
@@ -76,17 +77,41 @@ def install_usage_tracker(mcp, state):
 
     @functools.wraps(original_call_tool)
     async def tracked_call_tool(name, arguments):
-        # Record usage before calling the tool
         if name not in _EXCLUDED_TOOLS:
+            pattern = _extract_query_pattern(name, arguments)
+
+            # Record aggregated usage (existing behavior)
             try:
                 memory_store = state.memory_store
                 if memory_store is not None:
-                    pattern = _extract_query_pattern(name, arguments)
                     memory_store.record_skill_usage(name, pattern)
             except Exception:
                 logger.debug("Failed to record usage for %s", name, exc_info=True)
 
-        return await original_call_tool(name, arguments)
+            # Execute tool and log individual invocation
+            start = time.monotonic()
+            success = True
+            try:
+                result = await original_call_tool(name, arguments)
+                return result
+            except Exception:
+                success = False
+                raise
+            finally:
+                duration_ms = int((time.monotonic() - start) * 1000)
+                try:
+                    memory_store = state.memory_store
+                    if memory_store is not None:
+                        memory_store.log_tool_invocation(
+                            tool_name=name,
+                            query_pattern=pattern,
+                            success=success,
+                            duration_ms=duration_ms,
+                        )
+                except Exception:
+                    logger.debug("Failed to log invocation for %s", name, exc_info=True)
+        else:
+            return await original_call_tool(name, arguments)
 
     tracked_call_tool._usage_tracked = True
     mcp.call_tool = tracked_call_tool

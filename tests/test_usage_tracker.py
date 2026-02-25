@@ -147,6 +147,38 @@ class TestUsageTracker:
         loc = [p for p in patterns if p["tool_name"] == "list_locations"]
         assert any(p["query_pattern"] == "auto" for p in loc)
 
+    @pytest.mark.asyncio
+    async def test_invocation_logged_to_temporal_table(self, tracked_mcp, memory_store):
+        """Each tool call should create a row in tool_usage_log."""
+        await tracked_mcp.call_tool("list_locations", {})
+        await tracked_mcp.call_tool("list_locations", {})
+
+        log = memory_store.get_tool_usage_log(tool_name="list_locations")
+        assert len(log) == 2  # Two separate rows, not aggregated
+        assert all(row["success"] is True for row in log)
+
+    @pytest.mark.asyncio
+    async def test_invocation_log_captures_duration(self, tracked_mcp, memory_store):
+        """Invocation log should include duration_ms."""
+        await tracked_mcp.call_tool("list_locations", {})
+
+        log = memory_store.get_tool_usage_log(tool_name="list_locations")
+        assert len(log) == 1
+        assert log[0]["duration_ms"] is not None
+        assert log[0]["duration_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_invocation_log_records_failure(self, tracked_mcp, memory_store):
+        """Failed tool calls should be logged with success=False."""
+        try:
+            await tracked_mcp.call_tool("nonexistent_tool", {})
+        except Exception:
+            pass
+
+        log = memory_store.get_tool_usage_log(tool_name="nonexistent_tool")
+        assert len(log) == 1
+        assert log[0]["success"] is False
+
     def test_install_is_idempotent(self):
         """Calling install_usage_tracker twice should not double-wrap."""
         import mcp_server
