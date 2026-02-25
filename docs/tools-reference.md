@@ -2,7 +2,7 @@
 
 Complete reference for all MCP tools and resources exposed by the Chief of Staff (Jarvis) server.
 
-**Total: 99 tools across 21 modules, plus 3 MCP resources.**
+**Total: 105 tools across 24 modules, plus 3 MCP resources.**
 
 ---
 
@@ -27,7 +27,10 @@ Complete reference for all MCP tools and resources exposed by the Chief of Staff
 17. [Session Tools](#session-tools) (3 tools)
 18. [Enrichment Tools](#enrichment-tools) (1 tool)
 19. [Teams Browser Tools](#teams-browser-tools) (5 tools)
-20. [Resources](#resources) (3 resources)
+20. [Channel Routing Tools](#channel-routing-tools) (1 tool)
+21. [Session Brain Tools](#session-brain-tools) (2 tools)
+22. [Playbook Tools](#playbook-tools) (2 tools)
+23. [Resources](#resources) (3 resources)
 
 ---
 
@@ -1367,6 +1370,85 @@ Close the persistent Teams browser. Sends SIGTERM to the Chromium process. Call 
 
 ---
 
+## Channel Routing Tools
+
+**Module:** `mcp_tools/routing_tools.py`
+
+Safety-tiered outbound message routing. Determines the appropriate safety tier and delivery channel for messages based on recipient type, urgency, sensitivity, and time of day.
+
+### route_message
+
+Determine the safety tier and delivery channel for an outbound message.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `recipient_type` | `str` | Yes | Type of recipient: `self`, `internal`, or `external` |
+| `urgency` | `str` | No | Message urgency: `urgent`, `informational`, `formal`, `informal`, `ephemeral` (default: `informational`) |
+| `sensitive` | `bool` | No | `True` if topic involves legal, HR, security, etc. (default: `False`) |
+| `first_contact` | `bool` | No | `True` if this is the first message to this recipient (default: `False`) |
+| `override` | `str` | No | Force a specific tier: `auto`, `confirm`, `draft_only` (default: none) |
+
+**Returns:** JSON with `safety_tier`, `channel`, and `work_hours` status.
+
+---
+
+## Session Brain Tools
+
+**Module:** `mcp_tools/brain_tools.py`
+
+Persistent cross-session context document. The Session Brain maintains a human-readable markdown file that carries workstreams, action items, decisions, people context, and handoff notes across sessions.
+
+### get_session_brain
+
+Get the current Session Brain state: workstreams, action items, decisions, people context, handoff notes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with the current Session Brain contents including `workstreams`, `action_items`, `decisions`, `people`, and `handoff_notes`.
+
+### update_session_brain
+
+Update the Session Brain with new information.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | `str` | Yes | Action to perform: `add_workstream`, `update_workstream`, `add_action_item`, `complete_action_item`, `add_decision`, `add_person`, `add_handoff_note` |
+| `data` | `str` | Yes | JSON data for the action (fields vary by action type) |
+
+**Returns:** JSON with `status` and updated brain state.
+
+---
+
+## Playbook Tools
+
+**Module:** `mcp_tools/playbook_tools.py`
+
+YAML-defined parallel workstreams for common multi-agent tasks. Each playbook declares inputs, workstreams (with optional conditions), a synthesis prompt, and delivery options.
+
+### list_playbooks
+
+List all available team playbooks with descriptions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | | | |
+
+**Returns:** JSON with `playbooks` array containing `name`, `description`, and `workstream_count` for each available playbook.
+
+### get_playbook
+
+Get details of a specific playbook: inputs, workstreams, synthesis prompt, delivery options.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `str` | Yes | Name of the playbook to retrieve |
+
+**Returns:** JSON with full playbook definition including `inputs`, `workstreams`, `synthesis_prompt`, and `delivery` options.
+
+---
+
 ## Resources
 
 **Module:** `mcp_tools/resources.py`
@@ -1422,5 +1504,8 @@ All available expert agents and their descriptions.
 | Session | 3 | Session lifecycle and context persistence |
 | Enrichment | 1 | Parallel person profile aggregation across 6 data sources |
 | Teams Browser | 5 | Playwright-based Teams message posting with confirm flow |
-| **Total** | **99** | |
+| Channel Routing | 1 | Safety-tiered outbound message routing |
+| Session Brain | 2 | Persistent cross-session context document |
+| Playbooks | 2 | YAML-defined parallel workstream definitions |
+| **Total** | **105** | |
 | Resources | 3 | Read-only data endpoints |

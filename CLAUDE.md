@@ -65,6 +65,9 @@ jarvis-mcp
 | `mcp_tools/identity_tools.py` | link_identity, unlink_identity, get_identity, search_identity |
 | `mcp_tools/session_tools.py` | get_session_status, flush_session_memory, restore_session |
 | `mcp_tools/event_rule_tools.py` | create_event_rule, update_event_rule, delete_event_rule, list_event_rules, process_webhook_event_with_agents |
+| `mcp_tools/routing_tools.py` | route_message (safety tier and channel selection for outbound messages) |
+| `mcp_tools/brain_tools.py` | get_session_brain, update_session_brain (persistent cross-session context) |
+| `mcp_tools/playbook_tools.py` | list_playbooks, get_playbook (parallel workstream definitions) |
 | `mcp_tools/resources.py` | MCP resources: facts://all, memory://facts/{category}, agents://list |
 
 Each module exports a `register(mcp, state)` function. Tools are defined inside `register()` using `@mcp.tool()` decorators and access stores via `state.memory_store`, `state.calendar_store`, etc. Tool functions are also exposed at module level via `sys.modules` for test imports.
@@ -98,6 +101,9 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `scheduler/availability.py` | Availability analysis for finding open calendar slots |
 | `mcp_tools/enrichment.py` | Person enrichment: parallel data from memory, identity, calendar, email, iMessage, Teams |
 | `mcp_tools/teams_browser_tools.py` | Teams messaging via persistent Playwright Chromium browser |
+| `channels/routing.py` | Safety tier determination and channel selection for outbound messages |
+| `session/brain.py` | Session Brain: markdown-based persistent context document |
+| `playbooks/loader.py` | YAML playbook loader with input substitution and condition evaluation |
 | `config.py` | All paths, model names, constants, and environment variable settings |
 
 ### Apple Platform Integrations (macOS only)
@@ -180,7 +186,7 @@ SQLite (`data/memory.db`) with 14 tables:
 
 ## Testing Conventions
 
-- ~1582 tests across 72 test files
+- ~1723 tests across 75 test files
 - Async tests use `@pytest.mark.asyncio` decorator on each async test function (no global asyncio_mode setting)
 - Anthropic API calls are mocked — tests never hit real APIs
 - Fixtures create isolated MemoryStore, DocumentStore, AgentRegistry instances using `tmp_path`

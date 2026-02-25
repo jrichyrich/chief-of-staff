@@ -26,7 +26,7 @@ graph TB
     end
 
     %% ── Tool Modules ────────────────────────────────────────────
-    subgraph Tools["Tool Modules  (99 tools + 3 resources)"]
+    subgraph Tools["Tool Modules  (105 tools + 3 resources)"]
         direction TB
         TM["memory_tools<br/><i>7 tools</i>"]
         TD["document_tools<br/><i>2 tools</i>"]
@@ -47,6 +47,9 @@ graph TB
         TID["identity_tools<br/><i>4 tools</i>"]
         TEN["enrichment<br/><i>1 tool</i>"]
         TTB["teams_browser_tools<br/><i>5 tools</i>"]
+        TRT["routing_tools<br/><i>1 tool</i>"]
+        TBR["brain_tools<br/><i>2 tools</i>"]
+        TPB["playbook_tools<br/><i>2 tools</i>"]
         TRES["resources<br/><i>3 resources</i>"]
     end
 
@@ -137,7 +140,7 @@ graph TB
     end
 
     %% ── Tool module wiring ──────────────────────────────────────
-    SS --> TM & TD & TA & TL & TC & TR & TMA & TI & TO & TWH & TSK & TSCHED & TCH & TPR & TSES & TER & TID & TEN & TTB & TRES
+    SS --> TM & TD & TA & TL & TC & TR & TMA & TI & TO & TWH & TSK & TSCHED & TCH & TPR & TSES & TER & TID & TEN & TTB & TRT & TBR & TPB & TRES
 
     %% ── Tool to Store connections ───────────────────────────────
     TM --> MS
@@ -194,7 +197,7 @@ graph TB
 
     class CC,CD,IM client
     class EP,SS server
-    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TWH,TSK,TSCHED,TCH,TPR,TSES,TER,TID,TEN,TTB,TRES tool
+    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TWH,TSK,TSCHED,TCH,TPR,TSES,TER,TID,TEN,TTB,TRT,TBR,TPB,TRES tool
     class MS,DS,OS,RDB store
     class AR,BE,AF,CR agent
     class UCS,PR,AP,MP calendar
@@ -937,3 +940,70 @@ python scheduler/daemon.py
 ```
 
 Reads `DAEMON_TICK_INTERVAL_SECONDS` and `MEMORY_DB_PATH` from `config.py` (which reads environment variables). Exits with code 1 if the memory database does not exist.
+
+---
+
+## 17. Session Brain
+
+The Session Brain (`session/brain.py`) maintains a human-readable markdown file (`data/session_brain.md`) that carries context across sessions. It tracks active workstreams, open action items, recent decisions, key people context, and session handoff notes. The SessionManager automatically updates the brain during session flush.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `session/brain.py` | `SessionBrain` — markdown-based persistent context document with structured sections |
+| `mcp_tools/brain_tools.py` | MCP tools: `get_session_brain`, `update_session_brain` |
+
+### Sections
+
+| Section | Contents |
+|---------|----------|
+| Workstreams | Active parallel workstreams with status and context |
+| Action Items | Open tasks with completion tracking |
+| Decisions | Recent decisions with rationale |
+| People | Key people context (role, preferences, recent interactions) |
+| Handoff Notes | Session-to-session context transfer notes |
+
+---
+
+## 18. Channel Routing
+
+Channel routing (`channels/routing.py`) determines the safety tier and delivery channel for outbound messages. Three safety tiers: AUTO_SEND (to self), CONFIRM (to known colleagues), DRAFT_ONLY (external/sensitive). Channel selection considers recipient type, urgency, and work hours.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `channels/routing.py` | `ChannelRouter` — safety tier determination and channel selection |
+| `mcp_tools/routing_tools.py` | MCP tool: `route_message` |
+
+### Safety Tiers
+
+| Tier | When Used | Behavior |
+|------|-----------|----------|
+| `AUTO_SEND` | Messages to self | Sends without confirmation |
+| `CONFIRM` | Internal/known colleagues | Requires user confirmation before sending |
+| `DRAFT_ONLY` | External recipients, sensitive topics, first contact | Creates draft only; user must review and send manually |
+
+---
+
+## 19. Team Playbooks
+
+Playbooks (`playbooks/`) are YAML-defined parallel workstreams. Each playbook declares inputs, workstreams (with optional conditions), a synthesis prompt, and delivery options. The PlaybookLoader (`playbooks/loader.py`) handles parsing, input substitution, and condition evaluation. Four built-in playbooks: meeting_prep, expert_research, software_dev_team, daily_briefing.
+
+### Components
+
+| Module | Purpose |
+|--------|---------|
+| `playbooks/loader.py` | `PlaybookLoader` — YAML parsing, input substitution, condition evaluation |
+| `playbooks/*.yaml` | Built-in playbook definitions |
+| `mcp_tools/playbook_tools.py` | MCP tools: `list_playbooks`, `get_playbook` |
+
+### Built-in Playbooks
+
+| Playbook | Purpose | Workstreams |
+|----------|---------|-------------|
+| `meeting_prep` | Pre-meeting research and agenda preparation | Attendee research, topic prep, agenda drafting |
+| `expert_research` | Multi-source research on a topic | Web search, document search, memory search, synthesis |
+| `software_dev_team` | Parallel software development tasks | Architecture, implementation, testing, review |
+| `daily_briefing` | Morning briefing from all data sources | Calendar, email, messages, delegations, reminders |

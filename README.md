@@ -8,7 +8,7 @@
 
 Chief of Staff (Jarvis) is a Python AI orchestration system built on Anthropic's Claude. A "Chief of Staff" agent manages a roster of expert agents, each configured with YAML and granted scoped capabilities. It interprets user requests, routes to the right specialists, dispatches them in parallel when possible, and synthesizes results.
 
-The system exposes 99 tools across 21 modules via the Model Context Protocol (MCP), covering persistent memory (with temporal decay, FTS5, MMR reranking, and vector search), semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, a full decision/delegation lifecycle, webhook ingestion, event-driven agent dispatch, scheduled tasks, self-authoring skills, proactive suggestions, unified channel adapters, cross-channel identity linking, session compaction, and plugin hooks. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
+The system exposes 105 tools across 24 modules via the Model Context Protocol (MCP), covering persistent memory (with temporal decay, FTS5, MMR reranking, and vector search), semantic document search, calendar management (Apple Calendar and Microsoft 365), Apple Reminders, Apple Mail, iMessage, macOS notifications, OKR tracking, a full decision/delegation lifecycle, webhook ingestion, event-driven agent dispatch, scheduled tasks, self-authoring skills, proactive suggestions, unified channel adapters, cross-channel identity linking, session compaction, and plugin hooks. All platform-specific integrations use PyObjC EventKit or AppleScript, with import guards for cross-platform safety.
 
 Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (for Claude Desktop), making it usable from any MCP-compatible host.
 
@@ -44,6 +44,9 @@ Jarvis ships as both an MCP stdio server (for Claude Code) and a DXT package (fo
 - **iMessage inbox monitor** -- Autonomous daemon that processes incoming commands via iMessage
 - **Microsoft Teams messaging** -- Send messages to Teams channels and people via persistent Playwright browser
 - **Person enrichment** -- Parallel data fetching from 6 sources for person intelligence
+- **Team Playbooks** -- YAML-defined parallel workstreams dispatched via Claude Code's Task tool; built-in playbooks for meeting prep, expert research, software development, and daily briefings
+- **Session Brain** -- Persistent cross-session context document carrying workstreams, action items, decisions, people context, and handoff notes
+- **Channel Routing** -- Safety-tiered outbound message routing with channel selection based on recipient type, urgency, and time of day
 
 ## Quick Start
 
@@ -189,13 +192,14 @@ chief_of_staff/
 |-- hooks/                     # Plugin hook system (YAML-configured lifecycle hooks)
 |-- session/                   # Session manager (interaction tracking, flush/restore)
 |-- webhook/                   # Webhook ingestion and event-driven agent dispatch
-|-- channels/                  # Unified channel adapter (InboundEvent, EventRouter)
+|-- channels/                  # Unified channel adapter (InboundEvent, EventRouter, routing)
+|-- playbooks/                 # YAML playbook definitions for parallel workstreams
 |-- proactive/                 # Proactive suggestion engine
 |-- skills/                    # Tool usage pattern detection
 |-- tools/                     # Decision/delegation execution logic
 |-- utils/                     # Shared utilities (retry logic)
 |-- scripts/                   # Shell scripts and launchd plists
-|-- tests/                     # Test suite (1582 tests, 72 files)
+|-- tests/                     # Test suite (1723 tests, 75 files)
 +-- docs/                      # Documentation
 ```
 
@@ -203,7 +207,7 @@ chief_of_staff/
 
 - [Architecture](docs/architecture.md) -- System design, data flow, and module interactions
 - [iMessage Inbox Monitor Setup](docs/inbox-monitor-setup.md) -- Configuring the autonomous iMessage daemon
-- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 99 MCP tools
+- [Tools Reference](docs/tools-reference.md) -- Complete reference for all 105 MCP tools
 - [Agent System](docs/agents.md) -- Agent architecture, capabilities, and configuration guide
 - [Setup Guide](docs/setup-guide.md) -- Installation, environment variables, and troubleshooting
 - [Project Review Team](docs/project-review-team.md) -- Running structured project reviews with specialist agents
@@ -224,7 +228,7 @@ pytest tests/test_mcp_server.py::TestMCPTools::test_query_memory -v
 pytest --cov=agents --cov=memory --cov=documents --cov=mcp_tools
 ```
 
-The test suite contains 1582 tests across 72 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
+The test suite contains 1723 tests across 75 test files. All Anthropic API calls are mocked -- tests never hit real APIs. Fixtures create isolated store instances using `tmp_path` for full test isolation.
 
 ## License
 
