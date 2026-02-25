@@ -221,6 +221,7 @@ from mcp_tools import (
     brain_tools,
     routing_tools,
     playbook_tools,
+    formatter_tools,
 )
 
 # Register all tool groups
@@ -247,6 +248,7 @@ teams_browser_tools.register(mcp, _state)
 brain_tools.register(mcp, _state)
 routing_tools.register(mcp, _state)
 playbook_tools.register(mcp, _state)
+formatter_tools.register(mcp, _state)
 
 
 # --- Entry point ---
