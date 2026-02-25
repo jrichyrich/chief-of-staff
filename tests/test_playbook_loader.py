@@ -222,6 +222,23 @@ class TestPlaybookLoader:
         loader = PlaybookLoader(tmp_path)
         assert loader.get_playbook("does-not-exist") is None
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../etc/passwd",
+            "../../secret",
+            "/absolute/path",
+            "has spaces",
+            "UPPERCASE",
+            ".hidden",
+            "trailing.",
+            "",
+        ],
+    )
+    def test_get_playbook_rejects_invalid_names(self, tmp_path: Path, name: str):
+        loader = PlaybookLoader(tmp_path)
+        assert loader.get_playbook(name) is None
+
     def test_get_playbook_bad_yaml_returns_none(self, tmp_path: Path):
         self._write_playbook(tmp_path, "broken.yaml", "{{{{invalid yaml: [")
 

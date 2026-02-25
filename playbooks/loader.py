@@ -2,6 +2,7 @@
 
 import copy
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import Template
@@ -10,6 +11,9 @@ from typing import Optional
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# Matches agent name pattern — prevents path traversal via names like "../etc/passwd"
+VALID_PLAYBOOK_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 @dataclass
@@ -86,6 +90,9 @@ class PlaybookLoader:
 
     def get_playbook(self, name: str) -> Optional[Playbook]:
         """Load and parse a playbook by name. Returns None if not found or invalid."""
+        if not VALID_PLAYBOOK_NAME.match(name):
+            logger.warning("Invalid playbook name rejected: %r", name)
+            return None
         # Try .yaml first, then .yml
         for ext in (".yaml", ".yml"):
             path = self.playbooks_dir / f"{name}{ext}"
