@@ -6,8 +6,13 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
+import shutil
+
 import pytest
-from setup_jarvis import Status, SetupStep, StepRunner, VenvStep, PipStep, DataDirsStep
+from setup_jarvis import (
+    Status, SetupStep, StepRunner, VenvStep, PipStep, DataDirsStep,
+    SystemDepsStep, EnvConfigStep,
+)
 
 
 class TestStatus:
@@ -177,6 +182,119 @@ class TestDataDirsStep:
         assert step.install() is True
         assert step.install() is True
         assert step.check() == Status.OK
+
+
+# ---------------------------------------------------------------------------
+# SystemDepsStep
+# ---------------------------------------------------------------------------
+
+
+class TestSystemDepsStep:
+    def test_check_ok_when_deps_found(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
+        step = SystemDepsStep()
+        assert step.check() == Status.OK
+
+    def test_check_missing_when_jq_absent(self, monkeypatch):
+        monkeypatch.setattr(
+            shutil, "which",
+            lambda cmd: None if cmd == "jq" else f"/usr/bin/{cmd}",
+        )
+        step = SystemDepsStep()
+        assert step.check() == Status.MISSING
+
+    def test_is_auto_false(self):
+        step = SystemDepsStep()
+        assert step.is_auto is False
+
+    def test_guide_includes_brew(self):
+        step = SystemDepsStep()
+        assert "brew install" in step.guide()
+
+    def test_profiles(self):
+        step = SystemDepsStep()
+        assert step.applies_to("minimal")
+        assert step.applies_to("personal")
+        assert step.applies_to("full")
+
+    def test_guide_lists_missing_deps(self, monkeypatch):
+        monkeypatch.setattr(
+            shutil, "which",
+            lambda cmd: None if cmd == "jq" else f"/usr/bin/{cmd}",
+        )
+        step = SystemDepsStep()
+        guide = step.guide()
+        assert "jq" in guide
+        assert "brew install" in guide
+
+
+# ---------------------------------------------------------------------------
+# EnvConfigStep
+# ---------------------------------------------------------------------------
+
+
+class TestEnvConfigStep:
+    def test_check_missing_when_no_env(self, tmp_path):
+        step = EnvConfigStep(project_dir=tmp_path)
+        assert step.check() == Status.MISSING
+
+    def test_check_missing_when_key_empty(self, tmp_path):
+        (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=\n")
+        step = EnvConfigStep(project_dir=tmp_path)
+        assert step.check() == Status.MISSING
+
+    def test_check_ok_when_key_set(self, tmp_path):
+        (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-test123\n")
+        step = EnvConfigStep(project_dir=tmp_path)
+        assert step.check() == Status.OK
+
+    def test_check_ignores_commented_lines(self, tmp_path):
+        (tmp_path / ".env").write_text("# ANTHROPIC_API_KEY=sk-ant-test123\n")
+        step = EnvConfigStep(project_dir=tmp_path)
+        assert step.check() == Status.MISSING
+
+    def test_install_copies_template(self, tmp_path):
+        (tmp_path / ".env.example").write_text(
+            "ANTHROPIC_API_KEY=\nSCHEDULER_ENABLED=true\n"
+        )
+        step = EnvConfigStep(project_dir=tmp_path, interactive=False)
+        step.install()
+        assert (tmp_path / ".env").exists()
+        content = (tmp_path / ".env").read_text()
+        assert "ANTHROPIC_API_KEY=" in content
+
+    def test_is_auto_true(self):
+        step = EnvConfigStep()
+        assert step.is_auto is True
+
+    def test_profiles(self):
+        step = EnvConfigStep()
+        assert step.applies_to("minimal")
+        assert step.applies_to("personal")
+        assert step.applies_to("full")
+
+    def test_guide_returns_cp_command(self):
+        step = EnvConfigStep()
+        guide = step.guide()
+        assert "cp .env.example .env" in guide
+        assert "edit .env" in guide
+
+    def test_install_does_not_overwrite_existing(self, tmp_path):
+        (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-existing\n")
+        (tmp_path / ".env.example").write_text("ANTHROPIC_API_KEY=\n")
+        step = EnvConfigStep(project_dir=tmp_path, interactive=False)
+        step.install()
+        content = (tmp_path / ".env").read_text()
+        assert "sk-existing" in content
+
+    def test_parse_env_skips_blank_lines(self, tmp_path):
+        (tmp_path / ".env").write_text("\n\nANTHROPIC_API_KEY=test\n\n")
+        env = EnvConfigStep._parse_env(tmp_path / ".env")
+        assert env == {"ANTHROPIC_API_KEY": "test"}
+
+    def test_parse_env_returns_empty_for_missing_file(self, tmp_path):
+        env = EnvConfigStep._parse_env(tmp_path / ".env")
+        assert env == {}
 
 
 # ---------------------------------------------------------------------------
