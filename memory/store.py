@@ -1279,6 +1279,25 @@ class MemoryStore:
             for row in rows
         ]
 
+    def get_top_patterns_by_tool(self, limit_per_tool: int = 10) -> dict[str, list[dict]]:
+        """Get top query patterns grouped by tool name from the invocation log."""
+        rows = self.conn.execute(
+            """SELECT tool_name, query_pattern, COUNT(*) as count
+               FROM tool_usage_log
+               WHERE query_pattern != 'auto'
+               GROUP BY tool_name, query_pattern
+               ORDER BY tool_name, count DESC"""
+        ).fetchall()
+
+        result: dict[str, list[dict]] = {}
+        for row in rows:
+            tool = row["tool_name"]
+            if tool not in result:
+                result[tool] = []
+            if len(result[tool]) < limit_per_tool:
+                result[tool].append({"pattern": row["query_pattern"], "count": row["count"]})
+        return result
+
     def _row_to_skill_usage(self, row: sqlite3.Row) -> SkillUsage:
         return SkillUsage(
             id=row["id"],

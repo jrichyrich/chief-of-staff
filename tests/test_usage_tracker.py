@@ -301,6 +301,18 @@ class TestToolUsageLog:
         assert qm["failure_count"] == 1
         assert qm["avg_duration_ms"] == pytest.approx(11.67, abs=0.1)
 
+    def test_get_top_patterns_by_tool(self, memory_store):
+        memory_store.log_tool_invocation("query_memory", "backlog")
+        memory_store.log_tool_invocation("query_memory", "backlog")
+        memory_store.log_tool_invocation("query_memory", "OKR")
+        memory_store.log_tool_invocation("search_mail", "budget")
+
+        patterns = memory_store.get_top_patterns_by_tool(limit_per_tool=5)
+        assert "query_memory" in patterns
+        assert "search_mail" in patterns
+        assert patterns["query_memory"][0]["pattern"] == "backlog"
+        assert patterns["query_memory"][0]["count"] == 2
+
 
 class TestGetToolStatistics:
     """Tests for the get_tool_statistics MCP tool."""
@@ -352,3 +364,28 @@ class TestGetToolStatistics:
         # "backlog" used twice should be first
         assert patterns[0]["query_pattern"] == "backlog"
         assert patterns[0]["count"] == 2
+
+
+class TestPatternDetectorWithLog:
+    """Tests for pattern detection using the invocation log."""
+
+    def test_detect_patterns_from_log(self, memory_store):
+        from skills.pattern_detector import PatternDetector
+
+        # Create enough invocations to trigger pattern detection
+        for _ in range(6):
+            memory_store.log_tool_invocation("query_memory", "backlog")
+        for _ in range(4):
+            memory_store.log_tool_invocation("query_memory", "OKR")
+        # Also seed the aggregated skill_usage table
+        for _ in range(6):
+            memory_store.record_skill_usage("query_memory", "backlog")
+        for _ in range(4):
+            memory_store.record_skill_usage("query_memory", "OKR")
+
+        detector = PatternDetector(memory_store)
+        patterns = detector.detect_patterns(min_occurrences=5, confidence_threshold=0.5)
+        assert len(patterns) >= 1
+        # Should find the query_memory pattern
+        tool_names = [p["tool_name"] for p in patterns]
+        assert "query_memory" in tool_names
