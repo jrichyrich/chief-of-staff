@@ -17,6 +17,7 @@ dependencies = [
     "pypdf>=5.0.0",
     "python-docx>=1.1.0",
     "playwright>=1.40.0",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +30,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["memory*", "agents*", "documents*", "chief*", "tools*", "utils*", "apple_calendar*", "apple_notifications*", "apple_reminders*", "apple_mail*", "apple_messages*", "connectors*", "okr*", "browser*", "mcp_tools*", "channels*", "playbooks*", "session*", "scheduler*", "hooks*", "proactive*", "webhook*", "skills*", "capabilities*", "humanizer*"]
+include = ["memory*", "agents*", "documents*", "chief*", "tools*", "utils*", "apple_calendar*", "apple_notifications*", "apple_reminders*", "apple_mail*", "apple_messages*", "connectors*", "okr*", "browser*", "mcp_tools*", "channels*", "playbooks*", "session*", "scheduler*", "hooks*", "proactive*", "webhook*", "skills*", "capabilities*", "humanizer*", "formatter*"]
 
 [tool.setuptools.package-data]
 "agent_configs" = ["*.yaml"]
