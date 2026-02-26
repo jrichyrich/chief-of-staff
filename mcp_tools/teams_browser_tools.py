@@ -35,20 +35,25 @@ def _get_poster():
 
 
 async def _wait_for_teams(manager, timeout_s: int = 30) -> bool:
-    """After launch, navigate to Teams and wait for it to load."""
+    """After launch, navigate through Okta to Teams and wait for it to load."""
     try:
         pw, browser = await manager.connect()
         ctx = browser.contexts[0]
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
 
-        if "teams" not in page.url.lower():
-            await page.goto("https://teams.cloud.microsoft/",
-                            wait_until="domcontentloaded", timeout=timeout_s * 1_000)
+        # If already on Teams, nothing to do
+        if any(p in page.url.lower() for p in ("teams.microsoft.com", "teams.cloud.microsoft")):
+            await pw.stop()
+            return True
+
+        # Go through Okta auth -> tile click -> Teams
+        from browser.okta_auth import ensure_okta_and_open_teams
+        await ensure_okta_and_open_teams(page, ctx)
 
         await pw.stop()
         return True
     except Exception as exc:
-        logger.warning("Failed to navigate to Teams: %s", exc)
+        logger.warning("Failed to navigate to Teams via Okta: %s", exc)
         return False
 
 
