@@ -20,6 +20,24 @@ TEAMS_PATTERNS = (
     "teams.cloud.microsoft",
 )
 
+# Okta configuration.
+OKTA_URL = "https://mychg.okta.com"
+
+# URL patterns that indicate we're on the Okta dashboard (authenticated).
+OKTA_DASHBOARD_PATTERNS = (
+    "/app/UserHome",
+    "/app/user-home",
+    "/enduser/catalog",
+)
+
+# CSS selectors for the Teams app tile on the Okta dashboard, tried in order.
+OKTA_TEAMS_TILE_SELECTORS = (
+    'a:has-text("Microsoft Teams")',
+    'a[aria-label*="Microsoft Teams"]',
+    '.app-button:has-text("Microsoft Teams")',
+    'a[data-se="app-card"]:has-text("Teams")',
+)
+
 # CSS selectors to locate the Teams compose / reply box, tried in order.
 COMPOSE_SELECTORS = (
     '[data-tid="ckeditor-replyConversation"]',
