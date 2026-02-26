@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from memory.models import AlertRule, Decision, Delegation
@@ -301,6 +301,29 @@ def _evaluate_rule(memory_store, rule) -> dict[str, Any]:
             for d in memory_store.list_delegations(status="active")
             if d.due_date and today_str <= d.due_date <= soon
         ]
+    elif alert_type == "stale_backup":
+        max_age_hours = int(parsed.get("max_age_hours", 48))
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+        fact = memory_store.get_fact("work", "backup_last_success")
+        matches = []
+        if fact is None:
+            matches.append({"reason": "No backup_last_success fact found"})
+        else:
+            # Value format: "YYYY-MM-DD: summary text"
+            try:
+                date_str = fact.value.split(":")[0].strip()
+                last_backup = datetime.strptime(date_str, "%Y-%m-%d")
+                if last_backup < cutoff:
+                    age_hours = (datetime.now() - last_backup).total_seconds() / 3600
+                    matches.append({
+                        "last_success": fact.value,
+                        "hours_ago": round(age_hours, 1),
+                        "threshold_hours": max_age_hours,
+                    })
+            except (ValueError, IndexError):
+                matches.append({
+                    "reason": f"Could not parse backup timestamp: {fact.value}"
+                })
     else:
         matches = []
 

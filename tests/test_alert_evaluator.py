@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from memory.models import AlertRule, Decision, Delegation
+from memory.models import AlertRule, Decision, Delegation, Fact
 from memory.store import MemoryStore
 
 
@@ -130,6 +130,74 @@ def test_evaluate_upcoming_deadline_rule(memory_store):
 
     assert result["count"] == 1
     assert result["matches"][0]["task"] == "Upcoming task"
+
+
+def test_evaluate_stale_backup_rule_triggers(memory_store):
+    """Test stale_backup alert fires when backup is older than threshold."""
+    from scheduler.alert_evaluator import _evaluate_rule
+
+    # Store a backup success fact from 3 days ago
+    old_date = (date.today() - timedelta(days=3)).isoformat()
+    memory_store.store_fact(Fact(
+        category="work", key="backup_last_success",
+        value=f"{old_date}: 150 files, 17M",
+    ))
+
+    rule = AlertRule(
+        name="stale_backup_check",
+        alert_type="stale_backup",
+        condition=json.dumps({"max_age_hours": 48}),
+        enabled=True,
+    )
+    stored_rule = memory_store.store_alert_rule(rule)
+
+    result = _evaluate_rule(memory_store, stored_rule)
+
+    assert result["count"] == 1
+    assert result["matches"][0]["hours_ago"] > 48
+    assert result["matches"][0]["threshold_hours"] == 48
+
+
+def test_evaluate_stale_backup_rule_passes(memory_store):
+    """Test stale_backup alert does NOT fire when backup is recent."""
+    from scheduler.alert_evaluator import _evaluate_rule
+
+    today = date.today().isoformat()
+    memory_store.store_fact(Fact(
+        category="work", key="backup_last_success",
+        value=f"{today}: 177 files, 26M",
+    ))
+
+    rule = AlertRule(
+        name="stale_backup_check",
+        alert_type="stale_backup",
+        condition=json.dumps({"max_age_hours": 48}),
+        enabled=True,
+    )
+    stored_rule = memory_store.store_alert_rule(rule)
+
+    result = _evaluate_rule(memory_store, stored_rule)
+
+    assert result["count"] == 0
+    assert result["matches"] == []
+
+
+def test_evaluate_stale_backup_rule_no_fact(memory_store):
+    """Test stale_backup alert fires when no backup fact exists at all."""
+    from scheduler.alert_evaluator import _evaluate_rule
+
+    rule = AlertRule(
+        name="stale_backup_check",
+        alert_type="stale_backup",
+        condition=json.dumps({"max_age_hours": 48}),
+        enabled=True,
+    )
+    stored_rule = memory_store.store_alert_rule(rule)
+
+    result = _evaluate_rule(memory_store, stored_rule)
+
+    assert result["count"] == 1
+    assert "No backup_last_success fact found" in result["matches"][0]["reason"]
 
 
 def test_evaluate_unknown_alert_type(memory_store):
