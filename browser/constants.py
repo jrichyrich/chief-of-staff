@@ -68,3 +68,33 @@ CHANNEL_NAME_SELECTORS = (
     '[data-tid="thread-header"] h2',
     '[data-tid="channel-header"] span',
 )
+
+# --- Group chat creation selectors (verified 2026-02-26) ---
+
+# Selector for the Chat tab in the left sidebar.
+CHAT_TAB_SELECTORS = (
+    'button[aria-label*="Chat ("]',
+    'button[aria-label="Chat"]',
+)
+
+# Selectors for the "New message" button in the chat pane.
+NEW_CHAT_SELECTORS = (
+    'button[aria-label*="New message"]',
+    '[data-tid="chat-pane-new-chat"]',
+)
+
+# Selectors for the "To:" recipient picker input field.
+TO_FIELD_SELECTORS = (
+    '[data-tid*="people-picker"] input',
+    'input[placeholder*="Enter name"]',
+    'input[placeholder*="name, chat, channel"]',
+)
+
+# Selector for recipient suggestion items in the people picker dropdown.
+RECIPIENT_SUGGESTION_SELECTOR = '[data-tid*="people-picker"] [role="option"]'
+
+# Selectors for the Send button (used when Enter alone doesn't send).
+SEND_BUTTON_SELECTORS = (
+    'button[data-tid="sendMessageCommands-send"]',
+    'button[aria-label*="Send"]',
+)

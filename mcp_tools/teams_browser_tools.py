@@ -98,7 +98,7 @@ def register(mcp, state):
 
     @mcp.tool()
     async def post_teams_message(target: str, message: str, auto_send: bool = False) -> str:
-        """Prepare a message for posting to a Teams channel or person.
+        """Prepare a message for posting to a Teams channel, person, or group.
 
         Connects to the running browser, uses the Teams search bar to
         find the target by name, navigates there, and returns
@@ -107,16 +107,28 @@ def register(mcp, state):
         After this returns ``"confirm_required"``, call
         ``confirm_teams_post`` to send or ``cancel_teams_post`` to abort.
 
+        For group chats, pass multiple names separated by commas
+        (e.g. "Alice, Bob, Charlie"). This creates a new group chat
+        with all recipients.
+
         Args:
-            target: Channel name or person name (e.g. "Engineering", "John Smith")
+            target: Channel name, person name, or comma-separated names for group chat
             message: The message text to post
             auto_send: If True, send immediately without confirmation step
         """
         poster = _get_poster()
+
+        # Detect group chat: comma-separated names → list
+        parsed_target = target
+        if "," in target:
+            names = [n.strip() for n in target.split(",") if n.strip()]
+            if len(names) > 1:
+                parsed_target = names
+
         if auto_send:
-            result = await poster.send_message(target, message)
+            result = await poster.send_message(parsed_target, message)
         else:
-            result = await poster.prepare_message(target, message)
+            result = await poster.prepare_message(parsed_target, message)
         return json.dumps(result)
 
     @mcp.tool()

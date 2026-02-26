@@ -4,9 +4,13 @@ import asyncio
 import logging
 
 from browser.constants import (
-    COMPOSE_SELECTORS,
+    CHAT_TAB_SELECTORS,
     CHANNEL_NAME_SELECTORS,
+    COMPOSE_SELECTORS,
+    NEW_CHAT_SELECTORS,
     POST_TIMEOUT_MS,
+    RECIPIENT_SUGGESTION_SELECTOR,
+    TO_FIELD_SELECTORS,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,6 +108,119 @@ class TeamsNavigator:
             fallbacks.append(f"{words[0]} {words[-1]}")
         fallbacks.append(words[0])
         return fallbacks
+
+    async def _add_recipient(self, page, to_field, name: str) -> bool:
+        """Type a recipient name into the To: field and select the match.
+
+        Returns True if a suggestion was found and clicked, False otherwise.
+        """
+        await to_field.click()
+        await to_field.fill(name)
+        await asyncio.sleep(2)  # Wait for suggestions to load
+
+        suggestions = page.locator(RECIPIENT_SUGGESTION_SELECTOR)
+        elapsed = 0
+        while await suggestions.count() == 0 and elapsed < 8_000:
+            await asyncio.sleep(1)
+            elapsed += 1_000
+
+        count = await suggestions.count()
+        if count == 0:
+            logger.warning("No suggestions found for recipient '%s'", name)
+            return False
+
+        # Find best match by name
+        name_lower = name.lower()
+        for i in range(count):
+            try:
+                text = await suggestions.nth(i).inner_text()
+                if name_lower in text.lower():
+                    logger.info("Selecting recipient: %s", text.strip()[:60])
+                    await suggestions.nth(i).click()
+                    await asyncio.sleep(1)
+                    return True
+            except Exception:
+                continue
+
+        # Fallback: click first suggestion
+        logger.info("No exact match for '%s', selecting first suggestion", name)
+        await suggestions.first.click()
+        await asyncio.sleep(1)
+        return True
+
+    async def create_group_chat(self, page, recipients: list[str]) -> dict:
+        """Create a new group chat with the given recipients.
+
+        Navigates to the Chat tab, clicks "New message", adds each
+        recipient via the people picker, and waits for the compose box.
+
+        Returns a dict with:
+        - ``"status": "navigated"`` and ``"detected_channel"`` on success
+        - ``"status": "error"`` with ``"error"`` detail on failure
+        """
+        # 1. Navigate to Chat tab
+        chat_tab = await self._find_element(page, CHAT_TAB_SELECTORS, timeout_ms=5_000)
+        if chat_tab is None:
+            return {
+                "status": "error",
+                "error": "Chat tab not found. Is Teams loaded?",
+            }
+        await chat_tab.first.click()
+        await asyncio.sleep(2)
+
+        # 2. Click "New message" button
+        new_chat_btn = await self._find_element(page, NEW_CHAT_SELECTORS, timeout_ms=5_000)
+        if new_chat_btn is None:
+            return {
+                "status": "error",
+                "error": "New message button not found in chat pane.",
+            }
+        await new_chat_btn.first.click()
+        await asyncio.sleep(2)
+
+        # 3. Find the To: field
+        to_field = await self._find_element(page, TO_FIELD_SELECTORS, timeout_ms=5_000)
+        if to_field is None:
+            return {
+                "status": "error",
+                "error": "To: recipient field not found. Could not create group chat.",
+            }
+
+        # 4. Add each recipient
+        failed = []
+        for name in recipients:
+            name = name.strip()
+            if not name:
+                continue
+            ok = await self._add_recipient(page, to_field.first, name)
+            if not ok:
+                failed.append(name)
+            # Re-find the To: field (DOM may update after each selection)
+            to_field = await self._find_element(page, TO_FIELD_SELECTORS, timeout_ms=3_000)
+            if to_field is None:
+                break
+
+        if failed:
+            logger.warning("Could not find suggestions for: %s", ", ".join(failed))
+
+        # 5. Wait for compose box
+        compose = await self._find_element(
+            page, COMPOSE_SELECTORS, timeout_ms=POST_TIMEOUT_MS
+        )
+        if compose is None:
+            return {
+                "status": "error",
+                "error": "Compose box not found after adding recipients.",
+            }
+
+        detected = await self._detect_channel_name(page)
+        result = {
+            "status": "navigated",
+            "detected_channel": detected,
+        }
+        if failed:
+            result["warnings"] = f"Could not find: {', '.join(failed)}"
+        return result
 
     async def search_and_navigate(self, page, target: str) -> dict:
         """Search for *target* in Teams and navigate to it.

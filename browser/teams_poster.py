@@ -17,9 +17,9 @@ Two posting modes:
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Union
 
-from browser.constants import COMPOSE_SELECTORS, POST_TIMEOUT_MS
+from browser.constants import COMPOSE_SELECTORS, POST_TIMEOUT_MS, SEND_BUTTON_SELECTORS
 from browser.manager import TeamsBrowserManager
 from browser.navigator import TeamsNavigator
 
@@ -86,11 +86,11 @@ class PlaywrightTeamsPoster:
             elapsed += interval_ms
         return None
 
-    async def prepare_message(self, target: str, message: str) -> dict:
+    async def prepare_message(self, target: Union[str, list[str]], message: str) -> dict:
         """Phase 1: connect to browser, navigate to target, return confirmation.
 
         Args:
-            target: Channel name or person name to search for in Teams.
+            target: Channel name, person name, or list of names for group chat.
             message: The message text to post.
 
         Returns a dict with ``"status"`` of ``"confirm_required"`` on
@@ -112,7 +112,11 @@ class PlaywrightTeamsPoster:
             ctx = browser.contexts[0]
             self._page = ctx.pages[0] if ctx.pages else await ctx.new_page()
 
-            nav_result = await self._navigator.search_and_navigate(self._page, target)
+            # Route: list of names → group chat, single string → search
+            if isinstance(target, list):
+                nav_result = await self._navigator.create_group_chat(self._page, target)
+            else:
+                nav_result = await self._navigator.search_and_navigate(self._page, target)
             if nav_result["status"] != "navigated":
                 await self._disconnect()
                 return nav_result
@@ -158,7 +162,18 @@ class PlaywrightTeamsPoster:
 
             await self._compose.click()
             await self._compose.fill(self._pending_message)
-            await self._page.keyboard.press("Enter")
+
+            # Try clicking the Send button first (required for new group chats),
+            # fall back to Enter if the button isn't found.
+            sent_via_button = False
+            for sel in SEND_BUTTON_SELECTORS:
+                btn = self._page.locator(sel)
+                if await btn.count() > 0:
+                    await btn.first.click()
+                    sent_via_button = True
+                    break
+            if not sent_via_button:
+                await self._page.keyboard.press("Enter")
 
             # Allow a moment for the message to dispatch
             await self._page.wait_for_timeout(1_000)
@@ -178,7 +193,7 @@ class PlaywrightTeamsPoster:
 
         return result
 
-    async def send_message(self, target: str, message: str) -> dict:
+    async def send_message(self, target: Union[str, list[str]], message: str) -> dict:
         """One-shot: navigate to target, type message, send, disconnect.
 
         Combines :meth:`prepare_message` and :meth:`send_prepared_message`
