@@ -1,6 +1,8 @@
 """Tests for the Teams browser automation MCP tools."""
 
 import json
+import sys
+import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -177,3 +179,84 @@ class TestCancelTeamsPost:
 
         result = json.loads(raw)
         assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+class TestWaitForTeams:
+    async def test_skips_okta_when_already_on_teams(self):
+        """If a page is already on Teams, skip the Okta flow."""
+        mock_mgr = MagicMock()
+        mock_pw = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.url = "https://teams.cloud.microsoft/v2/#/conversations"
+
+        mock_ctx = MagicMock()
+        mock_ctx.pages = [mock_page]
+        mock_browser = MagicMock()
+        mock_browser.contexts = [mock_ctx]
+        mock_mgr.connect = AsyncMock(return_value=(mock_pw, mock_browser))
+
+        result = await teams_browser_tools._wait_for_teams(mock_mgr)
+        assert result is True
+        mock_pw.stop.assert_awaited_once()
+
+    async def test_calls_okta_flow_when_not_on_teams(self):
+        """If no page is on Teams, call ensure_okta_and_open_teams."""
+        mock_mgr = MagicMock()
+        mock_pw = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.url = "about:blank"
+
+        mock_ctx = MagicMock()
+        mock_ctx.pages = [mock_page]
+        mock_browser = MagicMock()
+        mock_browser.contexts = [mock_ctx]
+        mock_mgr.connect = AsyncMock(return_value=(mock_pw, mock_browser))
+
+        teams_page = AsyncMock()
+        teams_page.url = "https://teams.cloud.microsoft/"
+
+        # Ensure the browser.okta_auth module is importable even if the
+        # real file hasn't been created yet (parallel agent builds it).
+        fake_mod = types.ModuleType("browser.okta_auth")
+        fake_mod.ensure_okta_and_open_teams = AsyncMock()
+        with patch.dict(sys.modules, {"browser.okta_auth": fake_mod}):
+            with patch.object(
+                fake_mod,
+                "ensure_okta_and_open_teams",
+                new_callable=AsyncMock,
+                return_value=teams_page,
+            ) as mock_okta:
+                result = await teams_browser_tools._wait_for_teams(mock_mgr)
+
+        assert result is True
+        mock_okta.assert_awaited_once_with(mock_page, mock_ctx)
+        mock_pw.stop.assert_awaited_once()
+
+    async def test_returns_false_on_okta_failure(self):
+        """Returns False if the Okta flow raises."""
+        mock_mgr = MagicMock()
+        mock_pw = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.url = "about:blank"
+
+        mock_ctx = MagicMock()
+        mock_ctx.pages = [mock_page]
+        mock_browser = MagicMock()
+        mock_browser.contexts = [mock_ctx]
+        mock_mgr.connect = AsyncMock(return_value=(mock_pw, mock_browser))
+
+        # Ensure the browser.okta_auth module is importable even if the
+        # real file hasn't been created yet (parallel agent builds it).
+        fake_mod = types.ModuleType("browser.okta_auth")
+        fake_mod.ensure_okta_and_open_teams = AsyncMock()
+        with patch.dict(sys.modules, {"browser.okta_auth": fake_mod}):
+            with patch.object(
+                fake_mod,
+                "ensure_okta_and_open_teams",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("Okta authentication timed out"),
+            ):
+                result = await teams_browser_tools._wait_for_teams(mock_mgr)
+
+        assert result is False
