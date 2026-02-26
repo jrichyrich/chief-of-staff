@@ -93,6 +93,24 @@ notify_success() {
         "INSERT OR REPLACE INTO facts (category, key, value, confidence) VALUES ('work', 'backup_last_success', '$(date +%Y-%m-%d): $escaped_sql_summary', 1.0);" 2>/dev/null || true
 }
 
+safe_sqlite_backup() {
+    # Run sqlite3 .backup with retry logic for flaky destinations (OneDrive).
+    # Usage: safe_sqlite_backup <label> <source_db> <dest_path>
+    local label="$1" src="$2" dest="$3"
+    local attempt max_attempts=3 wait_secs=10
+    for attempt in $(seq 1 $max_attempts); do
+        if sqlite3 "$src" ".backup '$dest'" 2>&1; then
+            return 0
+        fi
+        if [ "$attempt" -lt "$max_attempts" ]; then
+            log "$label sqlite3 .backup failed (attempt $attempt/$max_attempts) -- retrying in ${wait_secs}s..."
+            sleep "$wait_secs"
+        fi
+    done
+    log_error "$label sqlite3 .backup failed after $max_attempts attempts -- continuing"
+    return 0  # swallow error so set -e doesn't abort
+}
+
 safe_rsync() {
     # Run rsync but don't let failure abort the script (set -e safe).
     # Usage: safe_rsync <label> <rsync_args...>
@@ -255,16 +273,29 @@ fi
 
 # --- Pre-flight checks -------------------------------------------------------
 
-if [ ! -d "$ONEDRIVE_BASE" ]; then
-    # OneDrive may not be mounted yet after wake — wait and retry once
-    log "OneDrive not found at $ONEDRIVE_BASE -- waiting 60s for mount..."
-    sleep 60
-    if [ ! -d "$ONEDRIVE_BASE" ]; then
-        log_error "OneDrive still not found at $ONEDRIVE_BASE after retry"
-        notify_failure "OneDrive not mounted"
+onedrive_ready() {
+    # Check that OneDrive is mounted AND writable (not just that the dir exists).
+    # Files On-Demand / dehydrated state can make the dir visible but unwritable.
+    [ -d "$ONEDRIVE_BASE" ] || return 1
+    mkdir -p "$BACKUP_DIR/data" 2>/dev/null || return 1
+    local probe="$BACKUP_DIR/data/.write-probe"
+    touch "$probe" 2>/dev/null && rm -f "$probe" 2>/dev/null
+}
+
+ONEDRIVE_WAIT=0
+ONEDRIVE_MAX_WAIT=180  # 3 minutes total, in 30s increments
+while ! onedrive_ready; do
+    if [ "$ONEDRIVE_WAIT" -ge "$ONEDRIVE_MAX_WAIT" ]; then
+        log_error "OneDrive not writable at $BACKUP_DIR after ${ONEDRIVE_MAX_WAIT}s"
+        notify_failure "OneDrive not writable after ${ONEDRIVE_MAX_WAIT}s"
         exit 1
     fi
-    log "OneDrive mounted after retry"
+    log "OneDrive not ready at $ONEDRIVE_BASE -- waiting 30s (${ONEDRIVE_WAIT}/${ONEDRIVE_MAX_WAIT}s)..."
+    sleep 30
+    ONEDRIVE_WAIT=$((ONEDRIVE_WAIT + 30))
+done
+if [ "$ONEDRIVE_WAIT" -gt 0 ]; then
+    log "OneDrive ready after ${ONEDRIVE_WAIT}s"
 fi
 
 # --- Log rotation (keep under 1000 lines) ------------------------------------
@@ -300,9 +331,9 @@ if [ -f "$MEMORY_DB" ]; then
         # Flush WAL to minimize SQLITE_BUSY risk
         sqlite3 "$MEMORY_DB" "PRAGMA wal_checkpoint(PASSIVE);" 2>/dev/null || true
         # Latest copy (overwritten daily)
-        sqlite3 "$MEMORY_DB" ".backup '$BACKUP_DB'"
+        safe_sqlite_backup "memory.db (latest)" "$MEMORY_DB" "$BACKUP_DB"
         # Dated snapshot for point-in-time recovery
-        sqlite3 "$MEMORY_DB" ".backup '$SNAPSHOT_MEMORY'"
+        safe_sqlite_backup "memory.db (snapshot)" "$MEMORY_DB" "$SNAPSHOT_MEMORY"
         # Verify both copies
         verify_sqlite "$BACKUP_DB" "memory.db (latest)"
         verify_sqlite "$SNAPSHOT_MEMORY" "memory.db (snapshot $DATE_STAMP)"
@@ -329,9 +360,9 @@ if [ -d "$CHROMA_SRC" ]; then
             # Flush WAL
             sqlite3 "$CHROMA_SQLITE" "PRAGMA wal_checkpoint(PASSIVE);" 2>/dev/null || true
             # Latest copy
-            sqlite3 "$CHROMA_SQLITE" ".backup '$CHROMA_DST/chroma.sqlite3'"
+            safe_sqlite_backup "chroma.sqlite3 (latest)" "$CHROMA_SQLITE" "$CHROMA_DST/chroma.sqlite3"
             # Dated snapshot
-            sqlite3 "$CHROMA_SQLITE" ".backup '$SNAPSHOT_CHROMA'"
+            safe_sqlite_backup "chroma.sqlite3 (snapshot)" "$CHROMA_SQLITE" "$SNAPSHOT_CHROMA"
             # Verify
             verify_sqlite "$CHROMA_DST/chroma.sqlite3" "chroma.sqlite3 (latest)"
             verify_sqlite "$SNAPSHOT_CHROMA" "chroma.sqlite3 (snapshot $DATE_STAMP)"
@@ -340,8 +371,8 @@ if [ -d "$CHROMA_SRC" ]; then
     fi
 
     # rsync the HNSW index and other binary files (exclude the sqlite we already backed up)
-    safe_rsync "ChromaDB HNSW" $RSYNC_OPTS --exclude='chroma.sqlite3' "$CHROMA_SRC/" "$CHROMA_DST/" | \
-        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    RSYNC_OUT=$(safe_rsync "ChromaDB HNSW" $RSYNC_OPTS --exclude='chroma.sqlite3' "$CHROMA_SRC/" "$CHROMA_DST/" || true)
+    if $VERBOSE; then echo "$RSYNC_OUT" >> "$LOG_FILE"; else echo "$RSYNC_OUT" | tail -1 >> "$LOG_FILE"; fi
     log "ChromaDB vector store synced ($(du -sh "$CHROMA_DST" 2>/dev/null | cut -f1))"
 else
     log "WARN: ChromaDB not found at $CHROMA_SRC"
@@ -372,8 +403,8 @@ if [ -f "$CAL_ROUTING_DB" ]; then
         log "Would backup calendar-routing.db via sqlite3 .backup"
     else
         sqlite3 "$CAL_ROUTING_DB" "PRAGMA wal_checkpoint(PASSIVE);" 2>/dev/null || true
-        sqlite3 "$CAL_ROUTING_DB" ".backup '$BACKUP_CAL_ROUTING'"
-        sqlite3 "$CAL_ROUTING_DB" ".backup '$SNAPSHOT_CAL_ROUTING'"
+        safe_sqlite_backup "calendar-routing.db (latest)" "$CAL_ROUTING_DB" "$BACKUP_CAL_ROUTING"
+        safe_sqlite_backup "calendar-routing.db (snapshot)" "$CAL_ROUTING_DB" "$SNAPSHOT_CAL_ROUTING"
         verify_sqlite "$BACKUP_CAL_ROUTING" "calendar-routing.db (latest)"
         log "calendar-routing.db backed up ($(du -h "$BACKUP_CAL_ROUTING" | cut -f1))"
     fi
@@ -393,8 +424,8 @@ if [ -f "$THREAD_PROFILES_DB" ]; then
         log "Would backup imessage-thread-profiles.db via sqlite3 .backup"
     else
         sqlite3 "$THREAD_PROFILES_DB" "PRAGMA wal_checkpoint(PASSIVE);" 2>/dev/null || true
-        sqlite3 "$THREAD_PROFILES_DB" ".backup '$BACKUP_THREAD_PROFILES'"
-        sqlite3 "$THREAD_PROFILES_DB" ".backup '$SNAPSHOT_THREAD_PROFILES'"
+        safe_sqlite_backup "imessage-thread-profiles.db (latest)" "$THREAD_PROFILES_DB" "$BACKUP_THREAD_PROFILES"
+        safe_sqlite_backup "imessage-thread-profiles.db (snapshot)" "$THREAD_PROFILES_DB" "$SNAPSHOT_THREAD_PROFILES"
         verify_sqlite "$BACKUP_THREAD_PROFILES" "imessage-thread-profiles.db (latest)"
         log "imessage-thread-profiles.db backed up ($(du -h "$BACKUP_THREAD_PROFILES" | cut -f1))"
     fi
@@ -412,8 +443,8 @@ if [ -d "$OKR_SRC" ]; then
     if ! $DRY_RUN; then
         mkdir -p "$OKR_DST"
     fi
-    safe_rsync "OKR snapshots" $RSYNC_OPTS "$OKR_SRC/" "$OKR_DST/" | \
-        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    RSYNC_OUT=$(safe_rsync "OKR snapshots" $RSYNC_OPTS "$OKR_SRC/" "$OKR_DST/" || true)
+    if $VERBOSE; then echo "$RSYNC_OUT" >> "$LOG_FILE"; else echo "$RSYNC_OUT" | tail -1 >> "$LOG_FILE"; fi
     OKR_COUNT=$(find "$OKR_SRC" -type f 2>/dev/null | wc -l | tr -d ' ')
     log "OKR snapshots synced ($OKR_COUNT files)"
 else
@@ -430,8 +461,8 @@ if [ -d "$WEBHOOK_INBOX" ]; then
     if ! $DRY_RUN; then
         mkdir -p "$WEBHOOK_DST"
     fi
-    safe_rsync "Webhook inbox" $RSYNC_OPTS "$WEBHOOK_INBOX/" "$WEBHOOK_DST/" | \
-        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    RSYNC_OUT=$(safe_rsync "Webhook inbox" $RSYNC_OPTS "$WEBHOOK_INBOX/" "$WEBHOOK_DST/" || true)
+    if $VERBOSE; then echo "$RSYNC_OUT" >> "$LOG_FILE"; else echo "$RSYNC_OUT" | tail -1 >> "$LOG_FILE"; fi
     WEBHOOK_COUNT=$(find "$WEBHOOK_INBOX" -type f 2>/dev/null | wc -l | tr -d ' ')
     log "Webhook inbox synced ($WEBHOOK_COUNT files)"
 else
@@ -442,8 +473,8 @@ fi
 
 log_section "Document Library"
 if [ -d "$JARVIS_DOCS" ]; then
-    safe_rsync "Document library" $RSYNC_OPTS "$JARVIS_DOCS/" "$BACKUP_DIR/documents/" | \
-        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    RSYNC_OUT=$(safe_rsync "Document library" $RSYNC_OPTS "$JARVIS_DOCS/" "$BACKUP_DIR/documents/" || true)
+    if $VERBOSE; then echo "$RSYNC_OUT" >> "$LOG_FILE"; else echo "$RSYNC_OUT" | tail -1 >> "$LOG_FILE"; fi
     DOC_COUNT=$(find "$JARVIS_DOCS" -type f | wc -l | tr -d ' ')
     DOC_SIZE=$(du -sh "$JARVIS_DOCS" 2>/dev/null | cut -f1)
     log "Document library synced ($DOC_COUNT files, $DOC_SIZE)"
@@ -456,8 +487,8 @@ fi
 log_section "Agent Configurations"
 AGENT_SRC="$PROJECT_DIR/agent_configs"
 if [ -d "$AGENT_SRC" ]; then
-    safe_rsync "Agent configs" $RSYNC_OPTS "$AGENT_SRC/" "$BACKUP_DIR/agent_configs/" | \
-        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    RSYNC_OUT=$(safe_rsync "Agent configs" $RSYNC_OPTS "$AGENT_SRC/" "$BACKUP_DIR/agent_configs/" || true)
+    if $VERBOSE; then echo "$RSYNC_OUT" >> "$LOG_FILE"; else echo "$RSYNC_OUT" | tail -1 >> "$LOG_FILE"; fi
     AGENT_COUNT=$(ls "$AGENT_SRC"/*.yaml 2>/dev/null | wc -l | tr -d ' ')
     log "Agent configs synced ($AGENT_COUNT YAML files)"
 else
@@ -469,11 +500,11 @@ fi
 log_section "Scripts"
 SCRIPTS_SRC="$PROJECT_DIR/scripts"
 if [ -d "$SCRIPTS_SRC" ]; then
-    safe_rsync "Scripts" $RSYNC_OPTS \
+    RSYNC_OUT=$(safe_rsync "Scripts" $RSYNC_OPTS \
         --exclude='*.o' \
         --exclude='.DS_Store' \
-        "$SCRIPTS_SRC/" "$BACKUP_DIR/scripts/" | \
-        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+        "$SCRIPTS_SRC/" "$BACKUP_DIR/scripts/" || true)
+    if $VERBOSE; then echo "$RSYNC_OUT" >> "$LOG_FILE"; else echo "$RSYNC_OUT" | tail -1 >> "$LOG_FILE"; fi
     log "Scripts synced"
 fi
 
@@ -482,8 +513,8 @@ fi
 log_section "Hooks"
 HOOKS_SRC="$PROJECT_DIR/hooks"
 if [ -d "$HOOKS_SRC" ]; then
-    safe_rsync "Hooks" $RSYNC_OPTS "$HOOKS_SRC/" "$BACKUP_DIR/hooks/" | \
-        { if $VERBOSE; then cat; else tail -1; fi } >> "$LOG_FILE"
+    RSYNC_OUT=$(safe_rsync "Hooks" $RSYNC_OPTS "$HOOKS_SRC/" "$BACKUP_DIR/hooks/" || true)
+    if $VERBOSE; then echo "$RSYNC_OUT" >> "$LOG_FILE"; else echo "$RSYNC_OUT" | tail -1 >> "$LOG_FILE"; fi
     log "Hooks synced"
 fi
 
