@@ -25,5 +25,8 @@ uv.lock
 coverage.json
 htmlcov/
 
+# Implementation plans (stale dev artifacts, PII risk)
+docs/plans/
+
 # IDE / local config
 .mcp.json
