@@ -108,10 +108,9 @@ async def _wait_for_teams_tab(
 ) -> "Page":
     """Wait for a Teams page to appear after clicking the tile.
 
-    Handles intermediate Microsoft SSO pages (trust prompts, OAuth errors)
-    by auto-clicking through them. If the tile redirect lands on Teams with
-    an OAuth error (e.g. missing nonce), falls back to direct navigation
-    since the SSO cookies are already established.
+    Handles intermediate Microsoft SSO pages (trust prompts, OAuth errors,
+    reprocess spinners) by auto-clicking through them or falling back to
+    direct navigation since the SSO cookies are already established.
 
     Returns the page with a Teams URL.
     Raises ``RuntimeError`` on timeout.
@@ -119,12 +118,16 @@ async def _wait_for_teams_tab(
     elapsed = 0
     poll_ms = 2_000
     direct_nav_attempted = False
+    reprocess_seen_at = None
     while elapsed < timeout_ms:
-        # Check all pages for Teams URL without errors
+        # Check all pages for a clean Teams URL
         for page in context.pages:
             if _is_on_teams(page.url) and "#error=" not in page.url:
-                await page.wait_for_load_state("domcontentloaded")
-                return page
+                # Verify the URL is stable (not mid-redirect)
+                await asyncio.sleep(2)
+                if _is_on_teams(page.url) and "#error=" not in page.url:
+                    await page.wait_for_load_state("domcontentloaded")
+                    return page
 
         # Handle Teams pages with OAuth errors — fall back to direct nav
         for page in context.pages:
@@ -141,14 +144,37 @@ async def _wait_for_teams_tab(
                         wait_until="domcontentloaded",
                         timeout=30_000,
                     )
-                    # Give it time to authenticate via existing cookies
                     await asyncio.sleep(3)
                     continue
 
-        # Auto-click through SSO prompts on login pages
+        # Handle SSO login pages
         for page in context.pages:
             if "login.microsoftonline.com" in page.url:
-                await _handle_sso_prompts(page)
+                # Auto-click trust/consent prompts
+                clicked = await _handle_sso_prompts(page)
+                if clicked:
+                    reprocess_seen_at = None
+                    continue
+
+                # Detect stuck reprocess spinner — fall back to direct nav
+                if "/common/reprocess" in page.url:
+                    if reprocess_seen_at is None:
+                        reprocess_seen_at = elapsed
+                        logger.info("Detected SSO reprocess page, waiting...")
+                    elif elapsed - reprocess_seen_at >= 6_000 and not direct_nav_attempted:
+                        logger.warning(
+                            "SSO reprocess stuck for %ds, "
+                            "falling back to direct Teams navigation.",
+                            (elapsed - reprocess_seen_at) // 1_000,
+                        )
+                        direct_nav_attempted = True
+                        await page.goto(
+                            "https://teams.microsoft.com",
+                            wait_until="domcontentloaded",
+                            timeout=30_000,
+                        )
+                        await asyncio.sleep(3)
+                        continue
 
         await asyncio.sleep(poll_ms / 1_000)
         elapsed += poll_ms
