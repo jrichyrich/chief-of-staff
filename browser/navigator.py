@@ -4,9 +4,12 @@ import asyncio
 import logging
 
 from browser.constants import (
+    CHAT_LIST_ITEM_SELECTOR,
     CHAT_TAB_SELECTORS,
     CHANNEL_NAME_SELECTORS,
     COMPOSE_SELECTORS,
+    FILTER_INPUT_SELECTORS,
+    FILTER_SHOW_BTN_SELECTORS,
     NEW_CHAT_SELECTORS,
     POST_TIMEOUT_MS,
     RECIPIENT_SUGGESTION_SELECTOR,
@@ -108,6 +111,141 @@ class TeamsNavigator:
             fallbacks.append(f"{words[0]} {words[-1]}")
         fallbacks.append(words[0])
         return fallbacks
+
+    async def _open_sidebar_filter(self, page):
+        """Open the sidebar filter text box if not already visible.
+
+        Returns the filter input locator, or ``None`` if it can't be opened.
+        """
+        # Check if filter input is already visible
+        f_input = await self._find_element(page, FILTER_INPUT_SELECTORS, timeout_ms=2_000)
+        if f_input is not None:
+            return f_input
+
+        # Click the "Show filter text box" button
+        show_btn = await self._find_element(page, FILTER_SHOW_BTN_SELECTORS, timeout_ms=3_000)
+        if show_btn is None:
+            return None
+        await show_btn.first.click()
+        await asyncio.sleep(1)
+
+        return await self._find_element(page, FILTER_INPUT_SELECTORS, timeout_ms=3_000)
+
+    @staticmethod
+    def _match_chat_item(item_text: str, participants: list[str]) -> int:
+        """Score how well a chat item matches the requested participants.
+
+        Returns a score (higher is better). 0 means no match.
+        For multiple participants, prefer items whose text contains
+        multiple participant names (group chats) over single-name matches.
+
+        Scoring:
+        - Full name match = 2 points per participant
+        - First name match = 1 point per participant
+        - Bonus: +10 if more than one participant matched (prefers group chats)
+        """
+        text_lower = item_text.lower()
+        matched_count = 0
+        score = 0
+        for name in participants:
+            if name.lower() in text_lower:
+                score += 2
+                matched_count += 1
+            elif name.split()[0].lower() in text_lower:
+                score += 1
+                matched_count += 1
+        # Bonus for group chat matches (multiple participants found)
+        if matched_count > 1:
+            score += 10
+        return score
+
+    async def find_existing_chat(self, page, participants: list[str]) -> dict:
+        """Find an existing chat by participant names using the sidebar filter.
+
+        Opens the Chat tab, uses the filter text box to narrow the sidebar,
+        then finds and clicks a matching chat item.
+
+        Returns a dict with:
+        - ``"status": "navigated"`` and ``"detected_channel"`` on success
+        - ``"status": "not_found"`` if no matching chat exists
+        - ``"status": "error"`` with ``"error"`` detail on failure
+        """
+        # 1. Navigate to Chat tab
+        chat_tab = await self._find_element(page, CHAT_TAB_SELECTORS, timeout_ms=5_000)
+        if chat_tab is None:
+            return {
+                "status": "error",
+                "error": "Chat tab not found. Is Teams loaded?",
+            }
+        await chat_tab.first.click()
+        await asyncio.sleep(2)
+
+        # 2. Open the sidebar filter
+        f_input = await self._open_sidebar_filter(page)
+        if f_input is None:
+            return {
+                "status": "error",
+                "error": "Could not open sidebar filter text box.",
+            }
+
+        # 3. Type the first participant's name to narrow results
+        search_name = participants[0].split()[0]  # Use first name for broader match
+        await f_input.first.click()
+        await f_input.first.fill(search_name)
+        await asyncio.sleep(2)
+
+        # 4. Find level-2 treeitems (actual chats, not section headers)
+        items = page.locator(CHAT_LIST_ITEM_SELECTOR)
+        count = await items.count()
+
+        if count == 0:
+            # Clear filter before returning
+            await f_input.first.fill("")
+            return {"status": "not_found"}
+
+        # 5. Score each item and find best match
+        best_idx = -1
+        best_score = 0
+        for i in range(count):
+            try:
+                text = await items.nth(i).inner_text()
+                score = self._match_chat_item(text, participants)
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+            except Exception:
+                continue
+
+        if best_idx < 0 or best_score == 0:
+            await f_input.first.fill("")
+            return {"status": "not_found"}
+
+        # 6. Click the matching chat item
+        logger.info("Found matching chat at index %d (score=%d)", best_idx, best_score)
+        await items.nth(best_idx).click()
+        await asyncio.sleep(2)
+
+        # 7. Clear the filter
+        # Re-find input since DOM may have changed after click
+        f_input_after = await self._find_element(page, FILTER_INPUT_SELECTORS, timeout_ms=2_000)
+        if f_input_after is not None:
+            await f_input_after.first.fill("")
+
+        # 8. Wait for compose box to confirm navigation
+        compose = await self._find_element(
+            page, COMPOSE_SELECTORS, timeout_ms=POST_TIMEOUT_MS
+        )
+        if compose is None:
+            return {
+                "status": "error",
+                "error": "Navigated to chat but compose box not found.",
+            }
+
+        detected = await self._detect_channel_name(page)
+        return {
+            "status": "navigated",
+            "detected_channel": detected,
+        }
 
     async def _add_recipient(self, page, to_field, name: str) -> bool:
         """Type a recipient name into the To: field and select the match.

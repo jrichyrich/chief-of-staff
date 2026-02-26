@@ -112,9 +112,13 @@ class PlaywrightTeamsPoster:
             ctx = browser.contexts[0]
             self._page = ctx.pages[0] if ctx.pages else await ctx.new_page()
 
-            # Route: list of names → group chat, single string → search
+            # Route: list of names → find existing or create group chat
+            #        single string → search
             if isinstance(target, list):
-                nav_result = await self._navigator.create_group_chat(self._page, target)
+                nav_result = await self._navigator.find_existing_chat(self._page, target)
+                if nav_result["status"] == "not_found":
+                    logger.info("No existing chat found, creating new group chat")
+                    nav_result = await self._navigator.create_group_chat(self._page, target)
             else:
                 nav_result = await self._navigator.search_and_navigate(self._page, target)
             if nav_result["status"] != "navigated":

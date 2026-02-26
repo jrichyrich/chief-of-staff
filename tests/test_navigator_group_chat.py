@@ -197,10 +197,10 @@ class TestCreateGroupChat:
 
 
 class TestPosterGroupChatRouting:
-    """Test that PlaywrightTeamsPoster routes list targets to create_group_chat."""
+    """Test that PlaywrightTeamsPoster routes list targets through find → create."""
 
     @pytest.mark.asyncio
-    async def test_list_target_routes_to_group_chat(self):
+    async def test_list_target_creates_group_when_not_found(self):
         from browser.teams_poster import PlaywrightTeamsPoster
 
         manager = MagicMock()
@@ -214,6 +214,9 @@ class TestPosterGroupChatRouting:
         manager.connect.return_value[1].contexts = [mock_ctx]
 
         navigator = MagicMock()
+        navigator.find_existing_chat = AsyncMock(return_value={
+            "status": "not_found",
+        })
         navigator.create_group_chat = AsyncMock(return_value={
             "status": "navigated",
             "detected_channel": "Alice, +1",
@@ -226,6 +229,7 @@ class TestPosterGroupChatRouting:
             result = await poster.prepare_message(["Alice", "Bob"], "Hello group!")
 
         assert result["status"] == "confirm_required"
+        navigator.find_existing_chat.assert_called_once_with(mock_page, ["Alice", "Bob"])
         navigator.create_group_chat.assert_called_once_with(mock_page, ["Alice", "Bob"])
 
     @pytest.mark.asyncio

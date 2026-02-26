@@ -98,3 +98,20 @@ SEND_BUTTON_SELECTORS = (
     'button[data-tid="sendMessageCommands-send"]',
     'button[aria-label*="Send"]',
 )
+
+# --- Sidebar filter selectors for finding existing chats (verified 2026-02-26) ---
+
+# Button to show the filter text box in the chat sidebar.
+FILTER_SHOW_BTN_SELECTORS = (
+    'button[aria-label="Show filter text box (⇧ ⌘ F)"]',
+    'button[aria-label*="filter text box"]',
+)
+
+# The filter text input that narrows the chat list.
+FILTER_INPUT_SELECTORS = (
+    'input[aria-label="Filter by person, chat or channel name"]',
+    '#simple-collab-left-rail-sticky-filter-input-id',
+)
+
+# Actual chat items in the sidebar (level-2 treeitems, not section headers).
+CHAT_LIST_ITEM_SELECTOR = 'div[role="treeitem"][aria-level="2"]'
