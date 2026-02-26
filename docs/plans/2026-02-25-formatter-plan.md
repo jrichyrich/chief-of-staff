@@ -399,12 +399,12 @@ class TestCardRender:
         result = render(
             title="RBAC Project Status",
             status="yellow",
-            fields={"Owner": "Shawn Farnworth", "Progress": "5%"},
+            fields={"Owner": "Sam Wilson", "Progress": "5%"},
             mode="plain",
         )
         assert "RBAC Project Status" in result
         assert "YELLOW" in result or "yellow" in result.lower()
-        assert "Shawn Farnworth" in result
+        assert "Sam Wilson" in result
         assert "5%" in result
 
     def test_card_plain_no_ansi(self):

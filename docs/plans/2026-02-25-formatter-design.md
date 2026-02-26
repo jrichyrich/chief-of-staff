@@ -93,7 +93,7 @@ tables.render(
 cards.render(
     title="RBAC Project Status",
     status="yellow",
-    fields={"Owner": "Shawn Farnworth", "Progress": "5%", "Blocker": "Alchemy contract"},
+    fields={"Owner": "Sam Wilson", "Progress": "5%", "Blocker": "Alchemy contract"},
     mode="terminal"
 ) → str
 

@@ -579,14 +579,14 @@ class TestDecisions:
 
 class TestPeopleContext:
     def test_add_person(self, brain):
-        brain.add_person("Theresa O'Leary", "CIO, Jason's manager")
+        brain.add_person("Maria Torres", "CIO, Alex's manager")
         assert len(brain.people) == 1
 
     def test_update_person(self, brain):
-        brain.add_person("Theresa", "CIO")
-        brain.add_person("Theresa", "CIO, Jason's manager")
+        brain.add_person("Maria", "CIO")
+        brain.add_person("Maria", "CIO, Alex's manager")
         assert len(brain.people) == 1
-        assert "Jason's manager" in brain.people[0]["context"]
+        assert "Alex's manager" in brain.people[0]["context"]
 
 
 class TestHandoffNotes:

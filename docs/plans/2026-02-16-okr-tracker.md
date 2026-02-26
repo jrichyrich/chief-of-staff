@@ -62,8 +62,8 @@ def test_objective_from_row():
     row = {
         "okr_id": "OKR 1",
         "name": "Trusted Security & Privacy Controls",
-        "statement": "CHG earns and maintains trust...",
-        "owner": "Jason Richards",
+        "statement": "Acme earns and maintains trust...",
+        "owner": "Alex Chen",
         "team": "Information Security & Privacy",
         "year": "2026",
         "status": "On Track",
@@ -86,7 +86,7 @@ def test_key_result_from_row():
         "target": "<10 minutes (automated)",
         "current_actual": "25",
         "gap_to_target": "15",
-        "owner": "Shawn Farnworth",
+        "owner": "Sam Wilson",
         "team": "IAM",
         "q1_milestone": "<20 minutes",
         "q2_milestone": "<15 minutes",
@@ -108,7 +108,7 @@ def test_initiative_from_row():
         "pct_complete": 0.05,
         "status": "On Track",
         "blocker": "",
-        "owner": "Shawn Farnworth",
+        "owner": "Sam Wilson",
         "team": "IAM",
         "investment_tier": "1",
         "maturity_type": "Grow",
@@ -285,7 +285,7 @@ def test_parses_objectives(snapshot):
 def test_objective_fields(snapshot):
     okr1 = next(o for o in snapshot.objectives if o.okr_id == "OKR 1")
     assert okr1.name == "Trusted Security & Privacy Controls"
-    assert okr1.owner == "Jason Richards"
+    assert okr1.owner == "Alex Chen"
     assert okr1.status == "On Track"
     assert 0 <= okr1.pct_complete <= 1.0
 
@@ -295,7 +295,7 @@ def test_parses_key_results(snapshot):
     kr11 = next((kr for kr in snapshot.key_results if kr.kr_id == "KR 1.1"), None)
     assert kr11 is not None
     assert kr11.okr_id == "OKR 1"
-    assert kr11.owner == "Shawn Farnworth"
+    assert kr11.owner == "Sam Wilson"
 
 
 def test_parses_initiatives(snapshot):

@@ -74,7 +74,7 @@ delivery:
 #### Playbook storage and invocation
 
 - Playbook YAML files stored in `playbooks/` directory
-- Invoked by name: "Jarvis, run meeting_prep for my 2pm with Theresa"
+- Invoked by name: "Jarvis, run meeting_prep for my 2pm with Maria"
 - Jarvis parses inputs, dispatches workstreams as parallel Task tool calls, runs synthesis, delivers via configured channel
 
 ### Section 2: Session Brain
@@ -176,7 +176,7 @@ Situational delivery combining safety tiers with context awareness.
 | Recipient | Self = Tier 1. Known internal = Tier 2. External/executive/new = Tier 3 |
 | Topic sensitivity | Keywords or categories (legal, HR, security, financial) bump up one tier |
 | Explicit override | Playbook YAML can declare `safety: auto` or `safety: draft_only` |
-| User preference | Stored as memory fact: "always confirm before messaging Theresa" |
+| User preference | Stored as memory fact: "always confirm before messaging Maria" |
 
 #### Channel selection
 

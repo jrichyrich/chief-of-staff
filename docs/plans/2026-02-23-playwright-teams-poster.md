@@ -214,7 +214,7 @@ Append to `tests/test_teams_poster.py`:
 ```python
 def test_is_login_page_okta(poster):
     """Detects Okta login page."""
-    assert poster._is_login_page("https://chghealthcare.okta.com/login/login.htm") is True
+    assert poster._is_login_page("https://acmecorp.okta.com/login/login.htm") is True
 
 
 def test_is_login_page_microsoft(poster):
