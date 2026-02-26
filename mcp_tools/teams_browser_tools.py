@@ -34,8 +34,11 @@ def _get_poster():
     return _poster
 
 
-async def _wait_for_teams(manager, timeout_s: int = 30) -> bool:
-    """After launch, navigate through Okta to Teams and wait for it to load."""
+async def _wait_for_teams(manager, timeout_s: int = 30) -> dict:
+    """After launch, navigate through Okta to Teams and wait for it to load.
+
+    Returns a dict with 'ok' (bool) and optional 'detail' message.
+    """
     try:
         pw, browser = await manager.connect()
         ctx = browser.contexts[0]
@@ -44,17 +47,26 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> bool:
         # If already on Teams, nothing to do
         if any(p in page.url.lower() for p in ("teams.microsoft.com", "teams.cloud.microsoft")):
             await pw.stop()
-            return True
+            return {"ok": True}
 
         # Go through Okta auth -> tile click -> Teams
         from browser.okta_auth import ensure_okta_and_open_teams
         await ensure_okta_and_open_teams(page, ctx)
 
         await pw.stop()
-        return True
+        return {"ok": True}
+    except RuntimeError as exc:
+        msg = str(exc)
+        logger.warning("Teams navigation: %s", msg)
+        if "authentication timed out" in msg.lower():
+            return {
+                "ok": False,
+                "detail": "Okta auth required. Authenticate in the browser, then call open_teams_browser again.",
+            }
+        return {"ok": False, "detail": msg}
     except Exception as exc:
         logger.warning("Failed to navigate to Teams via Okta: %s", exc)
-        return False
+        return {"ok": False, "detail": str(exc)}
 
 
 def register(mcp, state):
@@ -75,10 +87,12 @@ def register(mcp, state):
         result = mgr.launch()
 
         if result["status"] in ("launched", "already_running"):
-            navigated = await _wait_for_teams(mgr)
-            if not navigated:
-                logger.warning("Browser launched but initial Teams navigation failed")
-            result["status"] = "running"
+            nav = await _wait_for_teams(mgr)
+            if nav["ok"]:
+                result["status"] = "running"
+            else:
+                result["status"] = "awaiting_action"
+                result["detail"] = nav.get("detail", "Teams navigation incomplete")
 
         return json.dumps(result)
 

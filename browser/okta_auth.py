@@ -9,6 +9,8 @@ import logging
 
 from browser.constants import (
     AUTH_TIMEOUT_MS,
+    MS_SSO_CONTINUE_SELECTORS,
+    MS_SSO_RETRY_SELECTORS,
     OKTA_DASHBOARD_PATTERNS,
     OKTA_TEAMS_TILE_SELECTORS,
     OKTA_URL,
@@ -50,47 +52,103 @@ async def _wait_for_okta_auth(page, timeout_ms: int = AUTH_TIMEOUT_MS) -> bool:
     return False
 
 
-async def _click_teams_tile(page) -> None:
+async def _click_teams_tile(page, timeout_ms: int = 15_000) -> None:
     """Find and click the Microsoft Teams tile on the Okta dashboard.
 
+    Retries every 2 seconds up to *timeout_ms* for tiles to render.
     Tries each selector in :data:`OKTA_TEAMS_TILE_SELECTORS` in order.
-    Raises ``RuntimeError`` if no tile is found.
+    Raises ``RuntimeError`` if no tile is found after timeout.
     """
-    for selector in OKTA_TEAMS_TILE_SELECTORS:
-        locator = page.locator(selector)
-        if await locator.count() > 0:
-            logger.info("Clicking Teams tile (selector: %s)", selector)
-            await locator.first.click()
-            return
+    elapsed = 0
+    poll_ms = 2_000
+    while True:
+        for selector in OKTA_TEAMS_TILE_SELECTORS:
+            locator = page.locator(selector)
+            if await locator.count() > 0:
+                logger.info("Clicking Teams tile (selector: %s)", selector)
+                await locator.first.click()
+                return
+        elapsed += poll_ms
+        if elapsed >= timeout_ms:
+            break
+        logger.debug("Teams tile not found yet, retrying in %dms...", poll_ms)
+        await asyncio.sleep(poll_ms / 1_000)
     raise RuntimeError(
         "Could not find Microsoft Teams tile on Okta dashboard. "
         "Check OKTA_TEAMS_TILE_SELECTORS in browser/constants.py."
     )
 
 
+async def _handle_sso_prompts(page) -> bool:
+    """Auto-click through Microsoft SSO intermediate pages.
+
+    Handles "Do you trust mychg.com?" consent prompts and OAuth error
+    retry buttons. Returns True if a button was clicked.
+    """
+    for selector in MS_SSO_CONTINUE_SELECTORS:
+        locator = page.locator(selector)
+        if await locator.count() > 0:
+            logger.info("Clicking SSO continue button: %s", selector)
+            await locator.first.click()
+            return True
+
+    # Check for Teams error page with retry buttons
+    for selector in MS_SSO_RETRY_SELECTORS:
+        locator = page.locator(selector)
+        if await locator.count() > 0:
+            logger.info("Clicking Teams retry button: %s", selector)
+            await locator.first.click()
+            return True
+
+    return False
+
+
 async def _wait_for_teams_tab(
-    context, original_page_count: int, timeout_ms: int = 30_000
+    context, original_page_count: int, timeout_ms: int = 60_000
 ) -> "Page":
     """Wait for a Teams page to appear after clicking the tile.
 
-    Checks for a new tab first, then falls back to same-tab navigation.
-    Returns the page with a Teams URL. Raises ``RuntimeError`` on timeout.
+    Handles intermediate Microsoft SSO pages (trust prompts, OAuth errors)
+    by auto-clicking through them. If the tile redirect lands on Teams with
+    an OAuth error (e.g. missing nonce), falls back to direct navigation
+    since the SSO cookies are already established.
+
+    Returns the page with a Teams URL.
+    Raises ``RuntimeError`` on timeout.
     """
     elapsed = 0
-    poll_ms = 1_000
+    poll_ms = 2_000
+    direct_nav_attempted = False
     while elapsed < timeout_ms:
-        # Check for new tab
-        if len(context.pages) > original_page_count:
-            for page in context.pages[original_page_count:]:
-                if _is_on_teams(page.url):
-                    await page.wait_for_load_state("domcontentloaded")
-                    return page
-
-        # Check if an existing page navigated to Teams
+        # Check all pages for Teams URL without errors
         for page in context.pages:
-            if _is_on_teams(page.url):
+            if _is_on_teams(page.url) and "#error=" not in page.url:
                 await page.wait_for_load_state("domcontentloaded")
                 return page
+
+        # Handle Teams pages with OAuth errors — fall back to direct nav
+        for page in context.pages:
+            if _is_on_teams(page.url) and "#error=" in page.url:
+                if not direct_nav_attempted:
+                    logger.warning(
+                        "Teams SSO redirect failed (%s), "
+                        "falling back to direct navigation.",
+                        page.url.split("#error=")[1][:80],
+                    )
+                    direct_nav_attempted = True
+                    await page.goto(
+                        "https://teams.microsoft.com",
+                        wait_until="domcontentloaded",
+                        timeout=30_000,
+                    )
+                    # Give it time to authenticate via existing cookies
+                    await asyncio.sleep(3)
+                    continue
+
+        # Auto-click through SSO prompts on login pages
+        for page in context.pages:
+            if "login.microsoftonline.com" in page.url:
+                await _handle_sso_prompts(page)
 
         await asyncio.sleep(poll_ms / 1_000)
         elapsed += poll_ms
@@ -126,6 +184,9 @@ async def ensure_okta_and_open_teams(page, context) -> "Page":
 
     # 1. Navigate to Okta
     await page.goto(OKTA_URL, wait_until="domcontentloaded", timeout=30_000)
+    # Brief pause to let Okta's client-side JS redirect if session is expired
+    # (URL may briefly show /app/UserHome before JS redirects to login)
+    await asyncio.sleep(2)
 
     # 2. Wait for auth if needed
     if not _is_okta_dashboard(page.url):
@@ -135,13 +196,18 @@ async def ensure_okta_and_open_teams(page, context) -> "Page":
                 "Okta authentication timed out. Please try again."
             )
 
-    # 3. Click the Teams tile
+    # 3. Wait for dashboard tiles to render before clicking
+    logger.info("Waiting for Okta dashboard tiles to load...")
+    await page.wait_for_load_state("networkidle", timeout=15_000)
+    await asyncio.sleep(2)  # Extra buffer for SPA tile rendering
+
+    # 4. Click the Teams tile
     await _click_teams_tile(page)
 
-    # 4. Wait for Teams to load (new tab or same-tab navigation)
+    # 5. Wait for Teams to load (new tab or same-tab navigation)
     teams_page = await _wait_for_teams_tab(context, original_page_count)
 
-    # 5. Close the Okta tab (if Teams opened in a new tab)
+    # 6. Close the Okta tab (if Teams opened in a new tab)
     if teams_page is not page:
         await page.close()
 

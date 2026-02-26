@@ -1,7 +1,7 @@
 """Shared constants for Teams browser automation."""
 
 # Timeout (ms) for waiting for user to complete SSO authentication.
-AUTH_TIMEOUT_MS = 120_000
+AUTH_TIMEOUT_MS = 300_000
 
 # Timeout (ms) for finding the compose box and posting a message.
 POST_TIMEOUT_MS = 30_000
@@ -31,11 +31,24 @@ OKTA_DASHBOARD_PATTERNS = (
 )
 
 # CSS selectors for the Teams app tile on the Okta dashboard, tried in order.
+# Tile is named "Microsoft Office 365 Teams" (verified 2026-02-26).
 OKTA_TEAMS_TILE_SELECTORS = (
-    'a:has-text("Microsoft Teams")',
-    'a[aria-label*="Microsoft Teams"]',
-    '.app-button:has-text("Microsoft Teams")',
+    'a[data-se="app-card"]:has-text("Microsoft Office 365 Teams")',
     'a[data-se="app-card"]:has-text("Teams")',
+    'a:has-text("Microsoft Office 365 Teams")',
+    'a[aria-label*="Teams"]',
+)
+
+# Selectors for intermediate Microsoft SSO prompts after Okta tile click.
+# "Do you trust mychg.com?" consent page and OAuth error retry buttons.
+MS_SSO_CONTINUE_SELECTORS = (
+    'input[type="submit"][value="Continue"]',
+    'input#idSIButton9',
+    'input[type="submit"][value="Yes"]',
+)
+MS_SSO_RETRY_SELECTORS = (
+    'button#error-action-clear-cache',
+    'button#error-action',
 )
 
 # CSS selectors to locate the Teams compose / reply box, tried in order.

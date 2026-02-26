@@ -27,7 +27,7 @@ class TestOpenTeamsBrowser:
         mock_mgr.launch.return_value = {"status": "launched", "pid": 123, "cdp_port": 9222}
 
         with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
-            with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value=True):
+            with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
                 raw = await open_teams_browser()
 
         result = json.loads(raw)
@@ -39,7 +39,7 @@ class TestOpenTeamsBrowser:
         mock_mgr.launch.return_value = {"status": "already_running", "pid": 123}
 
         with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
-            with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value=True):
+            with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
                 raw = await open_teams_browser()
 
         result = json.loads(raw)
@@ -197,7 +197,7 @@ class TestWaitForTeams:
         mock_mgr.connect = AsyncMock(return_value=(mock_pw, mock_browser))
 
         result = await teams_browser_tools._wait_for_teams(mock_mgr)
-        assert result is True
+        assert result == {"ok": True}
         mock_pw.stop.assert_awaited_once()
 
     async def test_calls_okta_flow_when_not_on_teams(self):
@@ -229,7 +229,7 @@ class TestWaitForTeams:
             ) as mock_okta:
                 result = await teams_browser_tools._wait_for_teams(mock_mgr)
 
-        assert result is True
+        assert result == {"ok": True}
         mock_okta.assert_awaited_once_with(mock_page, mock_ctx)
         mock_pw.stop.assert_awaited_once()
 
@@ -259,4 +259,5 @@ class TestWaitForTeams:
             ):
                 result = await teams_browser_tools._wait_for_teams(mock_mgr)
 
-        assert result is False
+        assert result["ok"] is False
+        assert "auth required" in result["detail"].lower()

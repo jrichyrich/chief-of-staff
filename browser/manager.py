@@ -118,7 +118,8 @@ class TeamsBrowserManager:
         proc = subprocess.Popen(
             [chromium, f"--remote-debugging-port={self.cdp_port}",
              f"--user-data-dir={self.profile_dir}",
-             "--no-first-run", "--no-default-browser-check"],
+             "--no-first-run", "--no-default-browser-check",
+             "--disable-features=ThirdPartyCookieBlocking"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
