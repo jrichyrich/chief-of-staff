@@ -286,6 +286,15 @@ def _run_proactive_push_handler(memory_store) -> str:
         return json.dumps({"status": "error", "handler": "proactive_push", "error": str(e)})
 
 
+def _run_morning_brief_handler(handler_config: str) -> str:
+    """Run the morning brief handler (spawns Claude CLI)."""
+    try:
+        from scheduler.morning_brief import run_morning_brief
+        return run_morning_brief(handler_config)
+    except Exception as e:
+        return json.dumps({"status": "error", "handler": "morning_brief", "error": str(e)})
+
+
 def _run_skill_auto_exec_handler(memory_store, agent_registry=None) -> str:
     """Run the skill auto-execution handler."""
     try:
@@ -319,6 +328,8 @@ def execute_handler(handler_type: str, handler_config: str, memory_store=None, a
         return _run_proactive_push_handler(memory_store)
     elif handler_type == "skill_auto_exec":
         return _run_skill_auto_exec_handler(memory_store, agent_registry)
+    elif handler_type == "morning_brief":
+        return _run_morning_brief_handler(handler_config)
     elif handler_type == "custom":
         return _run_custom_handler(handler_config)
     else:

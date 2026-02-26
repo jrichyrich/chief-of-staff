@@ -1,5 +1,6 @@
 """Scheduler management tools for the Chief of Staff MCP server."""
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -221,10 +222,52 @@ def register(mcp, state):
         if task is None:
             return json.dumps({"status": "error", "error": f"Task {task_id} not found"})
 
-        engine = SchedulerEngine(memory_store)
+        from scheduler.engine import execute_handler, calculate_next_run
+
         now = datetime.now()
-        result = engine._execute_task(task, now)
-        return json.dumps(result)
+        task_result = {
+            "task_id": task.id,
+            "name": task.name,
+            "handler_type": task.handler_type,
+        }
+
+        try:
+            # Run handler in a thread to avoid blocking the MCP event loop
+            # (handlers like morning_brief spawn long-running subprocesses)
+            handler_result = await asyncio.to_thread(
+                execute_handler, task.handler_type, task.handler_config,
+                memory_store,
+            )
+            task_result["result"] = handler_result
+
+            next_run = calculate_next_run(
+                task.schedule_type, task.schedule_config, from_time=now,
+            )
+
+            # DB updates stay on the main thread (SQLite is thread-bound)
+            memory_store.update_scheduled_task(
+                task.id,
+                last_run_at=now.isoformat(),
+                next_run_at=next_run,
+                last_result=handler_result,
+            )
+            task_result["next_run_at"] = next_run
+            task_result["status"] = "executed"
+
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            task_result["status"] = "error"
+            task_result["error"] = error_msg
+            try:
+                memory_store.update_scheduled_task(
+                    task.id,
+                    last_run_at=now.isoformat(),
+                    last_result=json.dumps({"status": "error", "error": error_msg}),
+                )
+            except Exception:
+                pass
+
+        return json.dumps(task_result)
 
     @mcp.tool()
     async def get_scheduler_status() -> str:
