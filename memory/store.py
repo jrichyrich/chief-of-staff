@@ -1562,6 +1562,55 @@ class MemoryStore:
             return row["canonical_name"]
         return None
 
+    def resolve_handle_to_name(self, handle: str) -> dict:
+        """Resolve a phone/email handle to a canonical name via the identity store.
+
+        Tries: exact imessage provider match → exact email match → fuzzy search.
+        Returns dict with canonical_name, match_type, and all_matches.
+        """
+        handle = (handle or "").strip()
+        if not handle:
+            return {"canonical_name": None, "match_type": None, "all_matches": []}
+
+        # 1. Exact imessage provider match
+        row = self.conn.execute(
+            "SELECT canonical_name FROM identities WHERE provider='imessage' AND provider_id=?",
+            (handle,),
+        ).fetchone()
+        if row:
+            return {
+                "canonical_name": row["canonical_name"],
+                "match_type": "imessage_provider",
+                "all_matches": [row["canonical_name"]],
+            }
+
+        # 2. Exact email match
+        row = self.conn.execute(
+            "SELECT canonical_name FROM identities WHERE email=?",
+            (handle,),
+        ).fetchone()
+        if row:
+            return {
+                "canonical_name": row["canonical_name"],
+                "match_type": "email",
+                "all_matches": [row["canonical_name"]],
+            }
+
+        # 3. Fuzzy search by provider_id
+        rows = self.conn.execute(
+            "SELECT DISTINCT canonical_name FROM identities WHERE provider_id LIKE ?",
+            (f"%{handle}%",),
+        ).fetchall()
+        if rows:
+            names = [r["canonical_name"] for r in rows]
+            return {
+                "canonical_name": names[0],
+                "match_type": "fuzzy_provider_id",
+                "all_matches": names,
+            }
+
+        return {"canonical_name": None, "match_type": None, "all_matches": []}
+
     def _row_to_identity_dict(self, row: sqlite3.Row) -> dict:
         return {
             "id": row["id"],

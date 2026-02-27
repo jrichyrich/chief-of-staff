@@ -1,9 +1,11 @@
 import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 import mcp_server
+from memory.store import MemoryStore
 
 
 @pytest.fixture
@@ -15,6 +17,12 @@ def mock_messages_store():
     store.get_thread_context.return_value = {}
     store.search_messages.return_value = []
     store.send_message.return_value = {"status": "preview"}
+    store.verify_handle.return_value = {
+        "handle": "",
+        "found_in_threads": False,
+        "chat_identifiers": [],
+        "display_names": [],
+    }
     return store
 
 
@@ -190,3 +198,148 @@ class TestSendIMessagesTool:
             confirm_send=True,
             chat_identifier="chat-team",
         )
+
+
+class TestSendIMessageRecipientVerification:
+    """Tests for the recipient_name verification safety check."""
+
+    @pytest.fixture
+    def memory_store(self, tmp_path):
+        store = MemoryStore(tmp_path / "test.db")
+        yield store
+        store.close()
+
+    @pytest.fixture
+    def verified_state(self, mock_messages_store, memory_store):
+        """State with both messages_store and memory_store for verification tests."""
+        mcp_server._state["messages_store"] = mock_messages_store
+        mcp_server._state["memory_store"] = memory_store
+        yield {"messages_store": mock_messages_store, "memory_store": memory_store}
+        mcp_server._state.pop("messages_store", None)
+        mcp_server._state.pop("memory_store", None)
+
+    @pytest.mark.asyncio
+    async def test_verified_recipient_identity_match(self, verified_state):
+        """Identity confirms handle belongs to intended recipient — no warning."""
+        from mcp_tools.imessage_tools import send_imessage_reply
+
+        ms = verified_state["messages_store"]
+        mem = verified_state["memory_store"]
+        mem.link_identity("Ross Young", "imessage", "+17035551234")
+        ms.send_message.return_value = {"status": "preview", "to": "+17035551234", "requires_confirmation": True}
+
+        result = await send_imessage_reply(
+            to="+17035551234", body="Hey Ross", confirm_send=False, recipient_name="Ross Young"
+        )
+        data = json.loads(result)
+        assert data["status"] == "preview"
+        assert "recipient_verification" in data
+        assert data["recipient_verification"]["verified"] is True
+        assert "warning" not in data["recipient_verification"]
+
+    @pytest.mark.asyncio
+    async def test_mismatch_warns(self, verified_state):
+        """Identity shows different person for handle — RECIPIENT MISMATCH warning."""
+        from mcp_tools.imessage_tools import send_imessage_reply
+
+        ms = verified_state["messages_store"]
+        mem = verified_state["memory_store"]
+        # The handle is linked to "John Smith", not "Ross Young"
+        mem.link_identity("John Smith", "imessage", "+17035551234")
+        ms.send_message.return_value = {"status": "preview", "to": "+17035551234", "requires_confirmation": True}
+
+        result = await send_imessage_reply(
+            to="+17035551234", body="Hey Ross", confirm_send=False, recipient_name="Ross Young"
+        )
+        data = json.loads(result)
+        assert "recipient_verification" in data
+        assert data["recipient_verification"]["verified"] is False
+        assert "RECIPIENT MISMATCH" in data["recipient_verification"]["warning"]
+        assert "John Smith" in data["recipient_verification"]["warning"]
+
+    @pytest.mark.asyncio
+    async def test_unverified_warns(self, verified_state):
+        """No identity found for handle — UNVERIFIED RECIPIENT warning."""
+        from mcp_tools.imessage_tools import send_imessage_reply
+
+        ms = verified_state["messages_store"]
+        ms.send_message.return_value = {"status": "preview", "to": "+17035551234", "requires_confirmation": True}
+        ms.verify_handle.return_value = {
+            "handle": "+17035551234",
+            "found_in_threads": False,
+            "chat_identifiers": [],
+            "display_names": [],
+        }
+
+        result = await send_imessage_reply(
+            to="+17035551234", body="Hey Ross", confirm_send=False, recipient_name="Ross Young"
+        )
+        data = json.loads(result)
+        assert "recipient_verification" in data
+        assert data["recipient_verification"]["verified"] is False
+        assert "UNVERIFIED RECIPIENT" in data["recipient_verification"]["warning"]
+
+    @pytest.mark.asyncio
+    async def test_no_recipient_name_skips_verification(self, verified_state):
+        """Backward compat: no recipient_name means no verification added."""
+        from mcp_tools.imessage_tools import send_imessage_reply
+
+        ms = verified_state["messages_store"]
+        ms.send_message.return_value = {"status": "preview", "to": "+17035551234", "requires_confirmation": True}
+
+        result = await send_imessage_reply(
+            to="+17035551234", body="Hey", confirm_send=False
+        )
+        data = json.loads(result)
+        assert "recipient_verification" not in data
+
+    @pytest.mark.asyncio
+    async def test_self_target_skips_verification(self, verified_state):
+        """to='self' never triggers verification."""
+        from mcp_tools.imessage_tools import send_imessage_reply
+
+        ms = verified_state["messages_store"]
+        ms.send_message.return_value = {"status": "preview", "to": "self", "requires_confirmation": True}
+
+        result = await send_imessage_reply(
+            to="self", body="Note to self", confirm_send=False, recipient_name="Ross Young"
+        )
+        data = json.loads(result)
+        assert "recipient_verification" not in data
+
+    @pytest.mark.asyncio
+    async def test_partial_name_match_verified(self, verified_state):
+        """Substring match: 'Ross' matches 'Ross Young' in identity store."""
+        from mcp_tools.imessage_tools import send_imessage_reply
+
+        ms = verified_state["messages_store"]
+        mem = verified_state["memory_store"]
+        mem.link_identity("Ross Young", "imessage", "+17035551234")
+        ms.send_message.return_value = {"status": "preview", "to": "+17035551234", "requires_confirmation": True}
+
+        result = await send_imessage_reply(
+            to="+17035551234", body="Hey", confirm_send=False, recipient_name="Ross"
+        )
+        data = json.loads(result)
+        assert data["recipient_verification"]["verified"] is True
+        assert "warning" not in data["recipient_verification"]
+
+    @pytest.mark.asyncio
+    async def test_thread_profile_verification(self, verified_state):
+        """Thread profile display_name matches intended recipient — verified."""
+        from mcp_tools.imessage_tools import send_imessage_reply
+
+        ms = verified_state["messages_store"]
+        ms.send_message.return_value = {"status": "preview", "to": "+17035551234", "requires_confirmation": True}
+        ms.verify_handle.return_value = {
+            "handle": "+17035551234",
+            "found_in_threads": True,
+            "chat_identifiers": ["chat-ross"],
+            "display_names": ["Ross Young"],
+        }
+
+        result = await send_imessage_reply(
+            to="+17035551234", body="Hey Ross", confirm_send=False, recipient_name="Ross Young"
+        )
+        data = json.loads(result)
+        assert data["recipient_verification"]["verified"] is True

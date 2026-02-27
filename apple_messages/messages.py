@@ -557,6 +557,39 @@ class MessageStore:
             "recent_messages": messages,
         }
 
+    def verify_handle(self, handle: str) -> dict:
+        """Check if a handle appears in observed iMessage thread profiles/members.
+
+        Returns dict with handle, found_in_threads, chat_identifiers, and display_names.
+        """
+        handle = (handle or "").strip()
+        if not handle:
+            return {"handle": handle, "found_in_threads": False, "chat_identifiers": [], "display_names": []}
+
+        with self._open_profile_db() as conn:
+            # Find all threads where this handle is a member
+            member_rows = conn.execute(
+                "SELECT chat_identifier FROM thread_members WHERE handle = ?",
+                (handle,),
+            ).fetchall()
+            chat_ids = [r["chat_identifier"] for r in member_rows]
+
+            display_names = []
+            if chat_ids:
+                placeholders = ",".join("?" for _ in chat_ids)
+                profile_rows = conn.execute(
+                    f"SELECT display_name FROM thread_profiles WHERE chat_identifier IN ({placeholders}) AND display_name IS NOT NULL AND display_name != ''",
+                    tuple(chat_ids),
+                ).fetchall()
+                display_names = [r["display_name"] for r in profile_rows]
+
+        return {
+            "handle": handle,
+            "found_in_threads": len(chat_ids) > 0,
+            "chat_identifiers": chat_ids,
+            "display_names": display_names,
+        }
+
     def _resolve_chat_guid(self, chat_identifier: str) -> str | None:
         """Look up the Messages.app guid for a chat_identifier.
 

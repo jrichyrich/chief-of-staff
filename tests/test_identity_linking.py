@@ -205,6 +205,46 @@ class TestResolveSender:
         assert result == "Bob"
 
 
+class TestResolveHandleToName:
+    def test_exact_imessage_provider_match(self, memory_store):
+        memory_store.link_identity("Ross Young", "imessage", "+17035551234")
+        result = memory_store.resolve_handle_to_name("+17035551234")
+        assert result["canonical_name"] == "Ross Young"
+        assert result["match_type"] == "imessage_provider"
+
+    def test_exact_email_match(self, memory_store):
+        memory_store.link_identity("Jane Doe", "email", "jane@test.com", email="jane@test.com")
+        result = memory_store.resolve_handle_to_name("jane@test.com")
+        assert result["canonical_name"] == "Jane Doe"
+        assert result["match_type"] == "email"
+
+    def test_no_match_returns_none(self, memory_store):
+        result = memory_store.resolve_handle_to_name("+10000000000")
+        assert result["canonical_name"] is None
+        assert result["match_type"] is None
+        assert result["all_matches"] == []
+
+    def test_empty_handle_returns_none(self, memory_store):
+        result = memory_store.resolve_handle_to_name("")
+        assert result["canonical_name"] is None
+        assert result["match_type"] is None
+
+    def test_fuzzy_search_fallback(self, memory_store):
+        """When exact match fails, fuzzy search by provider_id substring."""
+        memory_store.link_identity("Ross Young", "imessage", "+17035559999")
+        # Search with a handle that contains the digits but isn't exact
+        result = memory_store.resolve_handle_to_name("+17035559999")
+        assert result["canonical_name"] == "Ross Young"
+
+    def test_multiple_matches_returns_all(self, memory_store):
+        memory_store.link_identity("Alice", "imessage", "+15551111111")
+        memory_store.link_identity("Bob", "imessage", "+15551111112")
+        # Exact match on Alice's number
+        result = memory_store.resolve_handle_to_name("+15551111111")
+        assert result["canonical_name"] == "Alice"
+        assert result["match_type"] == "imessage_provider"
+
+
 # ===========================================================================
 # MCP tool functions
 # ===========================================================================

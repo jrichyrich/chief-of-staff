@@ -140,8 +140,107 @@ def register(mcp, state):
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    def _verify_recipient(to: str, recipient_name: str) -> dict:
+        """Cross-check a recipient handle against identity store and thread profiles.
+
+        Returns dict with verified, resolved_name, match_type, warning (if any), sources_checked.
+        """
+        sources_checked = []
+        resolved_name = None
+        match_type = None
+
+        # 1. Check identity store
+        memory_store = state.memory_store
+        if memory_store:
+            try:
+                identity_result = memory_store.resolve_handle_to_name(to)
+                sources_checked.append("identity_store")
+                if identity_result.get("canonical_name"):
+                    resolved_name = identity_result["canonical_name"]
+                    match_type = identity_result["match_type"]
+                    # Check if the resolved name matches the intended recipient
+                    rn_lower = recipient_name.lower()
+                    cn_lower = resolved_name.lower()
+                    if rn_lower in cn_lower or cn_lower in rn_lower:
+                        return {
+                            "verified": True,
+                            "resolved_name": resolved_name,
+                            "match_type": match_type,
+                            "sources_checked": sources_checked,
+                        }
+                    else:
+                        return {
+                            "verified": False,
+                            "resolved_name": resolved_name,
+                            "match_type": match_type,
+                            "warning": f"RECIPIENT MISMATCH: Handle {to} is linked to '{resolved_name}', not '{recipient_name}'",
+                            "sources_checked": sources_checked,
+                        }
+            except Exception:
+                pass
+
+        # 2. Check thread profiles
+        messages_store = state.messages_store
+        if messages_store:
+            try:
+                thread_result = messages_store.verify_handle(to)
+                sources_checked.append("thread_profiles")
+                if thread_result.get("found_in_threads") and thread_result.get("display_names"):
+                    for display_name in thread_result["display_names"]:
+                        dn_lower = display_name.lower()
+                        rn_lower = recipient_name.lower()
+                        if rn_lower in dn_lower or dn_lower in rn_lower:
+                            return {
+                                "verified": True,
+                                "resolved_name": display_name,
+                                "match_type": "thread_profile",
+                                "sources_checked": sources_checked,
+                            }
+            except Exception:
+                pass
+
+        # 3. Fallback: resolve_sender
+        if memory_store:
+            try:
+                sender_name = memory_store.resolve_sender("imessage", to)
+                sources_checked.append("resolve_sender")
+                if sender_name:
+                    sn_lower = sender_name.lower()
+                    rn_lower = recipient_name.lower()
+                    if rn_lower in sn_lower or sn_lower in rn_lower:
+                        return {
+                            "verified": True,
+                            "resolved_name": sender_name,
+                            "match_type": "resolve_sender",
+                            "sources_checked": sources_checked,
+                        }
+                    else:
+                        return {
+                            "verified": False,
+                            "resolved_name": sender_name,
+                            "match_type": "resolve_sender",
+                            "warning": f"RECIPIENT MISMATCH: Handle {to} resolves to '{sender_name}', not '{recipient_name}'",
+                            "sources_checked": sources_checked,
+                        }
+            except Exception:
+                pass
+
+        return {
+            "verified": False,
+            "resolved_name": None,
+            "match_type": None,
+            "warning": f"UNVERIFIED RECIPIENT: Could not verify that {to} belongs to '{recipient_name}'. Sources checked: {', '.join(sources_checked) or 'none'}",
+            "sources_checked": sources_checked,
+        }
+
     @mcp.tool()
-    async def send_imessage_reply(to: str = "", body: str = "", confirm_send: bool = False, chat_identifier: str = "") -> str:
+    async def send_imessage_reply(
+        to: str = "",
+        body: str = "",
+        confirm_send: bool = False,
+        chat_identifier: str = "",
+        recipient_name: str = "",
+    ) -> str:
         """Send an iMessage reply. REQUIRES confirm_send=true after explicit user confirmation.
 
         WARNING: This sends a real iMessage when confirm_send is true.
@@ -151,6 +250,7 @@ def register(mcp, state):
             body: Message content
             confirm_send: Must be true to actually send
             chat_identifier: Optional thread identifier for thread-aware reply
+            recipient_name: Optional intended recipient name for verification safety check
         """
         messages_store = state.messages_store
         try:
@@ -160,6 +260,13 @@ def register(mcp, state):
                 confirm_send=confirm_send,
                 chat_identifier=chat_identifier,
             )
+            # Run recipient verification when recipient_name is provided
+            recipient_name_clean = (recipient_name or "").strip()
+            to_clean = (to or "").strip().lower()
+            if recipient_name_clean and to_clean != "self":
+                verification = _verify_recipient(to, recipient_name_clean)
+                result["recipient_verification"] = verification
+
             return json.dumps(result)
         except Exception as e:
             return json.dumps({"error": str(e)})

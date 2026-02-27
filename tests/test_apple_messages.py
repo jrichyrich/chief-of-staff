@@ -536,3 +536,71 @@ def test_send_message_with_chat_identifier_resolves_guid(chat_db: Path, tmp_path
     # The command should contain the resolved guid, not the raw chat_identifier
     chat_id_idx = seen["cmd"].index("--chat-id")
     assert seen["cmd"][chat_id_idx + 1] == "iMessage;+;chat-team"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: verify_handle tests
+# ---------------------------------------------------------------------------
+
+
+def test_verify_handle_finds_member_in_threads(chat_db: Path, tmp_path: Path, monkeypatch):
+    """verify_handle returns thread info when the handle is a known thread member."""
+    monkeypatch.setattr(messages_mod, "_IS_MACOS", True)
+    store = MessageStore(
+        db_path=chat_db,
+        communicate_script=Path("/tmp/missing"),
+        profile_db_path=tmp_path / "thread-profiles.db",
+    )
+    # Trigger observation recording so thread_members gets populated
+    store.get_messages(minutes=24 * 60, limit=50, include_from_me=True)
+
+    result = store.verify_handle("+15555550123")
+    assert result["handle"] == "+15555550123"
+    assert result["found_in_threads"] is True
+    assert len(result["chat_identifiers"]) >= 1
+
+
+def test_verify_handle_returns_empty_for_unknown(tmp_path: Path, monkeypatch):
+    """verify_handle returns not-found for an unknown handle."""
+    monkeypatch.setattr(messages_mod, "_IS_MACOS", True)
+    db_path = tmp_path / "chat.db"
+    _make_chat_db(db_path)
+    store = MessageStore(
+        db_path=db_path,
+        communicate_script=Path("/tmp/missing"),
+        profile_db_path=tmp_path / "thread-profiles.db",
+    )
+    result = store.verify_handle("+19999999999")
+    assert result["handle"] == "+19999999999"
+    assert result["found_in_threads"] is False
+    assert result["chat_identifiers"] == []
+    assert result["display_names"] == []
+
+
+def test_verify_handle_returns_display_name(tmp_path: Path, monkeypatch):
+    """verify_handle returns the display_name from thread_profiles when set."""
+    monkeypatch.setattr(messages_mod, "_IS_MACOS", True)
+    db_path = tmp_path / "chat.db"
+    _make_chat_db(db_path)
+    store = MessageStore(
+        db_path=db_path,
+        communicate_script=Path("/tmp/missing"),
+        profile_db_path=tmp_path / "thread-profiles.db",
+    )
+    # Manually insert a thread profile with display_name and a member
+    with store._open_profile_db() as conn:
+        conn.execute(
+            """INSERT INTO thread_profiles(chat_identifier, display_name, preferred_handle,
+               notes, auto_reply_mode, last_seen_at, last_sender, updated_at_utc)
+               VALUES(?, ?, ?, NULL, 'manual', NULL, NULL, ?)""",
+            ("chat-ross", "Ross Young", "+17035551234", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO thread_members(chat_identifier, handle, last_seen_at) VALUES(?, ?, NULL)",
+            ("chat-ross", "+17035551234"),
+        )
+        conn.commit()
+
+    result = store.verify_handle("+17035551234")
+    assert result["found_in_threads"] is True
+    assert "Ross Young" in result["display_names"]
