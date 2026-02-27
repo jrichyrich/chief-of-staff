@@ -51,6 +51,11 @@ SKILL_AUTO_EXECUTE_ENABLED = os.environ.get("SKILL_AUTO_EXECUTE_ENABLED", "false
 PROACTIVE_PUSH_ENABLED = os.environ.get("PROACTIVE_PUSH_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 PROACTIVE_PUSH_THRESHOLD = os.environ.get("PROACTIVE_PUSH_THRESHOLD", "high").strip().lower()
 
+# Webhook auto-dispatch settings
+WEBHOOK_AUTO_DISPATCH_ENABLED = os.environ.get(
+    "WEBHOOK_AUTO_DISPATCH_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes"}
+
 # Calendar aliases: friendly names → {name, source} for disambiguation
 # Lookup is case-insensitive. Resolves in _get_calendar_by_name().
 CALENDAR_ALIASES = {
