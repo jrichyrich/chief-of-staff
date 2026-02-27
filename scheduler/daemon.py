@@ -24,15 +24,17 @@ logger = logging.getLogger("jarvis-daemon")
 class JarvisDaemon:
     """Persistent daemon that wraps SchedulerEngine in an async tick loop."""
 
-    def __init__(self, memory_store, tick_interval: float = 60):
+    def __init__(self, memory_store, tick_interval: float = 60, agent_registry=None, document_store=None):
         """
         Args:
             memory_store: MemoryStore instance for SchedulerEngine.
             tick_interval: Seconds between evaluation ticks (default 60).
+            agent_registry: Optional AgentRegistry for agent-based handlers.
+            document_store: Optional DocumentStore for document-aware handlers.
         """
         from scheduler.engine import SchedulerEngine
 
-        self.engine = SchedulerEngine(memory_store)
+        self.engine = SchedulerEngine(memory_store, agent_registry=agent_registry, document_store=document_store)
         self.tick_interval = tick_interval
         self._shutdown = False
         self._sleep_task: Optional[asyncio.Task] = None

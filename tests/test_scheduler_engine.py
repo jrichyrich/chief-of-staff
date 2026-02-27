@@ -9,6 +9,7 @@ import pytest
 
 from memory.models import ScheduledTask
 from memory.store import MemoryStore
+from scheduler.daemon import JarvisDaemon
 from scheduler.engine import (
     CronExpression,
     SchedulerEngine,
@@ -619,3 +620,28 @@ class TestWebhookDispatchHandler:
         assert len(results) == 1
         result_data = json.loads(results[0]["result"])
         assert result_data["status"] == "skipped"
+
+
+# --- Daemon Store Passthrough Tests ---
+
+
+class TestDaemonStorePassthrough:
+    def test_daemon_passes_stores_to_engine(self):
+        mock_memory = MagicMock()
+        mock_registry = MagicMock()
+        mock_docs = MagicMock()
+
+        daemon = JarvisDaemon(
+            memory_store=mock_memory,
+            agent_registry=mock_registry,
+            document_store=mock_docs,
+        )
+        assert daemon.engine.memory_store is mock_memory
+        assert daemon.engine.agent_registry is mock_registry
+        assert daemon.engine.document_store is mock_docs
+
+    def test_daemon_defaults_stores_to_none(self):
+        mock_memory = MagicMock()
+        daemon = JarvisDaemon(memory_store=mock_memory)
+        assert daemon.engine.agent_registry is None
+        assert daemon.engine.document_store is None
