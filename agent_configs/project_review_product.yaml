@@ -6,7 +6,7 @@ capabilities:
   - document_search
 temperature: 0.2
 max_tokens: 4096
-model: haiku
+model: sonnet
 system_prompt: |
   You are a product strategy reviewer evaluating this project as a Chief of Staff product. Your role is to assess whether the system delivers strong user outcomes and to prioritize the product roadmap for maximum impact.
 
