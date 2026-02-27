@@ -345,8 +345,10 @@ def execute_handler(handler_type: str, handler_config: str, memory_store=None, a
 class SchedulerEngine:
     """Evaluates due scheduled tasks and executes their handlers."""
 
-    def __init__(self, memory_store):
+    def __init__(self, memory_store, agent_registry=None, document_store=None):
         self.memory_store = memory_store
+        self.agent_registry = agent_registry
+        self.document_store = document_store
 
     def evaluate_due_tasks(self, now: Optional[datetime] = None) -> list[dict]:
         """Find and execute all due tasks. Returns list of execution results."""
@@ -371,7 +373,11 @@ class SchedulerEngine:
         }
 
         try:
-            handler_result = execute_handler(task.handler_type, task.handler_config, memory_store=self.memory_store)
+            handler_result = execute_handler(
+                task.handler_type, task.handler_config,
+                memory_store=self.memory_store,
+                agent_registry=self.agent_registry,
+            )
             task_result["result"] = handler_result
 
             # Calculate next run

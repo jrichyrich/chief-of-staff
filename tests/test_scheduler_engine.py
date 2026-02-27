@@ -519,3 +519,43 @@ class TestSkillAnalysisHandler:
         result_data = json.loads(results[0]["result"])
         assert result_data["handler"] == "skill_analysis"
         assert "patterns_found" in result_data
+
+
+# --- SchedulerEngine Stores Tests ---
+
+
+class TestSchedulerEngineStores:
+    def test_engine_accepts_agent_registry(self, memory_store):
+        mock_registry = MagicMock()
+        engine = SchedulerEngine(memory_store, agent_registry=mock_registry)
+        assert engine.agent_registry is mock_registry
+
+    def test_engine_accepts_document_store(self, memory_store):
+        mock_doc_store = MagicMock()
+        engine = SchedulerEngine(memory_store, document_store=mock_doc_store)
+        assert engine.document_store is mock_doc_store
+
+    def test_engine_defaults_stores_to_none(self, memory_store):
+        engine = SchedulerEngine(memory_store)
+        assert engine.agent_registry is None
+        assert engine.document_store is None
+
+    def test_skill_auto_exec_receives_agent_registry(self, memory_store):
+        """Verify agent_registry is passed to skill_auto_exec handler (fixes existing bug)."""
+        mock_registry = MagicMock()
+        task = ScheduledTask(
+            name="skill-auto",
+            schedule_type="interval",
+            schedule_config=json.dumps({"minutes": 60}),
+            handler_type="skill_auto_exec",
+            enabled=True,
+            next_run_at="2026-02-20T09:00:00",
+        )
+        memory_store.store_scheduled_task(task)
+
+        engine = SchedulerEngine(memory_store, agent_registry=mock_registry)
+        now = datetime(2026, 2, 20, 10, 0, 0)
+
+        with patch("scheduler.engine._run_skill_auto_exec_handler", return_value='{"status":"skipped"}') as mock_handler:
+            engine.evaluate_due_tasks(now=now)
+            mock_handler.assert_called_once_with(memory_store, mock_registry)
