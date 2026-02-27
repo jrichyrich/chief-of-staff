@@ -1,12 +1,15 @@
 # tests/test_webhook_ingest.py
 """Tests for the file-drop webhook inbox ingestion."""
 
+import asyncio
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agents.registry import AgentConfig, AgentRegistry
 from memory.store import MemoryStore
-from webhook.ingest import ingest_events
+from webhook.ingest import dispatch_pending_events, ingest_events
 
 
 @pytest.fixture
@@ -22,6 +25,42 @@ def inbox_dir(tmp_path):
     d = tmp_path / "webhook-inbox"
     d.mkdir()
     return d
+
+
+@pytest.fixture
+def agent_registry(tmp_path):
+    configs_dir = tmp_path / "agent_configs"
+    configs_dir.mkdir()
+    registry = AgentRegistry(configs_dir)
+    registry.save_agent(AgentConfig(
+        name="test-agent",
+        description="Test agent",
+        system_prompt="You are a test agent.",
+        capabilities=[],
+    ))
+    return registry
+
+
+@pytest.fixture
+def document_store():
+    return MagicMock()
+
+
+def _store_pending_event(memory_store, source="github", event_type="alert.fired"):
+    from memory.models import WebhookEvent
+    event = WebhookEvent(source=source, event_type=event_type, payload='{"test": true}')
+    return memory_store.store_webhook_event(event)
+
+
+def _create_dispatch_rule(memory_store, agent_name="test-agent", **overrides):
+    defaults = dict(
+        name="test-rule",
+        event_source="github",
+        event_type_pattern="alert.*",
+        agent_name=agent_name,
+    )
+    defaults.update(overrides)
+    return memory_store.create_event_rule(**defaults)
 
 
 class TestIngestEvents:
@@ -198,3 +237,100 @@ class TestIngestEvents:
         assert result["failed"] == 1
         assert (inbox_dir / "processed" / "good.json").exists()
         assert (inbox_dir / "failed" / "bad.json").exists()
+
+
+@pytest.mark.asyncio
+class TestDispatchPendingEvents:
+    async def test_no_pending_events(self, memory_store, agent_registry, document_store):
+        """Returns zero counts when no pending events exist."""
+        result = await dispatch_pending_events(memory_store, agent_registry, document_store)
+        assert result == {"dispatched": 0, "failed": 0, "skipped": 0}
+
+    async def test_event_dispatched_and_marked_processed(self, memory_store, agent_registry, document_store):
+        """Pending event with matching rule is dispatched and marked processed."""
+        _store_pending_event(memory_store)
+        _create_dispatch_rule(memory_store)
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Handled"
+            MockAgent.return_value = mock_instance
+
+            with patch("agents.triage.classify_and_resolve", side_effect=lambda cfg, _: cfg):
+                result = await dispatch_pending_events(memory_store, agent_registry, document_store)
+
+        assert result["dispatched"] == 1
+        assert result["failed"] == 0
+        events = memory_store.list_webhook_events(status="processed")
+        assert len(events) == 1
+
+    async def test_no_matching_rules_skipped(self, memory_store, agent_registry, document_store):
+        """Event with no matching rules is skipped (stays pending)."""
+        _store_pending_event(memory_store, source="unknown", event_type="no.match")
+
+        result = await dispatch_pending_events(memory_store, agent_registry, document_store)
+
+        assert result["skipped"] == 1
+        assert result["dispatched"] == 0
+        events = memory_store.list_webhook_events(status="pending")
+        assert len(events) == 1
+
+    async def test_agent_failure_marks_event_failed(self, memory_store, agent_registry, document_store):
+        """When all matched agents fail, event is marked failed."""
+        _store_pending_event(memory_store)
+        _create_dispatch_rule(memory_store)
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.side_effect = RuntimeError("Agent crashed")
+            MockAgent.return_value = mock_instance
+
+            with patch("agents.triage.classify_and_resolve", side_effect=lambda cfg, _: cfg):
+                result = await dispatch_pending_events(memory_store, agent_registry, document_store)
+
+        assert result["failed"] == 1
+        events = memory_store.list_webhook_events(status="failed")
+        assert len(events) == 1
+
+    async def test_dispatch_exception_marks_event_failed(self, memory_store, agent_registry, document_store):
+        """If dispatcher.dispatch() raises, event is marked failed and loop continues."""
+        _store_pending_event(memory_store)
+        _store_pending_event(memory_store, source="github", event_type="push")
+        _create_dispatch_rule(memory_store, name="rule-1")
+
+        call_count = 0
+
+        async def mock_dispatch(event):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("Dispatch exploded")
+            return [{"status": "success", "rule_name": "rule-1", "agent_name": "test-agent",
+                      "result_text": "ok", "duration_seconds": 0.1, "delivery_status": None}]
+
+        with patch("webhook.dispatcher.EventDispatcher") as MockDispatcher:
+            mock_disp = AsyncMock()
+            mock_disp.dispatch.side_effect = mock_dispatch
+            MockDispatcher.return_value = mock_disp
+
+            result = await dispatch_pending_events(memory_store, agent_registry, document_store)
+
+        assert result["failed"] >= 1
+        assert call_count == 2  # Both events attempted
+
+    async def test_double_dispatch_idempotent(self, memory_store, agent_registry, document_store):
+        """Second call finds no pending events after first call processes them."""
+        _store_pending_event(memory_store)
+        _create_dispatch_rule(memory_store)
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            with patch("agents.triage.classify_and_resolve", side_effect=lambda cfg, _: cfg):
+                result1 = await dispatch_pending_events(memory_store, agent_registry, document_store)
+                result2 = await dispatch_pending_events(memory_store, agent_registry, document_store)
+
+        assert result1["dispatched"] == 1
+        assert result2 == {"dispatched": 0, "failed": 0, "skipped": 0}
