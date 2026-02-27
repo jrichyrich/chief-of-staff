@@ -163,6 +163,7 @@ def register(mcp, state):
         reply_all: bool = False,
         cc: str = "",
         bcc: str = "",
+        html_body: str = "",
         confirm_send: bool = False,
     ) -> str:
         """Reply to an existing email within its thread. REQUIRES confirm_send=True after user explicitly confirms.
@@ -174,10 +175,11 @@ def register(mcp, state):
 
         Args:
             message_id: The message ID of the email to reply to (required)
-            body: Reply body text (required)
+            body: Reply body text (required — used as plain text fallback)
             reply_all: If True, replies to all recipients; if False, replies only to sender (default: False)
             cc: Comma-separated additional CC email addresses (optional)
             bcc: Comma-separated BCC email addresses (optional)
+            html_body: HTML body for rich formatting (optional — creates multipart/alternative email with plain text fallback)
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
         mail_store = state.mail_store
@@ -190,6 +192,7 @@ def register(mcp, state):
                 reply_all=reply_all,
                 cc=cc_list,
                 bcc=bcc_list,
+                html_body=html_body or None,
                 confirm_send=confirm_send,
             )
             return json.dumps(result)
@@ -197,7 +200,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
-    async def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", confirm_send: bool = False) -> str:
+    async def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", html_body: str = "", confirm_send: bool = False) -> str:
         """Compose and send an email. REQUIRES confirm_send=True after user explicitly confirms they want to send.
 
         WARNING: This will send a real email. Always confirm with the user before calling with confirm_send=True.
@@ -205,9 +208,10 @@ def register(mcp, state):
         Args:
             to: Comma-separated recipient email addresses (required)
             subject: Email subject line (required)
-            body: Email body text (required)
+            body: Email body text — used as plain text fallback (required)
             cc: Comma-separated CC email addresses (optional)
             bcc: Comma-separated BCC email addresses (optional)
+            html_body: HTML body for rich formatting (optional — creates multipart/alternative email with plain text fallback)
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
         mail_store = state.mail_store
@@ -221,6 +225,7 @@ def register(mcp, state):
                 body=body,
                 cc=cc_list,
                 bcc=bcc_list,
+                html_body=html_body or None,
                 confirm_send=confirm_send,
             )
             return json.dumps(result)

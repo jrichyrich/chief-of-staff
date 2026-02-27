@@ -353,6 +353,7 @@ end tell
         reply_all: bool = False,
         cc: Optional[list[str]] = None,
         bcc: Optional[list[str]] = None,
+        html_body: Optional[str] = None,
         confirm_send: bool = False,
     ) -> dict:
         """Reply to an existing message in-thread. confirm_send must be True."""
@@ -380,6 +381,12 @@ end tell
                 addr_esc = _escape_osascript(addr)
                 bcc_block += f'\nmake new bcc recipient at end of bcc recipients of replyMsg with properties {{address:"{addr_esc}"}}'
 
+        # Build content line — include html content for multipart/alternative when provided
+        html_line = ""
+        if html_body:
+            html_esc = _escape_osascript(html_body)
+            html_line = f'\n    set html content of replyMsg to "{html_esc}"'
+
         script = f'''
 tell application "Mail"
     set foundMsg to missing value
@@ -398,7 +405,7 @@ tell application "Mail"
     if foundMsg is missing value then return "ERROR: Message not found"
     set replyMsg to reply foundMsg {reply_flag}
     set visible of replyMsg to false
-    set content of replyMsg to "{body_esc}"
+    set content of replyMsg to "{body_esc}"{html_line}
 {cc_block}
 {bcc_block}
     send replyMsg
@@ -427,6 +434,7 @@ end tell
         body: str,
         cc: Optional[list[str]] = None,
         bcc: Optional[list[str]] = None,
+        html_body: Optional[str] = None,
         confirm_send: bool = False,
     ) -> dict:
         """Compose and send an email. confirm_send must be True."""
@@ -435,6 +443,13 @@ end tell
 
         subject_esc = _escape_osascript(subject)
         body_esc = _escape_osascript(body)
+
+        # Build message properties — include html content for multipart/alternative when provided
+        if html_body:
+            html_esc = _escape_osascript(html_body)
+            msg_props = f'{{subject:"{subject_esc}", content:"{body_esc}", html content:"{html_esc}", visible:false}}'
+        else:
+            msg_props = f'{{subject:"{subject_esc}", content:"{body_esc}", visible:false}}'
 
         # Build recipient AppleScript blocks
         to_block = ""
@@ -456,7 +471,7 @@ end tell
 
         script = f'''
 tell application "Mail"
-    set newMsg to make new outgoing message with properties {{subject:"{subject_esc}", content:"{body_esc}", visible:false}}
+    set newMsg to make new outgoing message with properties {msg_props}
     tell newMsg
 {to_block}
 {cc_block}

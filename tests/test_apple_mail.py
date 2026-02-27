@@ -458,6 +458,36 @@ class TestReplyMessage:
             assert "error" in result
             mock_notifier_cls.send.assert_not_called()
 
+    @patch("apple_mail.mail.Notifier")
+    def test_reply_with_html_body(self, mock_notifier_cls):
+        """When html_body is provided, the reply AppleScript includes 'html content'."""
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.reply_message(
+                message_id="msg-html",
+                body="Plain fallback",
+                html_body="<p>Rich reply</p>",
+                confirm_send=True,
+            )
+            assert result["status"] == "replied"
+            call_args = mock_run.call_args[0][0]
+            assert "html content" in call_args
+            assert "<p>Rich reply</p>" in call_args
+
+    @patch("apple_mail.mail.Notifier")
+    def test_reply_without_html_body(self, mock_notifier_cls):
+        """When html_body is not provided, the reply has no 'html content'."""
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.reply_message(
+                message_id="msg-plain",
+                body="Just text",
+                confirm_send=True,
+            )
+            assert result["status"] == "replied"
+            call_args = mock_run.call_args[0][0]
+            assert "html content" not in call_args
+
 
 class TestSendMessage:
     @patch("apple_mail.mail.Notifier")
@@ -497,6 +527,57 @@ class TestSendMessage:
             )
             assert "error" in result
             mock_notifier_cls.send.assert_not_called()
+
+    @patch("apple_mail.mail.Notifier")
+    def test_send_with_html_body(self, mock_notifier_cls):
+        """When html_body is provided, the AppleScript includes 'html content:'."""
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.send_message(
+                to=["alice@test.com"],
+                subject="Brief",
+                body="Plain text fallback",
+                html_body="<h1>Hello</h1><p>Rich content</p>",
+                confirm_send=True,
+            )
+            assert result["status"] == "sent"
+            call_args = mock_run.call_args[0][0]
+            assert "html content:" in call_args
+            assert "content:" in call_args
+            assert "<h1>Hello</h1>" in call_args
+
+    @patch("apple_mail.mail.Notifier")
+    def test_send_without_html_body(self, mock_notifier_cls):
+        """When html_body is not provided, the AppleScript has no 'html content:'."""
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.send_message(
+                to=["alice@test.com"],
+                subject="Plain",
+                body="Just text",
+                confirm_send=True,
+            )
+            assert result["status"] == "sent"
+            call_args = mock_run.call_args[0][0]
+            assert "html content:" not in call_args
+            assert "content:" in call_args
+
+    @patch("apple_mail.mail.Notifier")
+    def test_send_html_with_quotes_escaped(self, mock_notifier_cls):
+        """HTML attributes with quotes are properly escaped in AppleScript."""
+        store = MailStore()
+        with patch("apple_mail.mail._run_applescript", return_value={"output": "OK"}) as mock_run:
+            result = store.send_message(
+                to=["alice@test.com"],
+                subject="Styled",
+                body="Fallback",
+                html_body='<div style="color:red">Bold</div>',
+                confirm_send=True,
+            )
+            assert result["status"] == "sent"
+            call_args = mock_run.call_args[0][0]
+            # Quotes inside HTML should be escaped for AppleScript
+            assert 'style=\\"color:red\\"' in call_args
 
 
 # ---------------------------------------------------------------------------

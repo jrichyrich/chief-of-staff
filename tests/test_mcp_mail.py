@@ -346,6 +346,7 @@ class TestReplyToEmailTool:
             reply_all=False,
             cc=None,
             bcc=None,
+            html_body=None,
             confirm_send=True,
         )
 
@@ -425,6 +426,36 @@ class TestReplyToEmailTool:
         assert "error" in data
         assert "Mail connection lost" in data["error"]
 
+    @pytest.mark.asyncio
+    async def test_reply_with_html_body(self, mail_state):
+        from mcp_tools.mail_tools import reply_to_email
+
+        mail_state.reply_message.return_value = {"status": "replied", "message_id": "msg-h", "reply_all": False}
+
+        await reply_to_email(
+            message_id="msg-h",
+            body="Plain fallback",
+            html_body="<p>Rich reply</p>",
+            confirm_send=True,
+        )
+        call_kwargs = mail_state.reply_message.call_args[1]
+        assert call_kwargs["html_body"] == "<p>Rich reply</p>"
+
+    @pytest.mark.asyncio
+    async def test_reply_empty_html_body_passes_none(self, mail_state):
+        from mcp_tools.mail_tools import reply_to_email
+
+        mail_state.reply_message.return_value = {"status": "replied", "message_id": "msg-p", "reply_all": False}
+
+        await reply_to_email(
+            message_id="msg-p",
+            body="Plain only",
+            html_body="",
+            confirm_send=True,
+        )
+        call_kwargs = mail_state.reply_message.call_args[1]
+        assert call_kwargs["html_body"] is None
+
 
 # ---------------------------------------------------------------------------
 # send_email
@@ -492,6 +523,38 @@ class TestSendEmailTool:
         data = json.loads(result)
 
         assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_send_with_html_body(self, mail_state):
+        from mcp_tools.mail_tools import send_email
+
+        mail_state.send_message.return_value = {"status": "sent", "to": ["alice@test.com"], "subject": "Brief"}
+
+        await send_email(
+            to="alice@test.com",
+            subject="Brief",
+            body="Plain fallback",
+            html_body="<h1>Daily Brief</h1>",
+            confirm_send=True,
+        )
+        call_kwargs = mail_state.send_message.call_args[1]
+        assert call_kwargs["html_body"] == "<h1>Daily Brief</h1>"
+
+    @pytest.mark.asyncio
+    async def test_send_empty_html_body_passes_none(self, mail_state):
+        from mcp_tools.mail_tools import send_email
+
+        mail_state.send_message.return_value = {"status": "sent", "to": ["alice@test.com"], "subject": "Plain"}
+
+        await send_email(
+            to="alice@test.com",
+            subject="Plain",
+            body="No HTML",
+            html_body="",
+            confirm_send=True,
+        )
+        call_kwargs = mail_state.send_message.call_args[1]
+        assert call_kwargs["html_body"] is None
 
 
 # ---------------------------------------------------------------------------
