@@ -50,6 +50,10 @@ class TestExtractSiteBase:
         url = "https://sp.com/doc"
         assert _extract_site_base(url) == "https://sp.com"
 
+    def test_personal_onedrive(self):
+        url = "https://chgcloud-my.sharepoint.com/:p:/r/personal/jasricha_mychg_com/_layouts/15/Doc.aspx?foo=1"
+        assert _extract_site_base(url) == "https://chgcloud-my.sharepoint.com/personal/jasricha_mychg_com"
+
     def test_returns_none_for_garbage(self):
         assert _extract_site_base("not-a-url") is None
 

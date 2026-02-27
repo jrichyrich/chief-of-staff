@@ -48,12 +48,20 @@ def _extract_unique_id(sharepoint_url: str) -> Optional[str]:
 
 
 def _extract_site_base(sharepoint_url: str) -> Optional[str]:
-    """Extract the SharePoint site base URL (e.g. ``https://host/sites/Name``).
+    """Extract the SharePoint site base URL.
 
-    Handles sharing-link prefixes like ``/:x:/r/`` that appear before
-    ``/sites/``.
+    Returns the host + site/personal path, e.g.:
+    - ``https://host/sites/ISPTeam``
+    - ``https://host-my/personal/user_domain_com``
+
+    Handles sharing-link prefixes like ``/:x:/r/`` or ``/:p:/r/`` that
+    appear before ``/sites/`` or ``/personal/``.
     """
-    match = re.match(r"(https://[^/]+)/(?:[^/]+/)*?(sites/[^/]+)", sharepoint_url)
+    # Match /sites/Name or /personal/Name (OneDrive for Business)
+    match = re.match(
+        r"(https://[^/]+)/(?:[^/]+/)*?((?:sites|personal)/[^/]+)",
+        sharepoint_url,
+    )
     if match:
         return f"{match.group(1)}/{match.group(2)}"
     match = re.match(r"(https://[^/]+)", sharepoint_url)
@@ -330,15 +338,20 @@ async def download_sharepoint_file(
             logger.warning("Direct download failed (%s). "
                            "Trying Excel Online UI fallback...", first_err)
 
-        # We need to navigate to the spreadsheet first so the Excel iframe loads
-        page = await ctx.new_page()
+        # Navigate to the document so the Office Online iframe loads
+        # (needed for strategy 2 UI fallback). Non-fatal if this fails.
         try:
-            await page.goto(sharepoint_url, wait_until="load",
-                            timeout=timeout_ms)
-            # Wait for Excel Online iframe to initialize
-            await page.wait_for_timeout(5_000)
-        finally:
-            await page.close()
+            page = await ctx.new_page()
+            try:
+                await page.goto(sharepoint_url, wait_until="load",
+                                timeout=timeout_ms)
+                await page.wait_for_timeout(5_000)
+            finally:
+                await page.close()
+        except Exception as nav_err:
+            logger.warning("Iframe pre-load navigation failed (%s); "
+                           "strategy 2 may still work if doc is already open",
+                           type(nav_err).__name__)
 
     except Exception as exc:
         logger.exception("SharePoint direct download setup failed")
