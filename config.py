@@ -22,6 +22,7 @@ AGENT_TIMEOUT_SECONDS = 60
 MAX_TOOL_ROUNDS = 25
 VALID_FACT_CATEGORIES = {"personal", "preference", "work", "relationship", "backlog"}
 
+SHAREPOINT_DOWNLOAD_DIR = DATA_DIR / "sharepoint-downloads"
 OKR_DATA_DIR = DATA_DIR / "okr"
 OKR_SPREADSHEET_DEFAULT = OKR_DATA_DIR / "2026_ISP_OKR_Master_Final.xlsx"
 OKR_SHAREPOINT_URL = (
