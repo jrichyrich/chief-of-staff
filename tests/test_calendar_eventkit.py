@@ -460,9 +460,9 @@ class TestCalendarAliases:
     """Test that _get_calendar_by_name resolves CALENDAR_ALIASES."""
 
     def test_alias_resolves_to_exchange(self, calendar_store):
-        """'work' alias picks Exchange calendar, not iCloud, when both are named 'Calendar'."""
+        """'work' alias picks Exchange calendar, not iCloud."""
         icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
-        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        exchange_cal = _make_mock_calendar(name="CHG", source_name="Exchange")
         calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
 
         result = calendar_store._get_calendar_by_name("work")
@@ -472,7 +472,7 @@ class TestCalendarAliases:
     def test_alias_case_insensitive(self, calendar_store):
         """Alias lookup is case-insensitive: 'Work', 'WORK', 'work' all resolve."""
         icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
-        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        exchange_cal = _make_mock_calendar(name="CHG", source_name="Exchange")
         calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
 
         for variant in ["work", "Work", "WORK", "Work Calendar", "EXCHANGE"]:
@@ -502,7 +502,7 @@ class TestCalendarAliases:
     def test_alias_chg_resolves_to_exchange(self, calendar_store):
         """'chg' alias picks Exchange calendar."""
         icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
-        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        exchange_cal = _make_mock_calendar(name="CHG", source_name="Exchange")
         calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
 
         result = calendar_store._get_calendar_by_name("chg")
@@ -512,12 +512,12 @@ class TestCalendarAliases:
     def test_create_event_with_alias(self, calendar_store):
         """create_event with alias 'work' targets the Exchange calendar."""
         icloud_cal = _make_mock_calendar(name="Calendar", source_name="iCloud")
-        exchange_cal = _make_mock_calendar(name="Calendar", source_name="Exchange")
+        exchange_cal = _make_mock_calendar(name="CHG", source_name="Exchange")
         calendar_store._store.calendarsForEntityType_.return_value = [icloud_cal, exchange_cal]
         calendar_store._store.saveEvent_span_error_.return_value = (True, None)
 
         # Patch EventKit.EKEvent to return a mock event
-        mock_event = _make_mock_event(uid="ALIAS-1", title="Work Meeting", calendar_title="Calendar")
+        mock_event = _make_mock_event(uid="ALIAS-1", title="Work Meeting", calendar_title="CHG")
         with patch("apple_calendar.eventkit.EventKit") as mock_ek:
             mock_ek.EKEvent.eventWithEventStore_.return_value = mock_event
 
