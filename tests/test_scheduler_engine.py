@@ -3,7 +3,7 @@
 
 import json
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -559,3 +559,63 @@ class TestSchedulerEngineStores:
         with patch("scheduler.engine._run_skill_auto_exec_handler", return_value='{"status":"skipped"}') as mock_handler:
             engine.evaluate_due_tasks(now=now)
             mock_handler.assert_called_once_with(memory_store, mock_registry)
+
+
+# --- Webhook Dispatch Handler Tests ---
+
+
+class TestWebhookDispatchHandler:
+    def test_webhook_dispatch_disabled_returns_skipped(self):
+        mock_store = MagicMock()
+        with patch("scheduler.engine.WEBHOOK_AUTO_DISPATCH_ENABLED", False):
+            result = json.loads(execute_handler("webhook_dispatch", "", memory_store=mock_store))
+        assert result["status"] == "skipped"
+        assert result["handler"] == "webhook_dispatch"
+
+    def test_webhook_dispatch_enabled_returns_counts(self):
+        mock_store = MagicMock()
+        mock_registry = MagicMock()
+        mock_docs = MagicMock()
+        expected = {"dispatched": 2, "failed": 0, "skipped": 1}
+        with patch("scheduler.engine.WEBHOOK_AUTO_DISPATCH_ENABLED", True):
+            with patch("webhook.ingest.dispatch_pending_events", new_callable=AsyncMock, return_value=expected):
+                result = json.loads(execute_handler(
+                    "webhook_dispatch", "",
+                    memory_store=mock_store,
+                    agent_registry=mock_registry,
+                    document_store=mock_docs,
+                ))
+        assert result["status"] == "ok"
+        assert result["handler"] == "webhook_dispatch"
+        assert result["dispatched"] == 2
+        assert result["skipped"] == 1
+
+    def test_webhook_dispatch_error_caught(self):
+        mock_store = MagicMock()
+        with patch("scheduler.engine.WEBHOOK_AUTO_DISPATCH_ENABLED", True):
+            with patch("webhook.ingest.dispatch_pending_events", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+                result = json.loads(execute_handler("webhook_dispatch", "", memory_store=mock_store))
+        assert result["status"] == "error"
+        assert "boom" in result["error"]
+
+    def test_webhook_dispatch_via_scheduler(self, memory_store):
+        """Full integration: scheduler evaluates due webhook_dispatch task."""
+        task = ScheduledTask(
+            name="webhook-dispatch",
+            schedule_type="interval",
+            schedule_config=json.dumps({"minutes": 5}),
+            handler_type="webhook_dispatch",
+            enabled=True,
+            next_run_at="2026-02-20T09:00:00",
+        )
+        memory_store.store_scheduled_task(task)
+
+        engine = SchedulerEngine(memory_store)
+        now = datetime(2026, 2, 20, 10, 0, 0)
+
+        with patch("scheduler.engine.WEBHOOK_AUTO_DISPATCH_ENABLED", False):
+            results = engine.evaluate_due_tasks(now=now)
+
+        assert len(results) == 1
+        result_data = json.loads(results[0]["result"])
+        assert result_data["status"] == "skipped"

@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from config import WEBHOOK_AUTO_DISPATCH_ENABLED
+
 logger = logging.getLogger(__name__)
 
 # Commands that are never allowed in custom handlers
@@ -316,7 +318,41 @@ def _run_skill_auto_exec_handler(memory_store, agent_registry=None) -> str:
         return json.dumps({"status": "error", "handler": "skill_auto_exec", "error": str(e)})
 
 
-def execute_handler(handler_type: str, handler_config: str, memory_store=None, agent_registry=None) -> str:
+def _run_webhook_dispatch_handler(memory_store, agent_registry=None, document_store=None) -> str:
+    """Run the webhook dispatch handler to process pending events via matched agents."""
+    try:
+        if not WEBHOOK_AUTO_DISPATCH_ENABLED:
+            return json.dumps({"status": "skipped", "handler": "webhook_dispatch", "message": "Webhook auto-dispatch disabled"})
+
+        import asyncio
+        from webhook.ingest import dispatch_pending_events
+
+        # dispatch_pending_events is async; handle both standalone and daemon contexts.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Inside daemon's async context — run in a thread to avoid nested event loop.
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    dispatch_pending_events(memory_store, agent_registry, document_store),
+                )
+                result = future.result(timeout=300)
+        else:
+            result = asyncio.run(
+                dispatch_pending_events(memory_store, agent_registry, document_store)
+            )
+
+        return json.dumps({"status": "ok", "handler": "webhook_dispatch", **result})
+    except Exception as e:
+        return json.dumps({"status": "error", "handler": "webhook_dispatch", "error": str(e)})
+
+
+def execute_handler(handler_type: str, handler_config: str, memory_store=None, agent_registry=None, document_store=None) -> str:
     """Execute a task handler and return a JSON result string."""
     if handler_type == "alert_eval":
         return _run_alert_eval_handler()
@@ -328,6 +364,8 @@ def execute_handler(handler_type: str, handler_config: str, memory_store=None, a
         return _run_proactive_push_handler(memory_store)
     elif handler_type == "skill_auto_exec":
         return _run_skill_auto_exec_handler(memory_store, agent_registry)
+    elif handler_type == "webhook_dispatch":
+        return _run_webhook_dispatch_handler(memory_store, agent_registry, document_store)
     elif handler_type == "morning_brief":
         return _run_morning_brief_handler(handler_config)
     elif handler_type == "custom":
@@ -377,6 +415,7 @@ class SchedulerEngine:
                 task.handler_type, task.handler_config,
                 memory_store=self.memory_store,
                 agent_registry=self.agent_registry,
+                document_store=self.document_store,
             )
             task_result["result"] = handler_result
 
