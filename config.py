@@ -48,11 +48,11 @@ PROACTIVE_PUSH_THRESHOLD = os.environ.get("PROACTIVE_PUSH_THRESHOLD", "high").st
 # Calendar aliases: friendly names → {name, source} for disambiguation
 # Lookup is case-insensitive. Resolves in _get_calendar_by_name().
 CALENDAR_ALIASES = {
-    "work": {"name": "Calendar", "source": "Exchange"},
-    "work calendar": {"name": "Calendar", "source": "Exchange"},
-    "chg": {"name": "Calendar", "source": "Exchange"},
-    "chg calendar": {"name": "Calendar", "source": "Exchange"},
-    "exchange": {"name": "Calendar", "source": "Exchange"},
+    "work": {"name": "CHG", "source": "Exchange"},
+    "work calendar": {"name": "CHG", "source": "Exchange"},
+    "chg": {"name": "CHG", "source": "Exchange"},
+    "chg calendar": {"name": "CHG", "source": "Exchange"},
+    "exchange": {"name": "CHG", "source": "Exchange"},
     "personal": {"name": "Calendar", "source": "iCloud"},
     "personal calendar": {"name": "Calendar", "source": "iCloud"},
 }
