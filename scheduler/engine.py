@@ -12,8 +12,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from config import WEBHOOK_AUTO_DISPATCH_ENABLED
-
 logger = logging.getLogger(__name__)
 
 # Commands that are never allowed in custom handlers
@@ -321,6 +319,8 @@ def _run_skill_auto_exec_handler(memory_store, agent_registry=None) -> str:
 def _run_webhook_dispatch_handler(memory_store, agent_registry=None, document_store=None) -> str:
     """Run the webhook dispatch handler to process pending events via matched agents."""
     try:
+        from config import WEBHOOK_AUTO_DISPATCH_ENABLED
+
         if not WEBHOOK_AUTO_DISPATCH_ENABLED:
             return json.dumps({"status": "skipped", "handler": "webhook_dispatch", "message": "Webhook auto-dispatch disabled"})
 
