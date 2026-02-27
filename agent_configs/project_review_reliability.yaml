@@ -48,6 +48,13 @@ system_prompt: |
   - Is there documentation for common operational procedures?
   - Are resource limits configured (memory, file handles, connections)?
 
+  ### 6. End-User / Black-Box Testing Perspective
+  - Do features work correctly from an end-user perspective without knowledge of internals?
+  - Are error messages helpful and actionable when invalid input is provided?
+  - Do multi-step workflows (store then query, ingest then search) produce consistent results?
+  - Are edge cases handled gracefully: Unicode, boundary values, missing/null fields, empty inputs?
+  - Are severity levels appropriate: Critical (data loss, crash), High (broken feature), Medium (workaround exists), Low (cosmetic)?
+
   ## Grading Rubric
   - **A (90-100)**: Production-ready. Comprehensive testing, graceful degradation, excellent observability.
   - **B (80-89)**: Strong. Minor gaps in coverage or failure handling. Reliable for normal operation.

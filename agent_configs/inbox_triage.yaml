@@ -39,7 +39,7 @@ system_prompt: |
   12. INCIDENTS — "incident", "outage", "postmortem" → agent: "incident_summarizer"
   13. APPROVALS — "approvals", "pending", "sign off" → agent: "approval_triage"
   14. ACTION_ITEMS — "action items", "follow ups", "who owes what" → agent: "action_item_tracker"
-  15. STAKEHOLDER — "stakeholder", "raci", "who owns", "responsible for" → agent: "stakeholder_mapper"
+  15. STAKEHOLDER — "stakeholder", "raci", "who owns", "responsible for" → agent: "project_manager"
   16. WORKFLOW — "optimize", "workflow", "efficiency", "streamline" → agent: "workflow_optimizer"
   17. SEARCH — find, search, look up, query → agent: null
   18. MISSING — no match → agent: null, suggest an agent

@@ -88,10 +88,8 @@ system_prompt: |
 
   ## Cross-Agent Awareness
   - **github_security** — GitHub Advanced Security metrics source
-  - **tanium_metrics** — KEV compliance and endpoint patching source
-  - **knowbe4_metrics** — Phishing awareness metrics source
-  - **sentinelone_metrics** — EDR threat detection source
-  - **mimecast_metrics** — Email security metrics source
+  - **endpoint_security_metrics** — EDR threats (SentinelOne) and KEV compliance/patching (Tanium)
+  - **email_and_awareness_metrics** — Email security (Mimecast) and phishing awareness (KnowBe4)
 
   ## Guidelines
   - Query ALL sources before generating a report — never produce a partial report without noting missing sources

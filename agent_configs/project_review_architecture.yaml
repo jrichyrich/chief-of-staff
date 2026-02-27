@@ -46,6 +46,21 @@ system_prompt: |
   - Is the architecture open for extension but closed for modification?
   - What refactoring would be needed to support 10x scale?
 
+  ### 6. Configuration and Environment Management
+  - Is configuration centralized and discoverable?
+  - Are secrets handled safely (no hardcoded values, no logging)?
+  - Are defaults sensible and overriding straightforward?
+
+  ### 7. Scalability and Performance
+  - Are there obvious bottlenecks (synchronous I/O, unbounded loops, large in-memory data)?
+  - Are resource lifetimes managed (connections, file handles, memory)?
+  - Are expensive operations (embeddings, API calls) batched or cached?
+
+  ### 8. Code Quality and Patterns
+  - Is the codebase consistent in style, naming, and patterns?
+  - Are Python best practices followed (type hints, dataclasses, context managers)?
+  - Is code DRY without over-abstraction?
+
   ## Grading Rubric
   - **A (90-100)**: Exemplary. Clean boundaries, low coupling, excellent failure isolation.
   - **B (80-89)**: Strong. Minor coupling issues or documentation gaps.

@@ -207,10 +207,9 @@ The following agents ship with Chief of Staff in the `agent_configs/` directory.
 
 | Agent | Description | Capabilities |
 |-------|-------------|--------------|
-| `project_manager` | Tracks active projects, surfaces blockers, drives accountability | `memory_read`, `memory_write`, `document_search`, `mail_read` |
-| `product_manager` | Drives product strategy, prioritizes features, evaluates trade-offs | `memory_read`, `memory_write`, `document_search`, `mail_read` |
+| `project_manager` | Tracks active projects, surfaces blockers, drives accountability, maps stakeholders with RACI classification | `memory_read`, `memory_write`, `document_search`, `mail_read`, `delegation_write`, `reminders_read` |
+| `research_and_strategy` | Conducts deep research, drives product strategy, evaluates technical approaches, and coordinates agent capabilities | `memory_read`, `memory_write`, `document_search`, `mail_read`, `decision_read`, `decision_write`, `delegation_read`, `calendar_read`, `agent_memory_read`, `agent_memory_write` |
 | `project_planner` | Plans and structures projects from inception through execution | `memory_read`, `memory_write`, `document_search` |
-| `project_researcher` | Conducts deep dives on projects across Confluence, Jira, email, Teams | `memory_read`, `memory_write`, `document_search` |
 | `backlog_manager` | Captures, organizes, and prioritizes a persistent backlog of work items | `memory_read`, `memory_write`, `document_search` |
 | `okr_tracker` | Tracks ISP OKR progress from Excel spreadsheets | `memory_read`, `memory_write`, `document_search` |
 
@@ -222,7 +221,6 @@ The following agents ship with Chief of Staff in the `agent_configs/` directory.
 | `delegation_tracker` | Tracks tasks delegated to others, monitors completion, flags overdue items | `memory_read`, `memory_write`, `document_search` |
 | `action_item_tracker` | Consolidates action items across Confluence, email, Teams, and Jira | `memory_read`, `memory_write`, `document_search`, `reminders_read`, `reminders_write` |
 | `proactive_alerts` | Monitors for conditions needing attention and generates proactive alerts | `memory_read`, `memory_write`, `document_search` |
-| `stakeholder_mapper` | Maps stakeholders, roles, and RACI for projects | `memory_read`, `document_search` |
 
 ### Communications and Triage
 
@@ -233,21 +231,13 @@ The following agents ship with Chief of Staff in the `agent_configs/` directory.
 | `approval_triage` | Consolidates pending approvals across Jira, Workday, Okta, and email | `memory_read`, `document_search` |
 | `incident_summarizer` | Consolidates active incidents and trending patterns | `memory_read`, `memory_write`, `document_search` |
 
-### Technical Leadership
-
-| Agent | Description | Capabilities |
-|-------|-------------|--------------|
-| `cto` | Designs architectures, evaluates technical approaches, coordinates agent capabilities | `memory_read`, `document_search` |
-
 ### Code and Architecture Quality
 
 | Agent | Description | Capabilities |
 |-------|-------------|--------------|
-| `architecture_reviewer` | Reviews system architecture for design quality and maintainability | `memory_read`, `memory_write`, `document_search` |
 | `security_auditor` | Audits for security vulnerabilities, data protection, and compliance risks | `memory_read`, `memory_write`, `document_search` |
 | `code_quality_reviewer` | Reviews Python code for quality, consistency, and maintainability | `memory_read`, `memory_write`, `document_search` |
 | `workflow_optimizer` | Analyzes workflows for efficiency and simplification opportunities | `memory_read`, `memory_write`, `document_search` |
-| `black_box_tester` | Tests Jarvis features as an end user, finding bugs and edge cases | `memory_read`, `memory_write`, `document_search` |
 
 ### Project Review Board
 
@@ -256,8 +246,8 @@ A specialized set of agents that conduct structured reviews from different persp
 | Agent | Description | Capabilities |
 |-------|-------------|--------------|
 | `project_review_board` | Synthesizes specialist review outputs into a graded assessment and action plan | `memory_read`, `memory_write`, `document_search` |
-| `project_review_architecture` | Reviews architecture quality, modularity, and maintainability risks | `memory_read`, `document_search` |
-| `project_review_reliability` | Reviews test coverage, failure handling, and production readiness | `memory_read`, `document_search` |
+| `project_review_architecture` | Reviews architecture quality, modularity, maintainability risks, configuration/environment management, scalability, and code patterns | `memory_read`, `document_search` |
+| `project_review_reliability` | Reviews test coverage, failure handling, production readiness, and end-user/black-box testing perspective | `memory_read`, `document_search` |
 | `project_review_security` | Reviews security posture, data protection, and abuse risk | `memory_read`, `document_search` |
 | `project_review_product` | Reviews user value, workflow fit, and product-level gaps | `memory_read`, `document_search` |
 | `project_review_delivery` | Reviews delivery health, maintainability, and execution velocity | `memory_read`, `document_search` |
@@ -266,11 +256,8 @@ A specialized set of agents that conduct structured reviews from different persp
 
 | Agent | Description | Capabilities |
 |-------|-------------|--------------|
-| `document_fetcher` | Retrieves documents from URLs not accessible through API connectors | `memory_read`, `memory_write`, `document_search` |
 | `document_librarian` | Organizes Jarvis-created documents into a structured folder hierarchy | `memory_read`, `memory_write`, `document_search` |
-| `data_visualizer` | Generates charts and visual artifacts using matplotlib, plotly, and Mermaid | `memory_read`, `memory_write`, `document_search` |
-| `report_builder` | Converts markdown output into polished HTML/PDF reports | `memory_read`, `memory_write`, `document_search` |
-| `presentation_builder` | Generates PowerPoint slide decks from research data | `memory_read`, `memory_write`, `document_search` |
+| `report_builder` | Converts markdown output into polished HTML/PDF reports with data visualization (charts, dashboards, matrices, timelines via matplotlib, plotly, Mermaid) | `memory_read`, `memory_write`, `document_search` |
 
 ### Security Metrics
 
@@ -279,11 +266,9 @@ A coordinator agent with source-specific collection agents for security telemetr
 | Agent | Description | Capabilities |
 |-------|-------------|--------------|
 | `security_metrics` | Coordinator that dispatches collection and synthesizes a unified security posture report | `memory_read`, `memory_write`, `document_search` |
-| `tanium_metrics` | Collects KEV compliance, endpoint patching, and MTTR metrics | `memory_read`, `memory_write` |
+| `endpoint_security_metrics` | Analyzes endpoint detection/response (SentinelOne) and compliance/patching (Tanium) metrics | `memory_read`, `memory_write`, `document_search`, `webhook_read` |
+| `email_and_awareness_metrics` | Analyzes email threat protection (Mimecast) and phishing awareness training (KnowBe4) metrics | `memory_read`, `memory_write`, `document_search`, `webhook_read` |
 | `github_security` | Collects Dependabot, CodeQL, SonarCloud, and Secret Scanning alerts | `memory_read`, `memory_write` |
-| `knowbe4_metrics` | Collects phishing-prone percentage from campaigns | `memory_read`, `memory_write` |
-| `sentinelone_metrics` | Collects EDR threat detections by verdict type | `memory_read`, `memory_write` |
-| `mimecast_metrics` | Collects email security metrics (spam, phishing, malware interception) | `memory_read`, `memory_write` |
 
 ---
 
