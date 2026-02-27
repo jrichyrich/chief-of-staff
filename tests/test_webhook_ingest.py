@@ -334,3 +334,44 @@ class TestDispatchPendingEvents:
 
         assert result1["dispatched"] == 1
         assert result2 == {"dispatched": 0, "failed": 0, "skipped": 0}
+
+
+@pytest.mark.asyncio
+class TestIngestToDispatchE2E:
+    async def test_full_pipeline_ingest_dispatch_process(self, memory_store, agent_registry, document_store, inbox_dir):
+        """E2E: file drop -> ingest -> dispatch -> agent execution -> status update."""
+        # Step 1: Drop a webhook event file
+        event_file = inbox_dir / "ci-alert.json"
+        event_file.write_text(json.dumps({
+            "source": "github",
+            "event_type": "alert.fired",
+            "payload": {"alert_id": 42, "severity": "critical"},
+        }))
+
+        # Step 2: Ingest
+        ingest_result = ingest_events(memory_store, inbox_dir)
+        assert ingest_result["ingested"] == 1
+
+        # Step 3: Create a matching event rule
+        _create_dispatch_rule(memory_store)
+
+        # Step 4: Dispatch
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Alert handled: escalated to on-call"
+            MockAgent.return_value = mock_instance
+
+            with patch("agents.triage.classify_and_resolve", side_effect=lambda cfg, _: cfg):
+                dispatch_result = await dispatch_pending_events(memory_store, agent_registry, document_store)
+
+        # Step 5: Verify
+        assert dispatch_result["dispatched"] == 1
+        assert dispatch_result["failed"] == 0
+
+        events = memory_store.list_webhook_events(status="processed")
+        assert len(events) == 1
+        assert events[0].source == "github"
+
+        # No more pending events
+        pending = memory_store.list_webhook_events(status="pending")
+        assert len(pending) == 0
