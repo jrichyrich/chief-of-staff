@@ -24,6 +24,12 @@ VALID_FACT_CATEGORIES = {"personal", "preference", "work", "relationship", "back
 
 OKR_DATA_DIR = DATA_DIR / "okr"
 OKR_SPREADSHEET_DEFAULT = OKR_DATA_DIR / "2026_ISP_OKR_Master_Final.xlsx"
+OKR_SHAREPOINT_URL = (
+    "https://chgcloud.sharepoint.com/:x:/r/sites/ISPTeam/_layouts/15/Doc.aspx"
+    "?sourcedoc=%7BDFD697F4-04F3-4583-BC4E-FC55BE913409%7D"
+    "&file=2026_ISP_OKR_Master_Final.xlsx"
+    "&action=default&mobileredirect=true&DefaultItemOpen=1"
+)
 
 # Webhook inbox settings
 WEBHOOK_INBOX_DIR = DATA_DIR / "webhook-inbox"

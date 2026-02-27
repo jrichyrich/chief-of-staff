@@ -116,8 +116,72 @@ def register(mcp, state):
         )
         return json.dumps(_format_okr_results(results))
 
+    @mcp.tool()
+    async def refresh_okr_from_sharepoint(sharepoint_url: str = "") -> str:
+        """Download the OKR spreadsheet from SharePoint and refresh data.
+
+        Uses the persistent Playwright browser (same one used for Teams).
+        The browser must be running and authenticated to M365/SharePoint.
+        If not running, auto-launches it.
+
+        Args:
+            sharepoint_url: SharePoint URL for the OKR spreadsheet.
+                Leave empty to use the default URL from config.
+        """
+        from browser.manager import TeamsBrowserManager
+        from browser.sharepoint_download import download_sharepoint_file
+        from okr.parser import parse_okr_spreadsheet
+
+        okr_store = state.okr_store
+        url = sharepoint_url or app_config.OKR_SHAREPOINT_URL
+        dest = app_config.OKR_SPREADSHEET_DEFAULT
+
+        # Step 1: Ensure browser is running
+        manager = TeamsBrowserManager()
+        if not manager.is_alive():
+            launch_result = manager.launch()
+            if launch_result.get("status") == "error":
+                return json.dumps({
+                    "status": "error",
+                    "step": "browser_launch",
+                    "error": launch_result["error"],
+                })
+
+        # Step 2: Download from SharePoint
+        dl_result = await download_sharepoint_file(manager, url, dest)
+        if dl_result["status"] != "downloaded":
+            return json.dumps({
+                "status": dl_result["status"],
+                "step": "download",
+                "error": dl_result.get("error", "Download failed"),
+            })
+
+        # Step 3: Parse and store
+        try:
+            snapshot = parse_okr_spreadsheet(dest)
+            okr_store.save(snapshot)
+        except Exception as exc:
+            return json.dumps({
+                "status": "error",
+                "step": "parse",
+                "error": str(exc),
+            })
+
+        summary = snapshot.summary()
+        return json.dumps({
+            "status": "refreshed",
+            "download": dl_result,
+            "parsed": summary,
+            "message": (
+                f"Downloaded from SharePoint and loaded {summary['objectives']} objectives, "
+                f"{summary['key_results']} key results, "
+                f"{summary['initiatives']} initiatives."
+            ),
+        })
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
     module.refresh_okr_data = refresh_okr_data
     module.query_okr_status = query_okr_status
+    module.refresh_okr_from_sharepoint = refresh_okr_from_sharepoint
