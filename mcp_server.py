@@ -229,6 +229,7 @@ from mcp_tools import (
     routing_tools,
     playbook_tools,
     formatter_tools,
+    dispatch_tools,
 )
 
 # Register all tool groups
@@ -256,6 +257,7 @@ brain_tools.register(mcp, _state)
 routing_tools.register(mcp, _state)
 playbook_tools.register(mcp, _state)
 formatter_tools.register(mcp, _state)
+dispatch_tools.register(mcp, _state)
 
 # Install automatic tool usage tracking (must come after all tools are registered)
 from mcp_tools.usage_tracker import install_usage_tracker

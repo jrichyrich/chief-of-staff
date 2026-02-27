@@ -56,6 +56,11 @@ WEBHOOK_AUTO_DISPATCH_ENABLED = os.environ.get(
     "WEBHOOK_AUTO_DISPATCH_ENABLED", "false"
 ).strip().lower() in {"1", "true", "yes"}
 
+# dispatch_agents orchestrator settings
+DISPATCH_AGENTS_MAX_AGENTS = 10  # Hard cap on agents per dispatch
+DISPATCH_AGENTS_MAX_RESULT_LENGTH = 5000  # Truncate per-agent result text
+DISPATCH_AGENTS_WALL_CLOCK_TIMEOUT = 300  # Total dispatch timeout in seconds
+
 # Calendar aliases: friendly names → {name, source} for disambiguation
 # Lookup is case-insensitive. Resolves in _get_calendar_by_name().
 CALENDAR_ALIASES = {
