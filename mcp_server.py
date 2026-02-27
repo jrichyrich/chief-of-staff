@@ -143,6 +143,13 @@ async def app_lifespan(server: FastMCP):
             description="Poll for new webhook events every 5 minutes",
         ),
         ScheduledTask(
+            name="webhook_dispatch",
+            handler_type="webhook_dispatch",
+            schedule_type="interval",
+            schedule_config='{"minutes": 5}',
+            description="Dispatch pending webhook events to matched agents every 5 minutes",
+        ),
+        ScheduledTask(
             name="skill_analysis",
             handler_type="skill_analysis",
             schedule_type="interval",
