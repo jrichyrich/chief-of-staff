@@ -30,7 +30,7 @@ def register(mcp, state):
                         If empty and capability_match is empty, auto-selects agents.
             capability_match: Comma-separated capability names to filter agents by.
                             Only agents with ALL listed capabilities are selected.
-                            (e.g. "memory_read,document_read")
+                            (e.g. "memory_read,document_search")
             max_concurrent: Max concurrent agent executions (0 = use config default).
             use_triage: If True, classify task complexity per agent and potentially
                        downgrade model tier for simple tasks (default True).
@@ -81,10 +81,11 @@ def register(mcp, state):
                 })
 
         else:
-            # Mode C: Auto-select (agents with non-empty capabilities)
+            # Mode C: Auto-select (agents with non-empty capabilities, sorted by name)
             for config in agent_registry.list_agents():
                 if config.capabilities:
                     selected_configs.append(config)
+            selected_configs.sort(key=lambda c: c.name)
             selected_configs = selected_configs[:5]  # Auto-select capped at 5
 
         if not selected_configs:
@@ -117,7 +118,8 @@ def register(mcp, state):
                         effective_config = await asyncio.to_thread(
                             classify_and_resolve, config, task
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("dispatch_agents: triage failed for '%s': %s", config.name, e)
                         effective_config = config
 
                 from agents.base import BaseExpertAgent
@@ -146,11 +148,12 @@ def register(mcp, state):
                 }
             except Exception as e:
                 duration = round(time.monotonic() - start, 3)
+                error_type = type(e).__name__
                 logger.error("dispatch_agents: agent '%s' failed: %s", config.name, e)
                 return {
                     "agent_name": config.name,
                     "status": "error",
-                    "result": str(e),
+                    "result": f"Agent execution failed ({error_type})",
                     "duration_seconds": duration,
                     "model_used": config.model,
                 }
@@ -158,9 +161,11 @@ def register(mcp, state):
         # --- Parallel dispatch ---
         total_start = time.monotonic()
 
-        conc_limit = max_concurrent if max_concurrent > 0 else getattr(
-            app_config, "MAX_CONCURRENT_AGENT_DISPATCHES", 5
-        )
+        config_max = getattr(app_config, "MAX_CONCURRENT_AGENT_DISPATCHES", 5)
+        conc_limit = max_concurrent if max_concurrent > 0 else config_max
+        conc_limit = min(conc_limit, config_max)  # Never exceed config ceiling
+
+        wall_clock_timeout = getattr(app_config, "DISPATCH_AGENTS_WALL_CLOCK_TIMEOUT", 300)
 
         if len(selected_configs) > 1 and conc_limit > 0:
             semaphore = asyncio.Semaphore(conc_limit)
@@ -169,15 +174,44 @@ def register(mcp, state):
                 async with semaphore:
                     return await _dispatch_single(config)
 
-            dispatches = await asyncio.gather(
-                *[_limited(c) for c in selected_configs]
+            gather_coro = asyncio.gather(
+                *[_limited(c) for c in selected_configs],
+                return_exceptions=True,
             )
         else:
-            dispatches = await asyncio.gather(
-                *[_dispatch_single(c) for c in selected_configs]
+            gather_coro = asyncio.gather(
+                *[_dispatch_single(c) for c in selected_configs],
+                return_exceptions=True,
             )
 
-        dispatches = list(dispatches)
+        try:
+            raw_results = await asyncio.wait_for(gather_coro, timeout=wall_clock_timeout)
+        except asyncio.TimeoutError:
+            total_duration = round(time.monotonic() - total_start, 3)
+            return json.dumps({
+                "error": f"Dispatch timed out after {wall_clock_timeout}s",
+                "task": task[:200],
+                "agents_dispatched": dispatched_names,
+                "agents_skipped": skipped,
+                "dispatches": [],
+                "total_duration_seconds": total_duration,
+            })
+
+        # Post-process: convert bare exceptions from return_exceptions=True into error dicts
+        dispatches = []
+        for i, result in enumerate(raw_results):
+            if isinstance(result, BaseException):
+                error_type = type(result).__name__
+                dispatches.append({
+                    "agent_name": selected_configs[i].name,
+                    "status": "error",
+                    "result": f"Agent execution failed ({error_type})",
+                    "duration_seconds": 0,
+                    "model_used": selected_configs[i].model,
+                })
+            else:
+                dispatches.append(result)
+
         total_duration = round(time.monotonic() - total_start, 3)
 
         success_count = sum(1 for d in dispatches if d["status"] == "success")
@@ -190,7 +224,7 @@ def register(mcp, state):
             "dispatches": dispatches,
             "total_duration_seconds": total_duration,
             "summary": f"Dispatched {len(dispatches)} agents: {success_count} succeeded, {error_count} failed.",
-        }, default=str)
+        })
 
     # Expose at module level for testing
     import sys

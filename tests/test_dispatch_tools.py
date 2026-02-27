@@ -1,6 +1,7 @@
 # tests/test_dispatch_tools.py
 """Tests for the dispatch_agents orchestrator MCP tool."""
 
+import asyncio
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -181,6 +182,25 @@ class TestDispatchAgentsByName:
         assert "success" in statuses
         assert "error" in statuses
 
+    @pytest.mark.asyncio
+    async def test_error_result_does_not_leak_details(self):
+        """Error results should contain type name, not raw exception text."""
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.side_effect = RuntimeError("/secret/path/to/db.sqlite")
+            MockAgent.return_value = mock_instance
+
+            result_json = await dispatch_tools.dispatch_agents(
+                task="Some task",
+                agent_names="researcher",
+            )
+            result = json.loads(result_json)
+
+        error_dispatch = result["dispatches"][0]
+        assert error_dispatch["status"] == "error"
+        assert "RuntimeError" in error_dispatch["result"]
+        assert "/secret/path" not in error_dispatch["result"]
+
 
 # --- TestDispatchAgentsByCapability ---
 
@@ -220,6 +240,118 @@ class TestDispatchAgentsByCapability:
         assert "error" in result
 
 
+# --- TestDispatchAgentsAutoSelect ---
+
+class TestDispatchAgentsAutoSelect:
+    """Tests for auto-select mode (Mode C) — no agent_names or capability_match."""
+
+    @pytest.mark.asyncio
+    async def test_auto_select_excludes_empty_capability_agents(self):
+        """Auto-select should skip agents with no capabilities."""
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            result_json = await dispatch_tools.dispatch_agents(task="General task")
+            result = json.loads(result_json)
+
+        assert "empty-agent" not in result["agents_dispatched"]
+        # researcher, analyst, writer all have capabilities
+        assert len(result["dispatches"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_auto_select_capped_at_five(self, state):
+        """Auto-select mode should cap at 5 agents."""
+        # Add agents until we have > 5 with capabilities
+        for i in range(5):
+            state.agent_registry.save_agent(AgentConfig(
+                name=f"extra-agent-{i}",
+                description=f"Extra {i}",
+                system_prompt=f"Extra {i}.",
+                capabilities=["memory_read"],
+            ))
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            result_json = await dispatch_tools.dispatch_agents(task="Big task")
+            result = json.loads(result_json)
+
+        # 3 original + 5 extras = 8 capable, but should be capped at 5
+        assert len(result["dispatches"]) == 5
+
+
+# --- TestDispatchTriageIntegration ---
+
+class TestDispatchTriageIntegration:
+    """Tests for triage integration in dispatch_agents."""
+
+    @pytest.mark.asyncio
+    async def test_triage_called_when_enabled(self):
+        """use_triage=True should call classify_and_resolve."""
+        with patch("agents.base.BaseExpertAgent") as MockAgent, \
+             patch("agents.triage.classify_and_resolve") as mock_triage:
+            triaged = AgentConfig(
+                name="researcher", description="Researches topics",
+                system_prompt="You are a researcher.",
+                capabilities=["memory_read", "document_search"],
+                model="haiku",
+            )
+            mock_triage.return_value = triaged
+
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            result_json = await dispatch_tools.dispatch_agents(
+                task="Simple task",
+                agent_names="researcher",
+                use_triage=True,
+            )
+            result = json.loads(result_json)
+
+            mock_triage.assert_called_once()
+            assert result["dispatches"][0]["model_used"] == "haiku"
+
+    @pytest.mark.asyncio
+    async def test_triage_skipped_when_disabled(self):
+        """use_triage=False should skip classify_and_resolve entirely."""
+        with patch("agents.base.BaseExpertAgent") as MockAgent, \
+             patch("agents.triage.classify_and_resolve") as mock_triage:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            await dispatch_tools.dispatch_agents(
+                task="Task",
+                agent_names="researcher",
+                use_triage=False,
+            )
+            mock_triage.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_triage_failure_falls_back_to_original_config(self):
+        """If triage crashes, dispatch should use original config."""
+        with patch("agents.base.BaseExpertAgent") as MockAgent, \
+             patch("agents.triage.classify_and_resolve", side_effect=RuntimeError("API down")):
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            result_json = await dispatch_tools.dispatch_agents(
+                task="Task",
+                agent_names="researcher",
+                use_triage=True,
+            )
+            result = json.loads(result_json)
+
+        assert result["dispatches"][0]["status"] == "success"
+        assert result["dispatches"][0]["model_used"] == "sonnet"  # default, not haiku
+
+
 # --- TestDispatchAgentsGuards ---
 
 class TestDispatchAgentsGuards:
@@ -230,6 +362,16 @@ class TestDispatchAgentsGuards:
         """Empty task string should return validation error."""
         result_json = await dispatch_tools.dispatch_agents(
             task="",
+            agent_names="researcher",
+        )
+        result = json.loads(result_json)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_task_returns_error(self):
+        """Whitespace-only task string should return validation error."""
+        result_json = await dispatch_tools.dispatch_agents(
+            task="   \n\t  ",
             agent_names="researcher",
         )
         result = json.loads(result_json)
@@ -289,3 +431,80 @@ class TestDispatchAgentsGuards:
         assert "duration_seconds" in result["dispatches"][0]
         assert isinstance(result["dispatches"][0]["duration_seconds"], float)
         assert "total_duration_seconds" in result
+
+    @pytest.mark.asyncio
+    async def test_agent_registry_none_returns_error(self, state):
+        """If agent_registry is None, return clear error."""
+        original = state.agent_registry
+        state.agent_registry = None
+        # Re-register with updated state
+        mock_mcp = MagicMock()
+        mock_mcp.tool.return_value = lambda fn: fn
+        dispatch_tools.register(mock_mcp, state)
+        try:
+            result_json = await dispatch_tools.dispatch_agents(
+                task="Some task",
+                agent_names="researcher",
+            )
+            result = json.loads(result_json)
+            assert "error" in result
+            assert "registry" in result["error"].lower()
+        finally:
+            state.agent_registry = original
+
+    @pytest.mark.asyncio
+    async def test_max_concurrent_clamped_to_config(self):
+        """max_concurrent should never exceed config ceiling."""
+        concurrency_levels = []
+        active = 0
+        lock = asyncio.Lock()
+
+        async def tracked_execute(task):
+            nonlocal active
+            async with lock:
+                active += 1
+                concurrency_levels.append(active)
+            await asyncio.sleep(0.05)
+            async with lock:
+                active -= 1
+            return "Done"
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.side_effect = tracked_execute
+            MockAgent.return_value = mock_instance
+
+            # Pass max_concurrent=100 but config ceiling is 2
+            with patch("config.MAX_CONCURRENT_AGENT_DISPATCHES", 2):
+                result_json = await dispatch_tools.dispatch_agents(
+                    task="Parallel task",
+                    agent_names="researcher,analyst,writer",
+                    max_concurrent=100,
+                )
+                result = json.loads(result_json)
+
+        assert len(result["dispatches"]) == 3
+        assert all(d["status"] == "success" for d in result["dispatches"])
+        assert max(concurrency_levels) <= 2, f"Max concurrency was {max(concurrency_levels)}, expected <= 2"
+
+    @pytest.mark.asyncio
+    async def test_wall_clock_timeout(self):
+        """Dispatch should timeout if agents take too long."""
+        async def slow_execute(task):
+            await asyncio.sleep(10)  # Way longer than timeout
+            return "Done"
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.side_effect = slow_execute
+            MockAgent.return_value = mock_instance
+
+            with patch("config.DISPATCH_AGENTS_WALL_CLOCK_TIMEOUT", 0.1):
+                result_json = await dispatch_tools.dispatch_agents(
+                    task="Slow task",
+                    agent_names="researcher",
+                )
+                result = json.loads(result_json)
+
+        assert "error" in result
+        assert "timed out" in result["error"].lower()
