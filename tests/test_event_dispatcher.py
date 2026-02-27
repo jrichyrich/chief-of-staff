@@ -566,3 +566,227 @@ class TestTriageIntegration:
 
             assert len(results) == 1
             assert results[0]["status"] == "success"
+
+
+# --- Parallel Dispatch ---
+
+
+@pytest.mark.asyncio
+class TestParallelDispatch:
+    async def test_parallel_dispatch_runs_concurrently(self, memory_store, agent_registry, document_store):
+        """Agents dispatched in parallel should run concurrently, not sequentially."""
+        agent_registry.save_agent(AgentConfig(
+            name="slow-agent",
+            description="Slow agent",
+            system_prompt="You are slow.",
+            capabilities=[],
+        ))
+        _create_event_rule(memory_store, name="rule-1", agent_name="incident-responder", priority=10)
+        _create_event_rule(memory_store, name="rule-2", event_type_pattern="*", agent_name="slow-agent", priority=20)
+        event = _create_webhook_event(memory_store)
+
+        dispatcher = EventDispatcher(
+            agent_registry=agent_registry,
+            memory_store=memory_store,
+            document_store=document_store,
+            parallel=True,
+        )
+
+        import asyncio
+        import time
+
+        async def slow_execute(task):
+            await asyncio.sleep(0.05)
+            return "Done"
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent, \
+             patch("webhook.dispatcher.classify_and_resolve", side_effect=lambda cfg, inp: cfg):
+            mock_instance = AsyncMock()
+            mock_instance.execute.side_effect = slow_execute
+            MockAgent.return_value = mock_instance
+
+            start = time.monotonic()
+            results = await dispatcher.dispatch(event)
+            elapsed = time.monotonic() - start
+
+        assert len(results) == 2
+        assert all(r["status"] == "success" for r in results)
+        # If sequential, would take ~0.1s. Parallel should take ~0.05s.
+        # Use generous headroom to avoid CI flakiness.
+        assert elapsed < 0.15, f"Expected parallel (<0.15s), got {elapsed:.3f}s"
+
+    async def test_sequential_dispatch_when_parallel_false(self, memory_store, agent_registry, document_store):
+        """When parallel=False, dispatch should be sequential."""
+        agent_registry.save_agent(AgentConfig(
+            name="agent-b",
+            description="Second agent",
+            system_prompt="You are second.",
+            capabilities=[],
+        ))
+        _create_event_rule(memory_store, name="rule-1", agent_name="incident-responder", priority=10)
+        _create_event_rule(memory_store, name="rule-2", event_type_pattern="*", agent_name="agent-b", priority=20)
+        event = _create_webhook_event(memory_store)
+
+        dispatcher = EventDispatcher(
+            agent_registry=agent_registry,
+            memory_store=memory_store,
+            document_store=document_store,
+            parallel=False,
+        )
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            results = await dispatcher.dispatch(event)
+
+        assert len(results) == 2
+        assert all(r["status"] == "success" for r in results)
+
+    async def test_parallel_preserves_priority_order(self, memory_store, agent_registry, document_store):
+        """Results in parallel mode should maintain rule priority order."""
+        agent_registry.save_agent(AgentConfig(
+            name="agent-b", description="B", system_prompt="B.", capabilities=[],
+        ))
+        agent_registry.save_agent(AgentConfig(
+            name="agent-c", description="C", system_prompt="C.", capabilities=[],
+        ))
+        _create_event_rule(memory_store, name="low-pri", agent_name="agent-c", priority=200, event_type_pattern="*")
+        _create_event_rule(memory_store, name="high-pri", agent_name="incident-responder", priority=10)
+        _create_event_rule(memory_store, name="mid-pri", agent_name="agent-b", priority=100, event_type_pattern="*")
+        event = _create_webhook_event(memory_store)
+
+        dispatcher = EventDispatcher(
+            agent_registry=agent_registry,
+            memory_store=memory_store,
+            document_store=document_store,
+            parallel=True,
+        )
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            results = await dispatcher.dispatch(event)
+
+        assert len(results) == 3
+        assert results[0]["rule_name"] == "high-pri"
+        assert results[1]["rule_name"] == "mid-pri"
+        assert results[2]["rule_name"] == "low-pri"
+
+    async def test_parallel_error_isolation(self, memory_store, agent_registry, document_store):
+        """One agent failing in parallel should not affect others."""
+        agent_registry.save_agent(AgentConfig(
+            name="failing-agent", description="Fails", system_prompt="Fail.", capabilities=[],
+        ))
+        _create_event_rule(memory_store, name="good-rule", agent_name="incident-responder", priority=10)
+        _create_event_rule(memory_store, name="bad-rule", event_type_pattern="*", agent_name="failing-agent", priority=20)
+        event = _create_webhook_event(memory_store)
+
+        dispatcher = EventDispatcher(
+            agent_registry=agent_registry,
+            memory_store=memory_store,
+            document_store=document_store,
+            parallel=True,
+        )
+
+        call_count = 0
+
+        async def side_effect(task):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("Agent crashed in parallel")
+            return "Success"
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.side_effect = side_effect
+            MockAgent.return_value = mock_instance
+
+            results = await dispatcher.dispatch(event)
+
+        assert len(results) == 2
+        success_results = [r for r in results if r["status"] == "success"]
+        error_results = [r for r in results if r["status"] == "error"]
+        assert len(success_results) == 1
+        assert len(error_results) == 1
+
+    async def test_concurrency_limit(self, memory_store, agent_registry, document_store):
+        """max_concurrent should limit how many agents run simultaneously."""
+        for i in range(4):
+            name = f"agent-{i}"
+            agent_registry.save_agent(AgentConfig(
+                name=name, description=f"Agent {i}", system_prompt=f"Agent {i}.", capabilities=[],
+            ))
+            _create_event_rule(memory_store, name=f"rule-{i}", agent_name=name, event_type_pattern="*", priority=i * 10)
+        event = _create_webhook_event(memory_store)
+
+        dispatcher = EventDispatcher(
+            agent_registry=agent_registry,
+            memory_store=memory_store,
+            document_store=document_store,
+            parallel=True,
+            max_concurrent=2,
+        )
+
+        import asyncio
+
+        concurrency_levels = []
+        active = 0
+        lock = asyncio.Lock()
+
+        async def tracked_execute(task):
+            nonlocal active
+            async with lock:
+                active += 1
+                concurrency_levels.append(active)
+            await asyncio.sleep(0.1)
+            async with lock:
+                active -= 1
+            return "Done"
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.side_effect = tracked_execute
+            MockAgent.return_value = mock_instance
+
+            results = await dispatcher.dispatch(event)
+
+        assert len(results) == 4
+        assert all(r["status"] == "success" for r in results)
+        assert max(concurrency_levels) <= 2, f"Max concurrency was {max(concurrency_levels)}, expected <= 2"
+
+    async def test_single_rule_no_parallel_overhead(self, memory_store, agent_registry, document_store):
+        """A single matched rule should use sequential path even in parallel mode."""
+        _create_event_rule(memory_store)
+        event = _create_webhook_event(memory_store)
+
+        dispatcher = EventDispatcher(
+            agent_registry=agent_registry,
+            memory_store=memory_store,
+            document_store=document_store,
+            parallel=True,
+        )
+
+        with patch("agents.base.BaseExpertAgent") as MockAgent:
+            mock_instance = AsyncMock()
+            mock_instance.execute.return_value = "Done"
+            MockAgent.return_value = mock_instance
+
+            results = await dispatcher.dispatch(event)
+
+        assert len(results) == 1
+        assert results[0]["status"] == "success"
+
+    async def test_default_constructor_is_parallel(self, agent_registry, memory_store, document_store):
+        """Verify default constructor sets parallel=True."""
+        dispatcher = EventDispatcher(
+            agent_registry=agent_registry,
+            memory_store=memory_store,
+            document_store=document_store,
+        )
+        assert dispatcher.parallel is True
+        assert dispatcher.max_concurrent == 0

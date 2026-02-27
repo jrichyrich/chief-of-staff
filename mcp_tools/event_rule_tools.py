@@ -165,11 +165,14 @@ def register(mcp, state):
         if event is None:
             return json.dumps({"error": f"Webhook event {event_id} not found"})
 
+        from config import MAX_CONCURRENT_AGENT_DISPATCHES
         from webhook.dispatcher import EventDispatcher
         dispatcher = EventDispatcher(
             agent_registry=state.agent_registry,
             memory_store=memory_store,
             document_store=state.document_store,
+            parallel=True,
+            max_concurrent=MAX_CONCURRENT_AGENT_DISPATCHES,
         )
         results = await dispatcher.dispatch(event)
 

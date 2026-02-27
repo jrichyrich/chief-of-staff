@@ -9,6 +9,7 @@ One agent failure never blocks other rule dispatches.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -29,6 +30,8 @@ class EventDispatcher:
         memory_store,
         document_store=None,
         delivery_fn=None,
+        parallel: bool = True,
+        max_concurrent: int = 0,
     ):
         """
         Args:
@@ -37,11 +40,15 @@ class EventDispatcher:
             document_store: DocumentStore instance passed to agents.
             delivery_fn: Optional callable(channel, config, result_text, task_name) -> dict.
                          Defaults to scheduler.delivery.deliver_result if not provided.
+            parallel: If True, dispatch matched rules concurrently (default True).
+            max_concurrent: Maximum concurrent agent dispatches (0 = unlimited).
         """
         self.agent_registry = agent_registry
         self.memory_store = memory_store
         self.document_store = document_store
         self._delivery_fn = delivery_fn
+        self.parallel = parallel
+        self.max_concurrent = max_concurrent
 
     def _get_delivery_fn(self):
         if self._delivery_fn is not None:
@@ -71,12 +78,54 @@ class EventDispatcher:
             logger.info("No matching event rules for source=%s type=%s", source, event_type)
             return []
 
-        results = []
-        for rule in matched_rules:
-            result = await self._dispatch_single(rule, source, event_type, payload, received_at)
-            results.append(result)
+        # Guard against unbounded fan-out from too many matching rules
+        max_rules = 50
+        if len(matched_rules) > max_rules:
+            logger.warning(
+                "Event matched %d rules (cap=%d), truncating for source=%s type=%s",
+                len(matched_rules), max_rules, source, event_type,
+            )
+            matched_rules = matched_rules[:max_rules]
+
+        if self.parallel and len(matched_rules) > 1:
+            results = await self._dispatch_parallel(matched_rules, source, event_type, payload, received_at)
+        else:
+            results = await self._dispatch_sequential(matched_rules, source, event_type, payload, received_at)
 
         return results
+
+    async def _dispatch_sequential(self, rules, source, event_type, payload, received_at):
+        """Dispatch rules sequentially. Original behavior."""
+        logger.info("Dispatching %d rule(s) sequentially for source=%s type=%s", len(rules), source, event_type)
+        results = []
+        for rule in rules:
+            result = await self._dispatch_single(rule, source, event_type, payload, received_at)
+            results.append(result)
+        return results
+
+    async def _dispatch_parallel(self, rules, source, event_type, payload, received_at):
+        """Dispatch rules concurrently via asyncio.gather with optional semaphore."""
+        max_conc = self.max_concurrent
+        logger.info(
+            "Dispatching %d rules in parallel (max_concurrent=%s) for source=%s type=%s",
+            len(rules), max_conc or "unlimited", source, event_type,
+        )
+
+        if max_conc > 0:
+            semaphore = asyncio.Semaphore(max_conc)
+
+            async def _limited(rule):
+                async with semaphore:
+                    return await self._dispatch_single(rule, source, event_type, payload, received_at)
+
+            results = await asyncio.gather(*[_limited(rule) for rule in rules])
+        else:
+            results = await asyncio.gather(
+                *[self._dispatch_single(rule, source, event_type, payload, received_at) for rule in rules]
+            )
+
+        # asyncio.gather preserves input order, so results match rule priority
+        return list(results)
 
     async def _dispatch_single(
         self,
@@ -113,9 +162,13 @@ class EventDispatcher:
                 timestamp,
             )
 
-            # Triage: classify complexity and potentially downgrade model
+            # Triage: classify complexity and potentially downgrade model.
+            # classify_and_resolve uses a synchronous Anthropic client, so we
+            # run it in a thread to avoid blocking the async event loop.
             try:
-                effective_config = classify_and_resolve(agent_config, agent_input)
+                effective_config = await asyncio.to_thread(
+                    classify_and_resolve, agent_config, agent_input
+                )
             except Exception:
                 effective_config = agent_config
 

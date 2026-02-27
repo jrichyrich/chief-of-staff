@@ -36,6 +36,12 @@ SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() 
 DAEMON_TICK_INTERVAL_SECONDS = int(os.environ.get("DAEMON_TICK_INTERVAL_SECONDS", "60"))
 DAEMON_LOG_FILE = DATA_DIR / "jarvis-daemon.log"
 
+# Parallel agent dispatch settings (0 = unlimited)
+try:
+    MAX_CONCURRENT_AGENT_DISPATCHES = max(0, int(os.environ.get("MAX_CONCURRENT_AGENT_DISPATCHES", "5")))
+except ValueError:
+    MAX_CONCURRENT_AGENT_DISPATCHES = 5
+
 # Skill auto-creation settings
 SKILL_SUGGESTION_THRESHOLD = 0.7
 SKILL_MIN_OCCURRENCES = 5

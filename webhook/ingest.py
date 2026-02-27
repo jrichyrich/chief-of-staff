@@ -33,11 +33,14 @@ async def dispatch_pending_events(
     if not pending:
         return counts
 
+    from config import MAX_CONCURRENT_AGENT_DISPATCHES
     from webhook.dispatcher import EventDispatcher
     dispatcher = EventDispatcher(
         agent_registry=agent_registry,
         memory_store=memory_store,
         document_store=document_store,
+        parallel=True,
+        max_concurrent=MAX_CONCURRENT_AGENT_DISPATCHES,
     )
 
     for event in pending:
