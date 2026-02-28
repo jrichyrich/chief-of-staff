@@ -2,8 +2,47 @@
 
 import json
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_self_handle(state) -> str | None:
+    """Resolve the 'self' iMessage handle.
+
+    1. Check JARVIS_IMESSAGE_SELF env var
+    2. Fallback: look up the user's name from personal/name fact,
+       then find their imessage identity in the identity store.
+    """
+    env_val = os.environ.get("JARVIS_IMESSAGE_SELF", "").strip()
+    if env_val:
+        return env_val
+
+    memory_store = state.memory_store
+    if not memory_store:
+        return None
+
+    try:
+        fact = memory_store.get_fact("personal", "name")
+        if not fact:
+            return None
+        # Extract canonical name (first segment before " —" or " -")
+        name = fact.value.split("—")[0].split(" -")[0].strip()
+        identities = memory_store.get_identity(name)
+        for ident in identities:
+            if ident.get("provider") == "imessage":
+                pid = ident.get("provider_id", "")
+                # Prefer phone numbers over email handles
+                if pid.startswith("+"):
+                    return pid
+        # Fall back to first imessage identity (email handle)
+        for ident in identities:
+            if ident.get("provider") == "imessage":
+                return ident.get("provider_id")
+    except Exception:
+        logger.debug("Failed to resolve self handle from identity store", exc_info=True)
+
+    return None
 
 
 def register(mcp, state):
@@ -262,8 +301,16 @@ def register(mcp, state):
         """
         messages_store = state.messages_store
         try:
+            # Resolve "self" to actual handle before passing to send_message
+            to_resolved = to
+            if (to or "").strip().lower() == "self":
+                self_handle = _resolve_self_handle(state)
+                if self_handle:
+                    to_resolved = self_handle
+                    logger.info("Resolved 'self' to %s", self_handle)
+
             result = messages_store.send_message(
-                to=to,
+                to=to_resolved,
                 body=body,
                 confirm_send=confirm_send,
                 chat_identifier=chat_identifier,
@@ -272,7 +319,7 @@ def register(mcp, state):
             recipient_name_clean = (recipient_name or "").strip()
             to_clean = (to or "").strip().lower()
             if recipient_name_clean and to_clean != "self":
-                verification = _verify_recipient(to, recipient_name_clean)
+                verification = _verify_recipient(to_resolved, recipient_name_clean)
                 result["recipient_verification"] = verification
 
             return json.dumps(result)
