@@ -9,12 +9,16 @@ Usage:
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import shutil
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
+
+from memory.models import WebhookStatus
 
 logger = logging.getLogger("jarvis-webhook-ingest")
 
@@ -29,7 +33,7 @@ async def dispatch_pending_events(
     Returns dict with counts: {"dispatched": N, "failed": N, "skipped": N}
     """
     counts = {"dispatched": 0, "failed": 0, "skipped": 0}
-    pending = memory_store.list_webhook_events(status="pending")
+    pending = memory_store.list_webhook_events(status=WebhookStatus.pending)
     if not pending:
         return counts
 
@@ -48,7 +52,7 @@ async def dispatch_pending_events(
             results = await dispatcher.dispatch(event)
             if results:
                 all_success = all(r["status"] == "success" for r in results)
-                new_status = "processed" if all_success else "failed"
+                new_status = WebhookStatus.processed if all_success else WebhookStatus.failed
                 memory_store.update_webhook_event_status(event.id, new_status)
                 if all_success:
                     counts["dispatched"] += 1
@@ -59,7 +63,7 @@ async def dispatch_pending_events(
                 counts["skipped"] += 1
         except Exception as exc:
             logger.error("Dispatch failed for event %s: %s", event.id, exc)
-            memory_store.update_webhook_event_status(event.id, "failed")
+            memory_store.update_webhook_event_status(event.id, WebhookStatus.failed)
             counts["failed"] += 1
 
     return counts
@@ -68,6 +72,8 @@ async def dispatch_pending_events(
 def ingest_events(
     memory_store,
     inbox_dir: Path,
+    *,
+    debounce_seconds: float = 2.0,
 ) -> dict:
     """Scan inbox_dir for *.json files and ingest valid events.
 
@@ -91,60 +97,79 @@ def ingest_events(
 
     counts = {"ingested": 0, "failed": 0, "skipped": 0}
 
-    json_files = sorted(inbox_dir.glob("*.json"))
-    if not json_files:
-        logger.info("No JSON files found in %s", inbox_dir)
-        return counts
+    # Acquire exclusive lock to prevent concurrent ingest calls
+    lock_file = inbox_dir / ".ingest.lock"
+    lf = open(lock_file, "w")
+    try:
+        fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lf.close()
+        return {"status": "skipped", "reason": "another ingest in progress"}
 
-    for filepath in json_files:
-        try:
-            raw = filepath.read_text(encoding="utf-8")
-            data = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
-            logger.warning("Malformed file %s: %s", filepath.name, exc)
-            _move_file(filepath, failed_dir)
-            counts["failed"] += 1
-            continue
+    try:
+        json_files = sorted(inbox_dir.glob("*.json"))
+        if not json_files:
+            logger.info("No JSON files found in %s", inbox_dir)
+            return counts
 
-        # Validate required fields
-        source = data.get("source") if isinstance(data, dict) else None
-        event_type = data.get("event_type") if isinstance(data, dict) else None
-        if not source or not event_type:
-            logger.warning(
-                "Missing required fields (source, event_type) in %s", filepath.name
+        now = time.time()
+        for filepath in json_files:
+            # Skip recently modified files to debounce partial writes
+            if debounce_seconds > 0 and now - filepath.stat().st_mtime < debounce_seconds:
+                counts["skipped"] += 1
+                continue
+
+            try:
+                raw = filepath.read_text(encoding="utf-8")
+                data = json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+                logger.warning("Malformed file %s: %s", filepath.name, exc)
+                _move_file(filepath, failed_dir)
+                counts["failed"] += 1
+                continue
+
+            # Validate required fields
+            source = data.get("source") if isinstance(data, dict) else None
+            event_type = data.get("event_type") if isinstance(data, dict) else None
+            if not source or not event_type:
+                logger.warning(
+                    "Missing required fields (source, event_type) in %s", filepath.name
+                )
+                _move_file(filepath, failed_dir)
+                counts["failed"] += 1
+                continue
+
+            # Normalize payload to string
+            payload = data.get("payload", "")
+            if not isinstance(payload, str):
+                payload = json.dumps(payload)
+
+            event = WebhookEvent(
+                source=source,
+                event_type=event_type,
+                payload=payload,
             )
-            _move_file(filepath, failed_dir)
-            counts["failed"] += 1
-            continue
+            stored = memory_store.store_webhook_event(event)
+            logger.info(
+                "Ingested event id=%s source=%s type=%s from %s",
+                stored.id,
+                source,
+                event_type,
+                filepath.name,
+            )
+            _move_file(filepath, processed_dir)
+            counts["ingested"] += 1
 
-        # Normalize payload to string
-        payload = data.get("payload", "")
-        if not isinstance(payload, str):
-            payload = json.dumps(payload)
-
-        event = WebhookEvent(
-            source=source,
-            event_type=event_type,
-            payload=payload,
-        )
-        stored = memory_store.store_webhook_event(event)
         logger.info(
-            "Ingested event id=%s source=%s type=%s from %s",
-            stored.id,
-            source,
-            event_type,
-            filepath.name,
+            "Ingest complete: %d ingested, %d failed, %d skipped",
+            counts["ingested"],
+            counts["failed"],
+            counts["skipped"],
         )
-        _move_file(filepath, processed_dir)
-        counts["ingested"] += 1
-
-    logger.info(
-        "Ingest complete: %d ingested, %d failed, %d skipped",
-        counts["ingested"],
-        counts["failed"],
-        counts["skipped"],
-    )
-    return counts
+        return counts
+    finally:
+        fcntl.flock(lf, fcntl.LOCK_UN)
+        lf.close()
 
 
 def _move_file(src: Path, dest_dir: Path) -> Path:

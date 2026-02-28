@@ -6,6 +6,7 @@ Manages event rules that link webhook events to expert agent activation.
 import json
 import logging
 
+from memory.models import WebhookStatus
 from .state import _retry_on_transient
 
 logger = logging.getLogger("jarvis-mcp")
@@ -152,7 +153,7 @@ def register(mcp, state):
         return json.dumps({"rules": rules, "count": len(rules)})
 
     @mcp.tool()
-    async def process_webhook_event_with_agents(event_id: int) -> str:
+    async def dispatch_webhook_event(event_id: int) -> str:
         """Manually trigger agent dispatch for a specific webhook event.
 
         Finds matching event rules and dispatches the event to the corresponding agents.
@@ -179,9 +180,9 @@ def register(mcp, state):
         # Update event status based on results
         if results:
             all_success = all(r["status"] == "success" for r in results)
-            new_status = "processed" if all_success else "failed"
+            new_status = WebhookStatus.processed if all_success else WebhookStatus.failed
         else:
-            new_status = "processed"  # No matching rules is not an error
+            new_status = WebhookStatus.processed  # No matching rules is not an error
         _retry_on_transient(
             memory_store.update_webhook_event_status, event_id, new_status
         )
@@ -193,6 +194,9 @@ def register(mcp, state):
             "event_status": new_status,
         })
 
+    # Backward compatibility alias
+    process_webhook_event_with_agents = dispatch_webhook_event
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
@@ -200,4 +204,5 @@ def register(mcp, state):
     module.update_event_rule = update_event_rule
     module.delete_event_rule = delete_event_rule
     module.list_event_rules = list_event_rules
+    module.dispatch_webhook_event = dispatch_webhook_event
     module.process_webhook_event_with_agents = process_webhook_event_with_agents

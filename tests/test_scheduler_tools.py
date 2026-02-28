@@ -93,7 +93,7 @@ class TestCreateScheduledTask:
                 name="bad-type",
                 schedule_type="weekly",
                 schedule_config="{}",
-                handler_type="backup",
+                handler_type="custom",
             )
         finally:
             mcp_server._state.clear()
@@ -113,7 +113,7 @@ class TestCreateScheduledTask:
                 name="bad-cron",
                 schedule_type="cron",
                 schedule_config='{"expression": "bad"}',
-                handler_type="backup",
+                handler_type="custom",
             )
         finally:
             mcp_server._state.clear()
@@ -149,7 +149,7 @@ class TestListScheduledTasks:
                 name="task-a",
                 schedule_type="interval",
                 schedule_config='{"minutes": 10}',
-                handler_type="backup",
+                handler_type="custom",
             )
             await create_scheduled_task(
                 name="task-b",
@@ -175,14 +175,14 @@ class TestListScheduledTasks:
                 name="enabled-task",
                 schedule_type="interval",
                 schedule_config='{"minutes": 10}',
-                handler_type="backup",
+                handler_type="custom",
                 enabled=True,
             )
             await create_scheduled_task(
                 name="disabled-task",
                 schedule_type="interval",
                 schedule_config='{"minutes": 10}',
-                handler_type="backup",
+                handler_type="custom",
                 enabled=False,
             )
             result = await list_scheduled_tasks(enabled_only=True)
@@ -206,7 +206,7 @@ class TestUpdateScheduledTask:
                 name="toggle-me",
                 schedule_type="interval",
                 schedule_config='{"minutes": 15}',
-                handler_type="backup",
+                handler_type="custom",
             )
             task_id = json.loads(create_result)["task"]["id"]
 
@@ -229,7 +229,7 @@ class TestUpdateScheduledTask:
                 name="reconfig-me",
                 schedule_type="interval",
                 schedule_config='{"minutes": 15}',
-                handler_type="backup",
+                handler_type="custom",
             )
             task_id = json.loads(create_result)["task"]["id"]
 
@@ -270,7 +270,7 @@ class TestUpdateScheduledTask:
                 name="no-update",
                 schedule_type="interval",
                 schedule_config='{"minutes": 15}',
-                handler_type="backup",
+                handler_type="custom",
             )
             task_id = json.loads(create_result)["task"]["id"]
 
@@ -295,7 +295,7 @@ class TestDeleteScheduledTask:
                 name="delete-me",
                 schedule_type="interval",
                 schedule_config='{"minutes": 10}',
-                handler_type="backup",
+                handler_type="custom",
             )
             task_id = json.loads(create_result)["task"]["id"]
 
@@ -333,7 +333,7 @@ class TestRunScheduledTask:
                 name="manual-run",
                 schedule_type="interval",
                 schedule_config='{"minutes": 60}',
-                handler_type="backup",
+                handler_type="custom",
             )
             task_id = json.loads(create_result)["task"]["id"]
 
@@ -389,7 +389,7 @@ class TestGetSchedulerStatus:
                 name="status-task",
                 schedule_type="interval",
                 schedule_config='{"minutes": 10}',
-                handler_type="backup",
+                handler_type="custom",
             )
             result = await get_scheduler_status()
         finally:

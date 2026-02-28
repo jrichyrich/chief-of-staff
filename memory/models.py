@@ -1,7 +1,87 @@
 # memory/models.py
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# StrEnum shim (compatible with Python 3.10+)
+# ---------------------------------------------------------------------------
+
+class StrEnum(str, Enum):
+    """String enum compatible with Python 3.10+."""
+
+    def __str__(self):
+        return self.value
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.value == other
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self.value)
+
+
+# ---------------------------------------------------------------------------
+# Status / type enums
+# ---------------------------------------------------------------------------
+
+class WebhookStatus(StrEnum):
+    pending = "pending"
+    processed = "processed"
+    failed = "failed"
+
+
+class DecisionStatus(StrEnum):
+    pending_execution = "pending_execution"
+    executed = "executed"
+    deferred = "deferred"
+    reversed = "reversed"
+
+
+class DelegationStatus(StrEnum):
+    active = "active"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class DelegationPriority(StrEnum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class HandlerType(StrEnum):
+    alert_eval = "alert_eval"
+    webhook_poll = "webhook_poll"
+    skill_analysis = "skill_analysis"
+    proactive_push = "proactive_push"
+    skill_auto_exec = "skill_auto_exec"
+    webhook_dispatch = "webhook_dispatch"
+    morning_brief = "morning_brief"
+    custom = "custom"
+
+
+class DeliveryChannel(StrEnum):
+    email = "email"
+    imessage = "imessage"
+    notification = "notification"
+    teams = "teams"
+
+
+class SkillSuggestionStatus(StrEnum):
+    pending = "pending"
+    accepted = "accepted"
+    rejected = "rejected"
+
+
+class ScheduleType(StrEnum):
+    interval = "interval"
+    cron = "cron"
+    once = "once"
 
 
 @dataclass
@@ -46,7 +126,7 @@ class Decision:
     alternatives_considered: str = ""
     decided_by: str = ""
     owner: str = ""
-    status: str = "pending_execution"
+    status: str = DecisionStatus.pending_execution
     follow_up_date: Optional[str] = None
     tags: str = ""
     source: str = ""
@@ -62,8 +142,8 @@ class Delegation:
     description: str = ""
     delegated_by: str = ""
     due_date: Optional[str] = None
-    priority: str = "medium"
-    status: str = "active"
+    priority: str = DelegationPriority.medium
+    status: str = DelegationStatus.active
     source: str = ""
     notes: str = ""
     id: Optional[int] = None
@@ -88,7 +168,7 @@ class WebhookEvent:
     source: str
     event_type: str
     payload: str = ""
-    status: str = "pending"
+    status: str = WebhookStatus.pending
     id: Optional[int] = None
     received_at: Optional[str] = None
     processed_at: Optional[str] = None
@@ -97,16 +177,16 @@ class WebhookEvent:
 @dataclass
 class ScheduledTask:
     name: str
-    schedule_type: str  # interval, cron, once
+    schedule_type: str  # ScheduleType: interval, cron, once
     schedule_config: str = ""  # JSON string
-    handler_type: str = ""  # alert_eval, backup, webhook_poll, custom
+    handler_type: str = ""  # HandlerType: alert_eval, webhook_poll, custom, etc.
     handler_config: str = ""  # JSON string
     description: str = ""
     enabled: bool = True
     last_run_at: Optional[str] = None
     next_run_at: Optional[str] = None
     last_result: Optional[str] = None
-    delivery_channel: Optional[str] = None  # email, imessage, notification, or None
+    delivery_channel: Optional[str] = None  # DeliveryChannel: email, imessage, notification, or None
     delivery_config: Optional[dict] = None  # channel-specific JSON config
     id: Optional[int] = None
     created_at: Optional[str] = None
@@ -129,7 +209,7 @@ class SkillSuggestion:
     suggested_name: str = ""
     suggested_capabilities: str = ""
     confidence: float = 0.0
-    status: str = "pending"
+    status: str = SkillSuggestionStatus.pending
     id: Optional[int] = None
     created_at: Optional[str] = None
 

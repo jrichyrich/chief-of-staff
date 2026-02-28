@@ -245,12 +245,12 @@ def test_send_message_confirm_with_chat_identifier(chat_db: Path, tmp_path: Path
 
     seen = {}
 
-    def fake_run(cmd, capture_output, text, timeout, check):
+    def fake_cleanup(cmd, timeout, **kwargs):
         seen["cmd"] = cmd
         payload = {"channel": "imessage", "status": "sent", "chat_identifier": "chat-team"}
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
 
-    monkeypatch.setattr(messages_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(messages_mod, "_run_with_cleanup", fake_cleanup)
     result = store.send_message(body="Thread reply", confirm_send=True, chat_identifier="chat-team")
     assert result["status"] == "sent"
     assert result["chat_identifier"] == "chat-team"
@@ -525,12 +525,12 @@ def test_send_message_with_chat_identifier_resolves_guid(chat_db: Path, tmp_path
 
     seen = {}
 
-    def fake_run(cmd, capture_output, text, timeout, check):
+    def fake_cleanup(cmd, timeout, **kwargs):
         seen["cmd"] = cmd
         payload = {"channel": "imessage", "status": "sent", "chat_identifier": "chat-team"}
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
 
-    monkeypatch.setattr(messages_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(messages_mod, "_run_with_cleanup", fake_cleanup)
     result = store.send_message(body="Group reply", confirm_send=True, chat_identifier="chat-team")
     assert result["status"] == "sent"
     # The command should contain the resolved guid, not the raw chat_identifier

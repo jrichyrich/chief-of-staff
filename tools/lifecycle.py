@@ -6,11 +6,14 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from memory.models import AlertRule, Decision, Delegation
+from memory.models import (
+    AlertRule, Decision, DecisionStatus, Delegation, DelegationStatus,
+    DelegationPriority,
+)
 
 
 def create_decision(memory_store, *, title: str, description: str = "", context: str = "",
-                    decided_by: str = "", owner: str = "", status: str = "pending_execution",
+                    decided_by: str = "", owner: str = "", status: str = DecisionStatus.pending_execution,
                     follow_up_date: str = "", tags: str = "", source: str = "") -> dict[str, Any]:
     decision = Decision(
         title=title,
@@ -87,7 +90,7 @@ def update_decision(memory_store, *, decision_id: int, status: str = "", notes: 
 
 
 def list_pending_decisions(memory_store) -> dict[str, Any]:
-    decisions = memory_store.list_decisions_by_status("pending_execution")
+    decisions = memory_store.list_decisions_by_status(DecisionStatus.pending_execution)
 
     if not decisions:
         return {"message": "No pending decisions.", "results": []}
@@ -113,7 +116,7 @@ def delete_decision(memory_store, *, decision_id: int) -> dict[str, Any]:
 
 
 def create_delegation(memory_store, *, task: str, delegated_to: str, description: str = "",
-                      due_date: str = "", priority: str = "medium", source: str = "") -> dict[str, Any]:
+                      due_date: str = "", priority: str = DelegationPriority.medium, source: str = "") -> dict[str, Any]:
     delegation = Delegation(
         task=task,
         delegated_to=delegated_to,
@@ -283,7 +286,7 @@ def _evaluate_rule(memory_store, rule) -> dict[str, Any]:
                 "title": d.title,
                 "created_at": d.created_at,
             }
-            for d in memory_store.list_decisions_by_status("pending_execution")
+            for d in memory_store.list_decisions_by_status(DecisionStatus.pending_execution)
             if d.created_at and d.created_at[:10] < cutoff
         ]
     elif alert_type == "upcoming_deadline":
@@ -348,7 +351,7 @@ def check_alerts(memory_store) -> dict[str, Any]:
             "due_date": d.due_date,
         })
 
-    pending = memory_store.list_decisions_by_status("pending_execution")
+    pending = memory_store.list_decisions_by_status(DecisionStatus.pending_execution)
     cutoff = (date.today() - timedelta(days=7)).isoformat()
     for d in pending:
         if d.created_at and d.created_at[:10] < cutoff:
@@ -361,7 +364,7 @@ def check_alerts(memory_store) -> dict[str, Any]:
     today = date.today()
     soon = (today + timedelta(days=3)).isoformat()
     today_str = today.isoformat()
-    active = memory_store.list_delegations(status="active")
+    active = memory_store.list_delegations(status=DelegationStatus.active)
     for d in active:
         if d.due_date and today_str <= d.due_date <= soon:
             alerts["upcoming_deadlines"].append({

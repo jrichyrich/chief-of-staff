@@ -103,6 +103,7 @@ def reminder_store():
         store = ReminderStore()
         store._store = MagicMock()
         store._access_granted = True
+        store._check_access = lambda: None  # Bypass permission re-check in tests
         yield store
 
 

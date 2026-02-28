@@ -24,6 +24,12 @@ class SessionHealth:
     def record_checkpoint(self):
         self.last_checkpoint = datetime.now().isoformat()
 
+    def minutes_since_checkpoint(self) -> float:
+        if self.last_checkpoint is None or self.last_checkpoint == "":
+            return float('inf')
+        delta = datetime.now() - datetime.fromisoformat(self.last_checkpoint)
+        return delta.total_seconds() / 60
+
     def to_dict(self) -> dict:
         return {
             "tool_call_count": self.tool_call_count,

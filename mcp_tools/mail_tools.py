@@ -1,11 +1,14 @@
 """Mail and notification tools for MCP server."""
 
 import json
+import logging
 import subprocess
 
 from apple_notifications.notifier import Notifier
 
 from .state import _retry_on_transient
+
+logger = logging.getLogger(__name__)
 
 
 def register(mcp, state):
@@ -34,8 +37,11 @@ def register(mcp, state):
                 sound=sound or None,
             )
             return json.dumps(result)
+        except (OSError, subprocess.SubprocessError) as e:
+            return json.dumps({"error": f"Notification error: {e}"})
         except Exception as e:
-            return json.dumps({"error": f"Failed to send notification: {e}"})
+            logger.exception("Unexpected error in send_notification")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def list_mailboxes() -> str:
@@ -47,8 +53,6 @@ def register(mcp, state):
         except (OSError, subprocess.SubprocessError, TimeoutError) as e:
             return json.dumps({"error": f"Mail error listing mailboxes: {e}"})
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.exception("Unexpected error in list_mailboxes")
             return json.dumps({"error": f"Unexpected error: {e}"})
 
@@ -68,8 +72,6 @@ def register(mcp, state):
         except (OSError, subprocess.SubprocessError, TimeoutError) as e:
             return json.dumps({"error": f"Mail error getting messages: {e}"})
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.exception("Unexpected error in get_mail_messages")
             return json.dumps({"error": f"Unexpected error: {e}"})
 
@@ -84,8 +86,11 @@ def register(mcp, state):
         try:
             message = mail_store.get_message(message_id)
             return json.dumps(message)
+        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
+            return json.dumps({"error": f"Mail error getting message: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in get_mail_message")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def search_mail(query: str, mailbox: str = "INBOX", account: str = "", limit: int = 25) -> str:
@@ -100,13 +105,12 @@ def register(mcp, state):
         mail_store = state.mail_store
         try:
             messages = mail_store.search_messages(query=query, mailbox=mailbox, account=account, limit=limit)
-            try:
-                state.memory_store.record_skill_usage("search_mail", query)
-            except Exception:
-                pass
             return json.dumps({"results": messages})
+        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
+            return json.dumps({"error": f"Mail error searching messages: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in search_mail")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def mark_mail_read(message_id: str, read: str = "true") -> str:
@@ -121,8 +125,11 @@ def register(mcp, state):
             read_bool = read if isinstance(read, bool) else read.lower() == "true"
             result = mail_store.mark_read(message_id, read=read_bool)
             return json.dumps(result)
+        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
+            return json.dumps({"error": f"Mail error marking read: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in mark_mail_read")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def mark_mail_flagged(message_id: str, flagged: str = "true") -> str:
@@ -137,8 +144,11 @@ def register(mcp, state):
             flagged_bool = flagged if isinstance(flagged, bool) else flagged.lower() == "true"
             result = mail_store.mark_flagged(message_id, flagged=flagged_bool)
             return json.dumps(result)
+        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
+            return json.dumps({"error": f"Mail error marking flagged: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in mark_mail_flagged")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def move_mail_message(message_id: str, target_mailbox: str, target_account: str = "") -> str:
@@ -153,8 +163,11 @@ def register(mcp, state):
         try:
             result = mail_store.move_message(message_id, target_mailbox=target_mailbox, target_account=target_account)
             return json.dumps(result)
+        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
+            return json.dumps({"error": f"Mail error moving message: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in move_mail_message")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def reply_to_email(
@@ -196,8 +209,11 @@ def register(mcp, state):
                 confirm_send=confirm_send,
             )
             return json.dumps(result)
+        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
+            return json.dumps({"error": f"Mail error replying: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in reply_to_email")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", html_body: str = "", confirm_send: bool = False) -> str:
@@ -229,8 +245,11 @@ def register(mcp, state):
                 confirm_send=confirm_send,
             )
             return json.dumps(result)
+        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
+            return json.dumps({"error": f"Mail error sending email: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in send_email")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     # Expose tool functions at module level for testing
     import sys

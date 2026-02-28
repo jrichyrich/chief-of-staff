@@ -284,8 +284,8 @@ class TestQueryMemory:
 
 class TestSkillUsageRecording:
     @pytest.mark.asyncio
-    async def test_query_memory_records_skill_usage(self, shared_state):
-        """Verify query_memory records a skill_usage entry on successful search."""
+    async def test_query_memory_does_not_record_skill_usage_directly(self, shared_state):
+        """Verify query_memory does NOT record skill_usage inline (handled by middleware)."""
         import mcp_server
         from mcp_tools.memory_tools import query_memory
 
@@ -300,10 +300,7 @@ class TestSkillUsageRecording:
             mcp_server._state.clear()
 
         patterns = shared_state["memory_store"].get_skill_usage_patterns()
-        assert any(
-            p["tool_name"] == "query_memory" and p["query_pattern"] == "Jason"
-            for p in patterns
-        )
+        assert not any(p["tool_name"] == "query_memory" for p in patterns)
 
     @pytest.mark.asyncio
     async def test_query_memory_no_recording_on_empty_results(self, shared_state):

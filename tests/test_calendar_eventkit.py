@@ -102,6 +102,7 @@ def calendar_store():
         # Pre-populate with a mock EKEventStore so _ensure_store succeeds
         store._store = MagicMock()
         store._access_granted = True
+        store._check_access = lambda: None  # Bypass permission re-check in tests
         yield store
 
 

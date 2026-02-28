@@ -2,10 +2,13 @@
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 
-from memory.models import ScheduledTask
+from memory.models import HandlerType, ScheduleType, ScheduledTask
 from scheduler.engine import SchedulerEngine, calculate_next_run
+
+logger = logging.getLogger(__name__)
 
 
 def register(mcp, state):
@@ -48,6 +51,13 @@ def register(mcp, state):
         if schedule_type not in ("interval", "cron", "once"):
             return json.dumps({"status": "error", "error": f"Invalid schedule_type: {schedule_type}. Must be interval, cron, or once."})
 
+        # Validate handler_type
+        try:
+            HandlerType(handler_type)
+        except ValueError:
+            valid = ", ".join(h.value for h in HandlerType)
+            return json.dumps({"status": "error", "error": f"Invalid handler_type '{handler_type}'. Valid: {valid}"})
+
         # Validate delivery_channel
         if delivery_channel and delivery_channel not in ("email", "imessage", "notification"):
             return json.dumps({"status": "error", "error": f"Invalid delivery_channel: {delivery_channel}. Must be email, imessage, or notification."})
@@ -82,6 +92,7 @@ def register(mcp, state):
         try:
             stored = memory_store.store_scheduled_task(task)
         except Exception as e:
+            logger.exception("Failed to store scheduled task '%s'", name)
             return json.dumps({"status": "error", "error": str(e)})
 
         return json.dumps({
@@ -256,6 +267,7 @@ def register(mcp, state):
 
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
+            logger.exception("Error executing scheduled task %s (id=%s)", task.name, task.id)
             task_result["status"] = "error"
             task_result["error"] = error_msg
             try:
@@ -265,7 +277,7 @@ def register(mcp, state):
                     last_result=json.dumps({"status": "error", "error": error_msg}),
                 )
             except Exception:
-                pass
+                logger.debug("Failed to update task status after error for task %s", task.id, exc_info=True)
 
         return json.dumps(task_result)
 

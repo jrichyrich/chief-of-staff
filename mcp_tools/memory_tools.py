@@ -100,10 +100,6 @@ def register(mcp, state):
                 }
                 for f, score in scored
             ]
-            try:
-                memory_store.record_skill_usage("query_memory", query)
-            except Exception:
-                pass
             return json.dumps({"results": results})
         except (sqlite3.OperationalError, ValueError, KeyError) as e:
             return json.dumps({"error": f"Database error querying memory: {e}"})
@@ -244,15 +240,8 @@ def register(mcp, state):
         suggests important context may be lost.
         """
         health = state.session_health
-        minutes_since_checkpoint = None
-        if health.last_checkpoint:
-            try:
-                last_cp = datetime.fromisoformat(health.last_checkpoint)
-                minutes_since_checkpoint = round(
-                    (datetime.now() - last_cp).total_seconds() / 60, 1
-                )
-            except (ValueError, TypeError):
-                pass
+        mins = health.minutes_since_checkpoint()
+        minutes_since_checkpoint = None if mins == float('inf') else round(mins, 1)
 
         return json.dumps({
             **health.to_dict(),

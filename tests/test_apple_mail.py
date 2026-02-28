@@ -46,35 +46,37 @@ class TestEscapeOsascript:
 
 class TestRunApplescript:
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail.subprocess.run")
-    def test_success(self, mock_run):
-        mock_run.return_value = MagicMock(stdout="  hello world  ", returncode=0)
+    @patch("apple_mail.mail._run_with_cleanup")
+    def test_success(self, mock_cleanup):
+        mock_cleanup.return_value = subprocess.CompletedProcess(
+            ["osascript"], 0, stdout="  hello world  ", stderr=""
+        )
         result = _run_applescript("some script")
         assert result == {"output": "hello world"}
-        mock_run.assert_called_once()
+        mock_cleanup.assert_called_once()
 
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail.subprocess.run")
-    def test_timeout(self, mock_run):
-        mock_run.side_effect = subprocess.TimeoutExpired("osascript", 15)
+    @patch("apple_mail.mail._run_with_cleanup")
+    def test_timeout(self, mock_cleanup):
+        mock_cleanup.side_effect = subprocess.TimeoutExpired("osascript", 15)
         result = _run_applescript("some script")
         assert "error" in result
         assert "timed out" in result["error"]
 
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail.subprocess.run")
-    def test_called_process_error(self, mock_run):
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, "osascript", stderr="bad script"
+    @patch("apple_mail.mail._run_with_cleanup")
+    def test_called_process_error(self, mock_cleanup):
+        mock_cleanup.return_value = subprocess.CompletedProcess(
+            ["osascript"], 1, stdout="", stderr="bad script"
         )
         result = _run_applescript("some script")
         assert "error" in result
         assert "osascript failed" in result["error"]
 
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail.subprocess.run")
-    def test_file_not_found(self, mock_run):
-        mock_run.side_effect = FileNotFoundError()
+    @patch("apple_mail.mail._run_with_cleanup")
+    def test_file_not_found(self, mock_cleanup):
+        mock_cleanup.side_effect = FileNotFoundError()
         result = _run_applescript("some script")
         assert "error" in result
         assert "osascript not found" in result["error"]

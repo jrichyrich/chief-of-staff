@@ -1,10 +1,13 @@
 """Calendar tools for MCP server."""
 
 import json
+import logging
 import subprocess
 from datetime import datetime
 
 from .state import _retry_on_transient
+
+logger = logging.getLogger(__name__)
 
 
 def register(mcp, state):
@@ -38,8 +41,6 @@ def register(mcp, state):
         except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as e:
             return json.dumps({"error": f"Calendar error listing calendars: {e}"})
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.exception("Unexpected error in list_calendars")
             return json.dumps({"error": f"Unexpected error: {e}"})
 
@@ -75,8 +76,6 @@ def register(mcp, state):
         except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as e:
             return json.dumps({"error": f"Calendar error getting events: {e}"})
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.exception("Unexpected error in get_calendar_events")
             return json.dumps({"error": f"Unexpected error: {e}"})
 
@@ -129,8 +128,6 @@ def register(mcp, state):
         except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as e:
             return json.dumps({"error": f"Calendar error creating event: {e}"})
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.exception("Unexpected error in create_calendar_event")
             return json.dumps({"error": f"Unexpected error: {e}"})
 
@@ -182,8 +179,11 @@ def register(mcp, state):
                 **kwargs,
             )
             return json.dumps({"status": "updated", "event": result})
+        except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as e:
+            return json.dumps({"error": f"Calendar error updating event: {e}"})
         except Exception as e:
-            return json.dumps({"error": f"Failed to update event: {e}"})
+            logger.exception("Unexpected error in update_calendar_event")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def delete_calendar_event(
@@ -209,8 +209,11 @@ def register(mcp, state):
                 kwargs["provider_preference"] = provider_preference
             result = calendar_store.delete_event(event_uid, **kwargs)
             return json.dumps(result)
+        except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as e:
+            return json.dumps({"error": f"Calendar error deleting event: {e}"})
         except Exception as e:
-            return json.dumps({"error": f"Failed to delete event: {e}"})
+            logger.exception("Unexpected error in delete_calendar_event")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def search_calendar_events(
@@ -242,13 +245,12 @@ def register(mcp, state):
             if source_filter:
                 kwargs["source_filter"] = source_filter
             events = calendar_store.search_events(query, start_dt, end_dt, **kwargs)
-            try:
-                state.memory_store.record_skill_usage("search_calendar_events", query)
-            except Exception:
-                pass
             return json.dumps({"results": events})
+        except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as e:
+            return json.dumps({"error": f"Calendar error searching events: {e}"})
         except Exception as e:
-            return json.dumps({"error": f"Failed to search events: {e}"})
+            logger.exception("Unexpected error in search_calendar_events")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def find_my_open_slots(
@@ -333,8 +335,11 @@ def register(mcp, state):
                 "count": len(slots),
             })
 
+        except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as e:
+            return json.dumps({"error": f"Calendar error finding open slots: {e}"})
         except Exception as e:
-            return json.dumps({"error": f"Failed to find open slots: {e}"})
+            logger.exception("Unexpected error in find_my_open_slots")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def find_group_availability(

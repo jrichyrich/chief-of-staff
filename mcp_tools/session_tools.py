@@ -25,16 +25,9 @@ def register(mcp, state):
         tokens = session_manager.estimate_tokens()
 
         # Calculate time since last checkpoint
-        minutes_since_checkpoint = None
         health = state.session_health
-        if health.last_checkpoint:
-            try:
-                last_cp = datetime.fromisoformat(health.last_checkpoint)
-                minutes_since_checkpoint = round(
-                    (datetime.now() - last_cp).total_seconds() / 60, 1
-                )
-            except (ValueError, TypeError):
-                pass
+        mins = health.minutes_since_checkpoint()
+        minutes_since_checkpoint = None if mins == float('inf') else round(mins, 1)
 
         return json.dumps({
             "session_id": session_manager.session_id,

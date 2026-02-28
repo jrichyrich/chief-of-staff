@@ -1,9 +1,13 @@
 """Agent management tools for the Chief of Staff MCP server."""
 
 import json
+import logging
+import sqlite3
 
 from agents.registry import AgentConfig
 from capabilities.registry import parse_capabilities_csv
+
+logger = logging.getLogger(__name__)
 
 
 def register(mcp, state):
@@ -12,15 +16,21 @@ def register(mcp, state):
     @mcp.tool()
     async def list_agents() -> str:
         """List all available expert agent configurations."""
-        agent_registry = state.agent_registry
-        agents = agent_registry.list_agents()
-        if not agents:
-            return json.dumps({"message": "No agents configured yet.", "results": []})
-        results = [
-            {"name": a.name, "description": a.description, "capabilities": a.capabilities}
-            for a in agents
-        ]
-        return json.dumps({"results": results})
+        try:
+            agent_registry = state.agent_registry
+            agents = agent_registry.list_agents()
+            if not agents:
+                return json.dumps({"message": "No agents configured yet.", "results": []})
+            results = [
+                {"name": a.name, "description": a.description, "capabilities": a.capabilities}
+                for a in agents
+            ]
+            return json.dumps({"results": results})
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in list_agents")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def get_agent(name: str) -> str:
@@ -29,18 +39,24 @@ def register(mcp, state):
         Args:
             name: The agent name to look up
         """
-        agent_registry = state.agent_registry
-        agent = agent_registry.get_agent(name)
-        if not agent:
-            return json.dumps({"error": f"Agent '{name}' not found."})
-        return json.dumps({
-            "name": agent.name,
-            "description": agent.description,
-            "system_prompt": agent.system_prompt,
-            "capabilities": agent.capabilities,
-            "temperature": agent.temperature,
-            "max_tokens": agent.max_tokens,
-        })
+        try:
+            agent_registry = state.agent_registry
+            agent = agent_registry.get_agent(name)
+            if not agent:
+                return json.dumps({"error": f"Agent '{name}' not found."})
+            return json.dumps({
+                "name": agent.name,
+                "description": agent.description,
+                "system_prompt": agent.system_prompt,
+                "capabilities": agent.capabilities,
+                "temperature": agent.temperature,
+                "max_tokens": agent.max_tokens,
+            })
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in get_agent")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def create_agent(name: str, description: str, system_prompt: str, capabilities: str = "") -> str:
@@ -52,22 +68,28 @@ def register(mcp, state):
             system_prompt: The system prompt that defines this agent's behavior
             capabilities: Comma-separated list of capabilities (e.g. 'web_search,memory_read,document_search')
         """
-        agent_registry = state.agent_registry
         try:
-            caps = parse_capabilities_csv(capabilities) if capabilities else []
-        except ValueError as exc:
-            return json.dumps({"error": str(exc)})
-        config = AgentConfig(
-            name=name,
-            description=description,
-            system_prompt=system_prompt,
-            capabilities=caps,
-        )
-        try:
-            agent_registry.save_agent(config)
-        except ValueError as exc:
-            return json.dumps({"error": str(exc)})
-        return json.dumps({"status": "created", "name": name, "capabilities": caps})
+            agent_registry = state.agent_registry
+            try:
+                caps = parse_capabilities_csv(capabilities) if capabilities else []
+            except ValueError as exc:
+                return json.dumps({"error": str(exc)})
+            config = AgentConfig(
+                name=name,
+                description=description,
+                system_prompt=system_prompt,
+                capabilities=caps,
+            )
+            try:
+                agent_registry.save_agent(config)
+            except ValueError as exc:
+                return json.dumps({"error": str(exc)})
+            return json.dumps({"status": "created", "name": name, "capabilities": caps})
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in create_agent")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def get_agent_memory(agent_name: str) -> str:
@@ -76,21 +98,27 @@ def register(mcp, state):
         Args:
             agent_name: The agent name to retrieve memories for
         """
-        memory_store = state.memory_store
-        memories = memory_store.get_agent_memories(agent_name)
-        if not memories:
-            return json.dumps({"message": f"No memories found for agent '{agent_name}'.", "results": []})
-        results = [
-            {
-                "memory_type": m.memory_type,
-                "key": m.key,
-                "value": m.value,
-                "confidence": m.confidence,
-                "updated_at": m.updated_at,
-            }
-            for m in memories
-        ]
-        return json.dumps({"agent_name": agent_name, "results": results})
+        try:
+            memory_store = state.memory_store
+            memories = memory_store.get_agent_memories(agent_name)
+            if not memories:
+                return json.dumps({"message": f"No memories found for agent '{agent_name}'.", "results": []})
+            results = [
+                {
+                    "memory_type": m.memory_type,
+                    "key": m.key,
+                    "value": m.value,
+                    "confidence": m.confidence,
+                    "updated_at": m.updated_at,
+                }
+                for m in memories
+            ]
+            return json.dumps({"agent_name": agent_name, "results": results})
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in get_agent_memory")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def clear_agent_memory(agent_name: str) -> str:
@@ -99,9 +127,15 @@ def register(mcp, state):
         Args:
             agent_name: The agent name whose memories should be cleared
         """
-        memory_store = state.memory_store
-        count = memory_store.clear_agent_memories(agent_name)
-        return json.dumps({"agent_name": agent_name, "deleted_count": count})
+        try:
+            memory_store = state.memory_store
+            count = memory_store.clear_agent_memories(agent_name)
+            return json.dumps({"agent_name": agent_name, "deleted_count": count})
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in clear_agent_memory")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def store_shared_memory(
@@ -116,16 +150,22 @@ def register(mcp, state):
             value: The memory content
             confidence: Confidence score from 0.0 to 1.0 (default 1.0)
         """
-        memory_store = state.memory_store
-        result = memory_store.store_shared_memory(namespace, memory_type, key, value, confidence)
-        return json.dumps({
-            "status": "stored",
-            "namespace": namespace,
-            "memory_type": result.memory_type,
-            "key": result.key,
-            "value": result.value,
-            "confidence": result.confidence,
-        })
+        try:
+            memory_store = state.memory_store
+            result = memory_store.store_shared_memory(namespace, memory_type, key, value, confidence)
+            return json.dumps({
+                "status": "stored",
+                "namespace": namespace,
+                "memory_type": result.memory_type,
+                "key": result.key,
+                "value": result.value,
+                "confidence": result.confidence,
+            })
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in store_shared_memory")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def get_shared_memory(namespace: str, memory_type: str = "") -> str:
@@ -135,21 +175,28 @@ def register(mcp, state):
             namespace: The shared namespace to query
             memory_type: Optional filter by memory type ('insight', 'preference', 'context')
         """
-        memory_store = state.memory_store
-        memories = memory_store.get_shared_memories(namespace, memory_type)
-        if not memories:
-            return json.dumps({"message": f"No shared memories in namespace '{namespace}'.", "results": []})
-        results = [
-            {
-                "memory_type": m.memory_type,
-                "key": m.key,
-                "value": m.value,
-                "confidence": m.confidence,
-                "updated_at": m.updated_at,
-            }
-            for m in memories
-        ]
-        return json.dumps({"namespace": namespace, "results": results})
+        try:
+            memory_store = state.memory_store
+            memories = memory_store.get_shared_memories(namespace, memory_type)
+            if not memories:
+                return json.dumps({"message": f"No shared memories in namespace '{namespace}'.", "results": []})
+            results = [
+                {
+                    "memory_type": m.memory_type,
+                    "key": m.key,
+                    "value": m.value,
+                    "confidence": m.confidence,
+                    "updated_at": m.updated_at,
+                }
+                for m in memories
+            ]
+            return json.dumps({"namespace": namespace, "results": results})
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in get_shared_memory")
+            return json.dumps({"error": f"Unexpected error: {e}"})
+
 
     # Expose tool functions at module level for testing
     import sys
