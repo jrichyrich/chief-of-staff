@@ -1,13 +1,11 @@
 """JSON-backed snapshot store for OKR data."""
-import fcntl
 import json
-import os
-import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
 from okr.models import Initiative, KeyResult, OKRSnapshot, Objective
+from utils.atomic import atomic_write, locked_read
 
 
 class OKRStore:
@@ -23,18 +21,7 @@ class OKRStore:
         """Serialize snapshot to JSON and write to disk atomically."""
         data = asdict(snapshot)
         content = json.dumps(data, indent=2, default=str)
-        lf = open(self._lock_path, "w")
-        try:
-            fcntl.flock(lf, fcntl.LOCK_EX)
-            with tempfile.NamedTemporaryFile(
-                mode='w', suffix='.tmp', dir=str(self._snapshot_path.parent), delete=False
-            ) as f:
-                f.write(content)
-                tmp = f.name
-            os.replace(tmp, str(self._snapshot_path))
-        finally:
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            lf.close()
+        atomic_write(self._snapshot_path, content, self._lock_path)
         return self._snapshot_path
 
     def load_latest(self) -> Optional[OKRSnapshot]:
@@ -42,13 +29,7 @@ class OKRStore:
         if not self._snapshot_path.exists():
             return None
 
-        lf = open(self._lock_path, "w")
-        try:
-            fcntl.flock(lf, fcntl.LOCK_SH)
-            data = json.loads(self._snapshot_path.read_text())
-        finally:
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            lf.close()
+        data = json.loads(locked_read(self._snapshot_path, self._lock_path))
         return OKRSnapshot(
             timestamp=data["timestamp"],
             source_file=data["source_file"],

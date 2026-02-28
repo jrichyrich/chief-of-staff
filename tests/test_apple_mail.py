@@ -46,7 +46,7 @@ class TestEscapeOsascript:
 
 class TestRunApplescript:
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail._run_with_cleanup")
+    @patch("apple_mail.mail.run_with_cleanup")
     def test_success(self, mock_cleanup):
         mock_cleanup.return_value = subprocess.CompletedProcess(
             ["osascript"], 0, stdout="  hello world  ", stderr=""
@@ -56,7 +56,7 @@ class TestRunApplescript:
         mock_cleanup.assert_called_once()
 
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail._run_with_cleanup")
+    @patch("apple_mail.mail.run_with_cleanup")
     def test_timeout(self, mock_cleanup):
         mock_cleanup.side_effect = subprocess.TimeoutExpired("osascript", 15)
         result = _run_applescript("some script")
@@ -64,7 +64,7 @@ class TestRunApplescript:
         assert "timed out" in result["error"]
 
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail._run_with_cleanup")
+    @patch("apple_mail.mail.run_with_cleanup")
     def test_called_process_error(self, mock_cleanup):
         mock_cleanup.return_value = subprocess.CompletedProcess(
             ["osascript"], 1, stdout="", stderr="bad script"
@@ -74,7 +74,7 @@ class TestRunApplescript:
         assert "osascript failed" in result["error"]
 
     @patch("apple_mail.mail._IS_MACOS", True)
-    @patch("apple_mail.mail._run_with_cleanup")
+    @patch("apple_mail.mail.run_with_cleanup")
     def test_file_not_found(self, mock_cleanup):
         mock_cleanup.side_effect = FileNotFoundError()
         result = _run_applescript("some script")

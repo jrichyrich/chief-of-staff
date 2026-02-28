@@ -1,13 +1,13 @@
 import json
 import logging
-import os
 import platform
-import signal
 import sqlite3
 import subprocess
 import time
 from pathlib import Path
 from datetime import UTC, datetime
+
+from utils.subprocess import run_with_cleanup
 
 logger = logging.getLogger(__name__)
 
@@ -44,18 +44,6 @@ def decode_attributed_body(blob: bytes) -> str | None:
 _PLATFORM_ERROR = {"error": "Messages is only available on macOS"}
 _DEFAULT_TIMEOUT = 15
 _SEND_TIMEOUT = 30
-
-
-def _run_with_cleanup(cmd, timeout, **kwargs):
-    """Run a subprocess with proper cleanup on timeout (kills process group)."""
-    proc = subprocess.Popen(cmd, start_new_session=True, **kwargs)
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
-    except subprocess.TimeoutExpired:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        proc.wait(timeout=5)
-        raise
 
 
 def _project_root() -> Path:
@@ -679,7 +667,7 @@ class MessageStore:
         else:
             cmd.extend(["--to", to])
         try:
-            proc = _run_with_cleanup(
+            proc = run_with_cleanup(
                 cmd,
                 timeout=_SEND_TIMEOUT,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from tools import lifecycle as lifecycle_tools
+from utils.text import split_addresses as _split_addresses
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +276,9 @@ class MailMixin:
     def _handle_mail_send(self, tool_input: dict) -> Any:
         if self.mail_store is None:
             return {"error": "Mail not available (macOS only)"}
-        to_list = [a.strip() for a in tool_input["to"].split(",") if a.strip()]
-        cc_list = [a.strip() for a in tool_input.get("cc", "").split(",") if a.strip()] or None
-        bcc_list = [a.strip() for a in tool_input.get("bcc", "").split(",") if a.strip()] or None
+        to_list = _split_addresses(tool_input["to"])
+        cc_list = _split_addresses(tool_input.get("cc", "")) or None
+        bcc_list = _split_addresses(tool_input.get("bcc", "")) or None
         return self.mail_store.send_message(
             to=to_list,
             subject=tool_input["subject"],

@@ -11,6 +11,8 @@ from .state import _retry_on_transient
 
 logger = logging.getLogger(__name__)
 
+from utils.text import split_addresses as _split_addresses
+
 _MAIL_EXPECTED = (OSError, subprocess.SubprocessError, TimeoutError)
 
 
@@ -160,8 +162,8 @@ def register(mcp, state):
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
         mail_store = state.mail_store
-        cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
-        bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
+        cc_list = _split_addresses(cc) or None if cc else None
+        bcc_list = _split_addresses(bcc) or None if bcc else None
         result = mail_store.reply_message(
             message_id=message_id,
             body=body,
@@ -190,9 +192,9 @@ def register(mcp, state):
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
         mail_store = state.mail_store
-        to_list = [addr.strip() for addr in to.split(",") if addr.strip()]
-        cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
-        bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
+        to_list = _split_addresses(to)
+        cc_list = _split_addresses(cc) or None if cc else None
+        bcc_list = _split_addresses(bcc) or None if bcc else None
         result = mail_store.send_message(
             to=to_list,
             subject=subject,

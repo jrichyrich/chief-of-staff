@@ -120,9 +120,14 @@ class ReminderStore:
         return result["granted"]
 
     def _check_access(self) -> Optional[dict]:
-        """Re-check current reminders authorization (catches mid-session revocation)."""
+        """Re-check current reminders authorization (catches mid-session revocation).
+
+        Fast-path: skips the ObjC syscall when already known-authorized.
+        """
         if not _EVENTKIT_AVAILABLE:
             return None  # _ensure_store handles this
+        if self._access_granted:
+            return None
         status = EventKit.EKEventStore.authorizationStatusForEntityType_(_EK_ENTITY_TYPE_REMINDER)
         if status not in (3, 4):  # EKAuthorizationStatusAuthorized, FullAccess
             self._access_granted = False

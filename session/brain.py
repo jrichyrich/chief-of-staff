@@ -5,13 +5,12 @@ and handoff notes in a human-readable markdown format that survives session
 boundaries.
 """
 
-import fcntl
-import os
 import re
-import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Optional
+
+from utils.atomic import atomic_write, locked_read
 
 
 class SessionBrain:
@@ -47,33 +46,12 @@ class SessionBrain:
         """
         if not self.path.exists():
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        lf = open(self._lock_path, "w")
-        try:
-            fcntl.flock(lf, fcntl.LOCK_SH)
-            text = self.path.read_text(encoding="utf-8")
-        finally:
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            lf.close()
+        text = locked_read(self.path, self._lock_path)
         self._parse(text)
 
     def save(self) -> None:
         """Render and write the brain to the markdown file atomically."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        content = self.render()
-        lf = open(self._lock_path, "w")
-        try:
-            fcntl.flock(lf, fcntl.LOCK_EX)
-            with tempfile.NamedTemporaryFile(
-                mode='w', suffix='.tmp', dir=str(self.path.parent),
-                delete=False, encoding="utf-8"
-            ) as f:
-                f.write(content)
-                tmp = f.name
-            os.replace(tmp, str(self.path))
-        finally:
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            lf.close()
+        atomic_write(self.path, self.render(), self._lock_path)
 
     def render(self) -> str:
         """Generate markdown with all sections.

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import signal
 import subprocess
 from datetime import datetime
 from typing import Callable, Optional
+
+from utils.subprocess import run_with_cleanup
 
 
 class ClaudeM365Bridge:
@@ -253,17 +253,12 @@ class ClaudeM365Bridge:
                     check=False,
                 )
             # Default runner: use Popen with process group cleanup on timeout
-            proc = subprocess.Popen(
-                args,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                start_new_session=True,
-            )
             try:
-                stdout, stderr = proc.communicate(timeout=timeout)
-                return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+                return run_with_cleanup(
+                    args, timeout=timeout,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
             except subprocess.TimeoutExpired:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                proc.wait(timeout=5)
                 return None
         except FileNotFoundError:
             return None

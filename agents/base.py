@@ -15,6 +15,7 @@ from agents.mixins import (
     NotificationMixin,
     ReminderMixin,
 )
+from memory.models import AgentResultStatus
 
 
 class AgentResult(str):
@@ -24,23 +25,23 @@ class AgentResult(str):
     can distinguish successful text from error JSON without parsing.
     """
 
-    def __new__(cls, text: str, *, status: str = "success", metadata: dict | None = None):
+    def __new__(cls, text: str, *, status: AgentResultStatus = AgentResultStatus.success, metadata: dict | None = None):
         instance = super().__new__(cls, text)
-        instance._status = status
+        instance._status = AgentResultStatus(status)
         instance._metadata = metadata or {}
         return instance
 
     @property
-    def status(self) -> str:
+    def status(self) -> AgentResultStatus:
         return self._status
 
     @property
     def is_success(self) -> bool:
-        return self._status == "success"
+        return self._status == AgentResultStatus.success
 
     @property
     def is_error(self) -> bool:
-        return self._status != "success"
+        return self._status != AgentResultStatus.success
 
     @property
     def metadata(self) -> dict:
@@ -93,6 +94,7 @@ class BaseExpertAgent(
         self.mail_store = mail_store
         self.hook_registry = hook_registry
         self.client = client or anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
+        self._dispatch_cache: dict | None = None
 
     def build_system_prompt(self) -> str:
         prompt = self.config.system_prompt
@@ -172,7 +174,7 @@ class BaseExpertAgent(
                 if should_break:
                     messages.append({"role": "user", "content": tool_results})
                     text = json.dumps({"status": "loop_detected", "rounds": _round + 1, "message": "Agent terminated early: repetitive tool call loop detected"})
-                    return AgentResult(text, status="loop_detected", metadata={"rounds": _round + 1})
+                    return AgentResult(text, status=AgentResultStatus.loop_detected, metadata={"rounds": _round + 1})
 
                 messages.append({"role": "user", "content": tool_results})
                 continue
@@ -180,12 +182,12 @@ class BaseExpertAgent(
             # Extract text response
             for block in response.content:
                 if block.type == "text":
-                    return AgentResult(block.text, status="success")
+                    return AgentResult(block.text, status=AgentResultStatus.success)
 
-            return AgentResult("", status="success")
+            return AgentResult("", status=AgentResultStatus.success)
 
         text = json.dumps({"status": "max_rounds_reached", "rounds": MAX_TOOL_ROUNDS, "message": "Agent reached maximum tool rounds without producing a final response"})
-        return AgentResult(text, status="max_rounds_reached", metadata={"rounds": MAX_TOOL_ROUNDS})
+        return AgentResult(text, status=AgentResultStatus.max_rounds_reached, metadata={"rounds": MAX_TOOL_ROUNDS})
 
     @retry_api_call
     async def _call_api(self, messages: list, tools: list) -> Any:
@@ -260,7 +262,7 @@ class BaseExpertAgent(
 
     def _get_dispatch_table(self) -> dict:
         """Build and cache a dispatch table mapping tool names to handlers."""
-        if hasattr(self, "_dispatch_cache"):
+        if self._dispatch_cache is not None:
             return self._dispatch_cache
 
         table: dict[str, Any] = {

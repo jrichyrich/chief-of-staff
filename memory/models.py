@@ -112,6 +112,14 @@ class AlertType(StrEnum):
     overdue_delegation = "overdue_delegation"
     pending_decision = "pending_decision"
     upcoming_deadline = "upcoming_deadline"
+    stale_decision = "stale_decision"
+
+
+class AgentResultStatus(StrEnum):
+    success = "success"
+    loop_detected = "loop_detected"
+    max_rounds_reached = "max_rounds_reached"
+    error = "error"
 
 
 @dataclass

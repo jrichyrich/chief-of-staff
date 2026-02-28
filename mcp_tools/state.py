@@ -6,6 +6,7 @@ import sqlite3
 import time
 from dataclasses import dataclass, field, fields as dataclass_fields
 from datetime import datetime
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -76,8 +77,9 @@ class ServerState:
     session_brain: Optional[SessionBrain] = None
 
     @staticmethod
+    @cache
     def _field_names() -> frozenset[str]:
-        """Return the set of declared dataclass field names."""
+        """Return the set of declared dataclass field names (cached)."""
         return frozenset(f.name for f in dataclass_fields(ServerState))
 
     def update(self, values: dict) -> None:
