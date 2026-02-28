@@ -6,9 +6,8 @@ from documents.ingestion import chunk_text, load_text_file, _load_pdf, _load_doc
 
 
 @pytest.fixture
-def doc_store(tmp_path):
-    store = DocumentStore(persist_dir=tmp_path / "chroma")
-    yield store
+def doc_store(document_store):
+    return document_store
 
 
 class TestDocumentStore:

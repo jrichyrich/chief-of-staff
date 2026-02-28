@@ -12,20 +12,13 @@ from documents.store import DocumentStore
 
 
 @pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
+def doc_store(document_store):
+    return document_store
 
 
 @pytest.fixture
-def doc_store(tmp_path):
-    return DocumentStore(persist_dir=tmp_path / "chroma")
-
-
-@pytest.fixture
-def registry(tmp_path):
-    return AgentRegistry(tmp_path / "agent_configs")
+def registry(agent_registry):
+    return agent_registry
 
 
 # ---------------------------------------------------------------------------

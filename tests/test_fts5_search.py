@@ -4,13 +4,6 @@ from memory.store import MemoryStore
 from memory.models import Fact
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_fts5.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 class TestFTS5Search:
     def test_fts5_finds_exact_keyword(self, memory_store):

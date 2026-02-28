@@ -18,13 +18,6 @@ from memory.store import MemoryStore
 from mcp_tools.state import ServerState
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_dispatch.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def agent_registry(tmp_path):

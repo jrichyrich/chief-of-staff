@@ -7,13 +7,6 @@ from memory.models import Fact
 from memory.store import MemoryStore
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_memory.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 def _insert_fact_with_timestamps(memory_store, category, key, value, confidence,
                                   created_at, updated_at=None):

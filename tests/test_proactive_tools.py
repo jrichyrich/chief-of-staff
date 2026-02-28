@@ -11,12 +11,6 @@ from memory.store import MemoryStore
 from mcp_tools.proactive_tools import dismiss_suggestion, get_proactive_suggestions
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 @pytest.fixture(autouse=True)
 def wire_state(memory_store):

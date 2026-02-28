@@ -12,13 +12,6 @@ from agents.registry import AgentConfig, AgentRegistry
 from webhook.dispatcher import EventDispatcher
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_event_dispatcher.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def agent_registry(tmp_path):
@@ -468,7 +461,7 @@ class TestEventDispatcher:
             results = await dispatcher.dispatch(event)
 
         assert len(results) == 1
-        assert results[0]["status"] == "success"
+        assert results[0]["status"] == "delivery_failed"
         assert results[0]["delivery_status"]["status"] == "error"
 
     async def test_no_delivery_when_channel_not_set(self, dispatcher, memory_store):

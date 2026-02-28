@@ -14,12 +14,6 @@ from session.manager import SessionManager
 # --- Fixtures ---
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def session_mgr(memory_store):

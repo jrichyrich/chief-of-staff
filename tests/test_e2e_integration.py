@@ -8,6 +8,7 @@ scheduler dispatch.
 
 import json
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -25,19 +26,6 @@ from scheduler.engine import SchedulerEngine, execute_handler
 from skills.pattern_detector import PatternDetector
 from webhook.ingest import ingest_events
 
-
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "e2e_test.db")
-    yield store
-    store.close()
-
-
-@pytest.fixture
-def inbox_dir(tmp_path):
-    d = tmp_path / "webhook_inbox"
-    d.mkdir()
-    return d
 
 
 def _write_webhook_json(inbox_dir: Path, filename: str, data: dict) -> Path:
@@ -62,7 +50,7 @@ class TestWebhookIngestToStore:
             "payload": {"ref": "refs/heads/main", "commits": [{"id": "abc123"}]},
         })
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         assert result["failed"] == 0
@@ -84,7 +72,7 @@ class TestWebhookIngestToStore:
                 "payload": {"key": f"PROJ-{i}"},
             })
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
         assert result["ingested"] == 3
 
         events = memory_store.list_webhook_events()
@@ -97,7 +85,7 @@ class TestWebhookIngestToStore:
             "payload": "hello",
         })
 
-        ingest_events(memory_store, inbox_dir)
+        ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         # Original file moved
         assert not filepath.exists()
@@ -108,7 +96,7 @@ class TestWebhookIngestToStore:
         bad = inbox_dir / "bad.json"
         bad.write_text("not valid json {{{{", encoding="utf-8")
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
         assert result["failed"] == 1
         assert result["ingested"] == 0
         assert (inbox_dir / "failed" / "bad.json").exists()
@@ -119,11 +107,11 @@ class TestWebhookIngestToStore:
             # missing event_type
         })
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
         assert result["failed"] == 1
 
     def test_ingest_empty_inbox(self, memory_store, inbox_dir):
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
         assert result == {"ingested": 0, "failed": 0, "skipped": 0}
 
 
@@ -141,7 +129,7 @@ class TestWebhookChannelAdapter:
             "event_type": "incident.trigger",
             "payload": {"incident_id": "P123", "title": "Server down"},
         })
-        ingest_events(memory_store, inbox_dir)
+        ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         events = memory_store.list_webhook_events()
         assert len(events) == 1
@@ -220,7 +208,7 @@ class TestProactiveWebhookDetection:
             "event_type": "monitor.alert",
             "payload": {"monitor_id": 42, "status": "Alert"},
         })
-        ingest_events(memory_store, inbox_dir)
+        ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         engine = ProactiveSuggestionEngine(memory_store)
         suggestions = engine.generate_suggestions()
@@ -242,7 +230,7 @@ class TestProactiveWebhookDetection:
             "event_type": "payment.succeeded",
             "payload": {"amount": 1000},
         })
-        ingest_events(memory_store, inbox_dir)
+        ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         engine = ProactiveSuggestionEngine(memory_store)
         result = engine.check_all(push_enabled=False)
@@ -283,6 +271,9 @@ class TestSchedulerWebhookPoll:
 
         # Monkeypatch WEBHOOK_INBOX_DIR so the handler finds our inbox
         monkeypatch.setattr("config.WEBHOOK_INBOX_DIR", str(inbox_dir))
+        # Disable debounce so freshly-created test files are not skipped
+        from webhook.ingest import ingest_events as _orig_ingest
+        monkeypatch.setattr("webhook.ingest.ingest_events", partial(_orig_ingest, debounce_seconds=0))
 
         # Create a scheduled task for webhook_poll
         task = ScheduledTask(
@@ -401,6 +392,8 @@ class TestFullPipeline:
 
     def test_full_webhook_lifecycle(self, memory_store, inbox_dir, monkeypatch):
         monkeypatch.setattr("config.WEBHOOK_INBOX_DIR", str(inbox_dir))
+        from webhook.ingest import ingest_events as _orig_ingest
+        monkeypatch.setattr("webhook.ingest.ingest_events", partial(_orig_ingest, debounce_seconds=0))
 
         # Step 1: Write webhook JSON to inbox
         _write_webhook_json(inbox_dir, "lifecycle.json", {
@@ -485,6 +478,8 @@ class TestFullPipeline:
     def test_multiple_handler_types_in_one_run(self, memory_store, inbox_dir, monkeypatch):
         """Scheduler evaluates multiple due tasks of different handler types."""
         monkeypatch.setattr("config.WEBHOOK_INBOX_DIR", str(inbox_dir))
+        from webhook.ingest import ingest_events as _orig_ingest
+        monkeypatch.setattr("webhook.ingest.ingest_events", partial(_orig_ingest, debounce_seconds=0))
 
         # Seed some data
         _write_webhook_json(inbox_dir, "multi.json", {

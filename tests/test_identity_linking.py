@@ -20,13 +20,6 @@ from memory.store import MemoryStore
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    """Create an isolated MemoryStore for each test."""
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def identity_state(memory_store):

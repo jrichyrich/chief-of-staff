@@ -5,12 +5,6 @@ from memory.store import MemoryStore
 from skills.pattern_detector import PatternDetector, _jaccard_similarity, _cluster_patterns
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 class TestJaccardSimilarity:
     def test_identical_strings(self):

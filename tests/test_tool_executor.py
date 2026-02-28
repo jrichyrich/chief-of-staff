@@ -11,15 +11,8 @@ from tools.executor import (
 
 
 @pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
-
-@pytest.fixture
-def doc_store(tmp_path):
-    return DocumentStore(persist_dir=tmp_path / "chroma")
+def doc_store(document_store):
+    return document_store
 
 
 class TestExecuteQueryMemory:

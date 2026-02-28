@@ -9,10 +9,6 @@ from memory.models import AgentMemory
 from memory.store import MemoryStore
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    return MemoryStore(tmp_path / "test.db")
-
 
 class TestAgentMemoryCRUD:
     def test_store_and_get(self, memory_store):

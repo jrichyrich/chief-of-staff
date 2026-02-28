@@ -11,13 +11,6 @@ from memory.store import MemoryStore
 from mcp_tools import webhook_tools
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_webhook_tools.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 @pytest.fixture(autouse=True)
 def setup_state(memory_store):

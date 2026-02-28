@@ -17,8 +17,8 @@ from documents.store import DocumentStore
 
 
 @pytest.fixture
-def doc_store(tmp_path):
-    return DocumentStore(persist_dir=tmp_path / "chroma")
+def doc_store(document_store):
+    return document_store
 
 
 # ---------------------------------------------------------------------------

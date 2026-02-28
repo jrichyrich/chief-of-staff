@@ -19,14 +19,6 @@ from memory.store import MemoryStore
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def memory_store(tmp_path):
-    return MemoryStore(tmp_path / "test.db")
-
-
-@pytest.fixture
-def document_store(tmp_path):
-    return DocumentStore(str(tmp_path / "chroma_test"))
 
 
 @pytest.fixture
@@ -204,7 +196,10 @@ class TestExecuteLoop:
             with patch("agents.base.MAX_TOOL_ROUNDS", 3):
                 result = await agent.execute("Loop forever")
 
-        assert result == "[Agent reached maximum tool rounds without producing a final response]"
+        parsed = json.loads(result)
+        assert parsed["status"] == "max_rounds_reached"
+        assert parsed["rounds"] == 3
+        assert "maximum tool rounds" in parsed["message"]
         assert agent.client.messages.create.call_count == 3
 
     @pytest.mark.asyncio

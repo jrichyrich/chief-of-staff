@@ -11,12 +11,6 @@ from proactive.engine import ProactiveSuggestionEngine
 from session.brain import SessionBrain
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def engine(memory_store):

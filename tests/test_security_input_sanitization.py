@@ -9,12 +9,6 @@ from memory.store import MemoryStore
 from tools.executor import execute_store_memory
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 # ---------------------------------------------------------------------------
 # _escape_osascript: escape special characters for AppleScript strings

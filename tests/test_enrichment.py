@@ -11,12 +11,6 @@ from memory.store import MemoryStore
 from mcp_tools.enrichment import enrich_person
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test_enrichment.db")
-    yield store
-    store.close()
-
 
 @pytest.fixture(autouse=True)
 def wire_state(memory_store):

@@ -6,13 +6,6 @@ from memory.store import MemoryStore
 from memory.models import AlertRule, ContextEntry, Decision, Delegation, Fact, Location
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_memory.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 class TestFacts:
     def test_store_and_retrieve_fact(self, memory_store):

@@ -12,20 +12,6 @@ from memory.store import MemoryStore
 from webhook.ingest import dispatch_pending_events, ingest_events
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_webhook.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
-
-@pytest.fixture
-def inbox_dir(tmp_path):
-    d = tmp_path / "webhook-inbox"
-    d.mkdir()
-    return d
-
 
 @pytest.fixture
 def agent_registry(tmp_path):
@@ -74,7 +60,7 @@ class TestIngestEvents:
             })
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         assert result["failed"] == 0
@@ -98,7 +84,7 @@ class TestIngestEvents:
                 json.dumps({"source": f"src{i}", "event_type": "test"})
             )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 3
         assert result["failed"] == 0
@@ -109,7 +95,7 @@ class TestIngestEvents:
         bad_file = inbox_dir / "bad.json"
         bad_file.write_text("not valid json {{{")
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 0
         assert result["failed"] == 1
@@ -121,7 +107,7 @@ class TestIngestEvents:
             json.dumps({"event_type": "test"})
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["failed"] == 1
         assert result["ingested"] == 0
@@ -132,7 +118,7 @@ class TestIngestEvents:
             json.dumps({"source": "test"})
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["failed"] == 1
         assert result["ingested"] == 0
@@ -141,13 +127,13 @@ class TestIngestEvents:
     def test_non_dict_json_fails(self, memory_store, inbox_dir):
         (inbox_dir / "array.json").write_text(json.dumps([1, 2, 3]))
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["failed"] == 1
         assert (inbox_dir / "failed" / "array.json").exists()
 
     def test_empty_directory_noop(self, memory_store, inbox_dir):
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result == {"ingested": 0, "failed": 0, "skipped": 0}
 
@@ -160,7 +146,7 @@ class TestIngestEvents:
             })
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         events = memory_store.list_webhook_events(limit=10)
@@ -175,7 +161,7 @@ class TestIngestEvents:
             })
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         events = memory_store.list_webhook_events(limit=10)
@@ -186,7 +172,7 @@ class TestIngestEvents:
             json.dumps({"source": "test", "event_type": "ping"})
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         events = memory_store.list_webhook_events(limit=10)
@@ -203,7 +189,7 @@ class TestIngestEvents:
             json.dumps({"source": "test", "event_type": "ping"})
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         # Original processed file still there
@@ -220,7 +206,7 @@ class TestIngestEvents:
             json.dumps({"source": "test", "event_type": "ping"})
         )
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         assert (inbox_dir / "readme.txt").exists()  # untouched
@@ -231,7 +217,7 @@ class TestIngestEvents:
         )
         (inbox_dir / "bad.json").write_text("nope")
 
-        result = ingest_events(memory_store, inbox_dir)
+        result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
 
         assert result["ingested"] == 1
         assert result["failed"] == 1
@@ -349,7 +335,7 @@ class TestIngestToDispatchE2E:
         }))
 
         # Step 2: Ingest
-        ingest_result = ingest_events(memory_store, inbox_dir)
+        ingest_result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
         assert ingest_result["ingested"] == 1
 
         # Step 3: Create a matching event rule

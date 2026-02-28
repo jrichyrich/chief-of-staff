@@ -6,8 +6,8 @@ from agents.registry import AgentRegistry, AgentConfig
 
 
 @pytest.fixture
-def registry(tmp_path):
-    return AgentRegistry(tmp_path / "agent_configs")
+def registry(agent_registry):
+    return agent_registry
 
 
 @pytest.fixture

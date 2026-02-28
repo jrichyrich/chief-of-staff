@@ -8,12 +8,6 @@ from memory.store import MemoryStore
 from mcp_tools.usage_tracker import _extract_query_pattern
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def tracked_mcp(memory_store):

@@ -154,14 +154,6 @@ class TestLoopDetectorEdgeCases:
 # Integration: LoopDetector in BaseExpertAgent.execute()
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def memory_store(tmp_path):
-    return MemoryStore(tmp_path / "test.db")
-
-
-@pytest.fixture
-def document_store(tmp_path):
-    return DocumentStore(str(tmp_path / "chroma_test"))
 
 
 def _make_tool_use_response(tool_name, tool_input, tool_id="toolu_123"):

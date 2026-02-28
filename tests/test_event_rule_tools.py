@@ -13,13 +13,6 @@ from agents.registry import AgentConfig, AgentRegistry
 from mcp_tools import event_rule_tools
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_event_rule_tools.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def agent_registry(tmp_path):

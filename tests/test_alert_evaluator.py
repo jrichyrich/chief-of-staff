@@ -13,14 +13,6 @@ from memory.models import AlertRule, Decision, Delegation, Fact
 from memory.store import MemoryStore
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    """Create a temporary memory store for testing."""
-    db_path = tmp_path / "test_memory.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 @pytest.fixture
 def log_path(tmp_path):

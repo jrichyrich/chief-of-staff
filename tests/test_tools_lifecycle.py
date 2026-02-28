@@ -24,13 +24,6 @@ from tools.lifecycle import (
 )
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    db_path = tmp_path / "test_lifecycle.db"
-    store = MemoryStore(db_path)
-    yield store
-    store.close()
-
 
 class TestDecisionLifecycle:
     def test_log_decision_minimal(self, memory_store):
