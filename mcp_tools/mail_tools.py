@@ -6,15 +6,19 @@ import subprocess
 
 from apple_notifications.notifier import Notifier
 
+from .decorators import tool_errors
 from .state import _retry_on_transient
 
 logger = logging.getLogger(__name__)
+
+_MAIL_EXPECTED = (OSError, subprocess.SubprocessError, TimeoutError)
 
 
 def register(mcp, state):
     """Register mail and notification tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("Notification error", expected=(OSError, subprocess.SubprocessError))
     async def send_notification(
         title: str,
         message: str,
@@ -29,34 +33,24 @@ def register(mcp, state):
             subtitle: Optional subtitle displayed below the title
             sound: Notification sound name (default: 'default', empty for silent)
         """
-        try:
-            result = Notifier.send(
-                title=title,
-                message=message,
-                subtitle=subtitle or None,
-                sound=sound or None,
-            )
-            return json.dumps(result)
-        except (OSError, subprocess.SubprocessError) as e:
-            return json.dumps({"error": f"Notification error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in send_notification")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        result = Notifier.send(
+            title=title,
+            message=message,
+            subtitle=subtitle or None,
+            sound=sound or None,
+        )
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def list_mailboxes() -> str:
         """List all mailboxes across all Mail accounts with unread counts."""
         mail_store = state.mail_store
-        try:
-            mailboxes = _retry_on_transient(mail_store.list_mailboxes)
-            return json.dumps({"results": mailboxes})
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error listing mailboxes: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in list_mailboxes")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        mailboxes = _retry_on_transient(mail_store.list_mailboxes)
+        return json.dumps({"results": mailboxes})
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def get_mail_messages(mailbox: str = "INBOX", account: str = "", limit: int = 25) -> str:
         """Get recent messages (headers only) from a mailbox. Returns subject, sender, date, read/flagged status.
 
@@ -66,16 +60,11 @@ def register(mcp, state):
             limit: Maximum number of messages to return (default: 25, max: 100)
         """
         mail_store = state.mail_store
-        try:
-            messages = _retry_on_transient(mail_store.get_messages, mailbox=mailbox, account=account, limit=limit)
-            return json.dumps({"results": messages})
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error getting messages: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in get_mail_messages")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        messages = _retry_on_transient(mail_store.get_messages, mailbox=mailbox, account=account, limit=limit)
+        return json.dumps({"results": messages})
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def get_mail_message(message_id: str) -> str:
         """Get full message content by message ID, including body, to, and cc fields.
 
@@ -83,16 +72,11 @@ def register(mcp, state):
             message_id: The unique message ID (required)
         """
         mail_store = state.mail_store
-        try:
-            message = mail_store.get_message(message_id)
-            return json.dumps(message)
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error getting message: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in get_mail_message")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        message = mail_store.get_message(message_id)
+        return json.dumps(message)
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def search_mail(query: str, mailbox: str = "INBOX", account: str = "", limit: int = 25) -> str:
         """Search messages by subject or sender text in a mailbox.
 
@@ -103,16 +87,11 @@ def register(mcp, state):
             limit: Maximum number of results (default: 25, max: 100)
         """
         mail_store = state.mail_store
-        try:
-            messages = mail_store.search_messages(query=query, mailbox=mailbox, account=account, limit=limit)
-            return json.dumps({"results": messages})
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error searching messages: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in search_mail")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        messages = mail_store.search_messages(query=query, mailbox=mailbox, account=account, limit=limit)
+        return json.dumps({"results": messages})
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def mark_mail_read(message_id: str, read: str = "true") -> str:
         """Mark a message as read or unread.
 
@@ -121,17 +100,12 @@ def register(mcp, state):
             read: Set to 'true' to mark as read, 'false' for unread (default: 'true')
         """
         mail_store = state.mail_store
-        try:
-            read_bool = read if isinstance(read, bool) else read.lower() == "true"
-            result = mail_store.mark_read(message_id, read=read_bool)
-            return json.dumps(result)
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error marking read: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in mark_mail_read")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        read_bool = read if isinstance(read, bool) else read.lower() == "true"
+        result = mail_store.mark_read(message_id, read=read_bool)
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def mark_mail_flagged(message_id: str, flagged: str = "true") -> str:
         """Mark a message as flagged or unflagged.
 
@@ -140,17 +114,12 @@ def register(mcp, state):
             flagged: Set to 'true' to flag, 'false' to unflag (default: 'true')
         """
         mail_store = state.mail_store
-        try:
-            flagged_bool = flagged if isinstance(flagged, bool) else flagged.lower() == "true"
-            result = mail_store.mark_flagged(message_id, flagged=flagged_bool)
-            return json.dumps(result)
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error marking flagged: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in mark_mail_flagged")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        flagged_bool = flagged if isinstance(flagged, bool) else flagged.lower() == "true"
+        result = mail_store.mark_flagged(message_id, flagged=flagged_bool)
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def move_mail_message(message_id: str, target_mailbox: str, target_account: str = "") -> str:
         """Move a message to a different mailbox.
 
@@ -160,16 +129,11 @@ def register(mcp, state):
             target_account: Destination account name (uses first account if empty)
         """
         mail_store = state.mail_store
-        try:
-            result = mail_store.move_message(message_id, target_mailbox=target_mailbox, target_account=target_account)
-            return json.dumps(result)
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error moving message: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in move_mail_message")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        result = mail_store.move_message(message_id, target_mailbox=target_mailbox, target_account=target_account)
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def reply_to_email(
         message_id: str,
         body: str,
@@ -196,26 +160,21 @@ def register(mcp, state):
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
         mail_store = state.mail_store
-        try:
-            cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
-            bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
-            result = mail_store.reply_message(
-                message_id=message_id,
-                body=body,
-                reply_all=reply_all,
-                cc=cc_list,
-                bcc=bcc_list,
-                html_body=html_body or None,
-                confirm_send=confirm_send,
-            )
-            return json.dumps(result)
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error replying: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in reply_to_email")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
+        bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
+        result = mail_store.reply_message(
+            message_id=message_id,
+            body=body,
+            reply_all=reply_all,
+            cc=cc_list,
+            bcc=bcc_list,
+            html_body=html_body or None,
+            confirm_send=confirm_send,
+        )
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Mail error", expected=_MAIL_EXPECTED)
     async def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", html_body: str = "", confirm_send: bool = False) -> str:
         """Compose and send an email. REQUIRES confirm_send=True after user explicitly confirms they want to send.
 
@@ -231,25 +190,19 @@ def register(mcp, state):
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
         mail_store = state.mail_store
-        try:
-            to_list = [addr.strip() for addr in to.split(",") if addr.strip()]
-            cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
-            bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
-            result = mail_store.send_message(
-                to=to_list,
-                subject=subject,
-                body=body,
-                cc=cc_list,
-                bcc=bcc_list,
-                html_body=html_body or None,
-                confirm_send=confirm_send,
-            )
-            return json.dumps(result)
-        except (OSError, subprocess.SubprocessError, TimeoutError) as e:
-            return json.dumps({"error": f"Mail error sending email: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in send_email")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        to_list = [addr.strip() for addr in to.split(",") if addr.strip()]
+        cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
+        bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
+        result = mail_store.send_message(
+            to=to_list,
+            subject=subject,
+            body=body,
+            cc=cc_list,
+            bcc=bcc_list,
+            html_body=html_body or None,
+            confirm_send=confirm_send,
+        )
+        return json.dumps(result)
 
     # Expose tool functions at module level for testing
     import sys

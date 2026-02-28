@@ -6,7 +6,11 @@ import sqlite3
 
 from tools import lifecycle as lifecycle_tools
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-mcp")
+
+_EXPECTED = (ValueError, KeyError, sqlite3.OperationalError)
 
 
 def _format_delegations(results):
@@ -69,6 +73,7 @@ def register(mcp, state):
     # --- Decision Log Tools ---
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def create_decision(
         title: str,
         description: str = "",
@@ -93,28 +98,23 @@ def register(mcp, state):
             tags: Comma-separated tags for categorization
             source: Where the decision was made (e.g. meeting name, email)
         """
-        try:
-            memory_store = state.memory_store
-            result = lifecycle_tools.create_decision(
-                memory_store,
-                title=title,
-                description=description,
-                context=context,
-                decided_by=decided_by,
-                owner=owner,
-                status=status,
-                follow_up_date=follow_up_date,
-                tags=tags,
-                source=source,
-            )
-            return json.dumps(result)
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in create_decision")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        result = lifecycle_tools.create_decision(
+            memory_store,
+            title=title,
+            description=description,
+            context=context,
+            decided_by=decided_by,
+            owner=owner,
+            status=status,
+            follow_up_date=follow_up_date,
+            tags=tags,
+            source=source,
+        )
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def search_decisions(query: str = "", status: str = "") -> str:
         """Search decisions by text and/or filter by status.
 
@@ -122,16 +122,11 @@ def register(mcp, state):
             query: Text to search in title, description, and tags
             status: Filter by decision status (e.g. pending_execution, executed, deferred)
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.search_decisions(memory_store, query=query, status=status))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in search_decisions")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.search_decisions(memory_store, query=query, status=status))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def update_decision(decision_id: int, status: str = "", notes: str = "") -> str:
         """Update a decision's status or add notes.
 
@@ -140,47 +135,32 @@ def register(mcp, state):
             status: New status value
             notes: Additional notes to append to the description
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.update_decision(memory_store, decision_id=decision_id, status=status, notes=notes))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in update_decision")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.update_decision(memory_store, decision_id=decision_id, status=status, notes=notes))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def list_pending_decisions() -> str:
         """List all decisions with status 'pending_execution'."""
-        try:
-            memory_store = state.memory_store
-            result = lifecycle_tools.list_pending_decisions(memory_store)
-            return json.dumps(_format_decisions(result))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in list_pending_decisions")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        result = lifecycle_tools.list_pending_decisions(memory_store)
+        return json.dumps(_format_decisions(result))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def delete_decision(decision_id: int) -> str:
         """Delete a decision by ID.
 
         Args:
             decision_id: The ID of the decision to delete
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.delete_decision(memory_store, decision_id=decision_id))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in delete_decision")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.delete_decision(memory_store, decision_id=decision_id))
 
     # --- Delegation Tracker Tools ---
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def create_delegation(
         task: str,
         delegated_to: str,
@@ -199,25 +179,20 @@ def register(mcp, state):
             priority: Priority level (low, medium, high, critical)
             source: Where the delegation originated
         """
-        try:
-            memory_store = state.memory_store
-            result = lifecycle_tools.create_delegation(
-                memory_store,
-                task=task,
-                delegated_to=delegated_to,
-                description=description,
-                due_date=due_date,
-                priority=priority,
-                source=source,
-            )
-            return json.dumps(result)
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in create_delegation")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        result = lifecycle_tools.create_delegation(
+            memory_store,
+            task=task,
+            delegated_to=delegated_to,
+            description=description,
+            due_date=due_date,
+            priority=priority,
+            source=source,
+        )
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def list_delegations(status: str = "", delegated_to: str = "") -> str:
         """List delegations with optional filters.
 
@@ -225,17 +200,12 @@ def register(mcp, state):
             status: Filter by status (active, completed, cancelled)
             delegated_to: Filter by who the task is delegated to
         """
-        try:
-            memory_store = state.memory_store
-            result = lifecycle_tools.list_delegations(memory_store, status=status, delegated_to=delegated_to)
-            return json.dumps(_format_delegations(result))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in list_delegations")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        result = lifecycle_tools.list_delegations(memory_store, status=status, delegated_to=delegated_to)
+        return json.dumps(_format_delegations(result))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def update_delegation(delegation_id: int, status: str = "", notes: str = "") -> str:
         """Update a delegation's status or add notes.
 
@@ -244,46 +214,31 @@ def register(mcp, state):
             status: New status value (active, completed, cancelled)
             notes: Additional notes
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.update_delegation(memory_store, delegation_id=delegation_id, status=status, notes=notes))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in update_delegation")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.update_delegation(memory_store, delegation_id=delegation_id, status=status, notes=notes))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def check_overdue_delegations() -> str:
         """Return all active delegations that are past their due date."""
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.check_overdue_delegations(memory_store))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in check_overdue_delegations")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.check_overdue_delegations(memory_store))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def delete_delegation(delegation_id: int) -> str:
         """Delete a delegation by ID.
 
         Args:
             delegation_id: The ID of the delegation to delete
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.delete_delegation(memory_store, delegation_id=delegation_id))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in delete_delegation")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.delete_delegation(memory_store, delegation_id=delegation_id))
 
     # --- Alert Tools ---
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def create_alert_rule(
         name: str,
         alert_type: str,
@@ -300,68 +255,47 @@ def register(mcp, state):
             condition: Machine-readable condition expression
             enabled: Whether the rule is active (default: True)
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(
-                lifecycle_tools.create_alert_rule(
-                    memory_store,
-                    name=name,
-                    alert_type=alert_type,
-                    description=description,
-                    condition=condition,
-                    enabled=enabled,
-                )
+        memory_store = state.memory_store
+        return json.dumps(
+            lifecycle_tools.create_alert_rule(
+                memory_store,
+                name=name,
+                alert_type=alert_type,
+                description=description,
+                condition=condition,
+                enabled=enabled,
             )
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in create_alert_rule")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        )
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def list_alert_rules(enabled_only: bool = False) -> str:
         """List all alert rules.
 
         Args:
             enabled_only: If True, only return enabled rules
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.list_alert_rules(memory_store, enabled_only=enabled_only))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in list_alert_rules")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.list_alert_rules(memory_store, enabled_only=enabled_only))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def check_alerts() -> str:
         """Run alert checks: overdue delegations, stale pending decisions (>7 days), and upcoming deadlines (within 3 days)."""
-        try:
-            memory_store = state.memory_store
-            result = lifecycle_tools.check_alerts(memory_store)
-            return json.dumps(_format_alerts(result))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in check_alerts")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        result = lifecycle_tools.check_alerts(memory_store)
+        return json.dumps(_format_alerts(result))
 
     @mcp.tool()
+    @tool_errors("Lifecycle error", expected=_EXPECTED)
     async def dismiss_alert(rule_id: int) -> str:
         """Disable an alert rule so it no longer triggers.
 
         Args:
             rule_id: The ID of the alert rule to disable
         """
-        try:
-            memory_store = state.memory_store
-            return json.dumps(lifecycle_tools.dismiss_alert(memory_store, rule_id=rule_id))
-        except (ValueError, KeyError, sqlite3.OperationalError) as e:
-            return json.dumps({"error": f"Lifecycle error: {e}"})
-        except Exception as e:
-            logger.exception("Unexpected error in dismiss_alert")
-            return json.dumps({"error": f"Unexpected error: {e}"})
+        memory_store = state.memory_store
+        return json.dumps(lifecycle_tools.dismiss_alert(memory_store, rule_id=rule_id))
 
 
     # Expose tool functions at module level for testing

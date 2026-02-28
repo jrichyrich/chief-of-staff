@@ -424,7 +424,8 @@ class TestReplyToEmailTool:
         data = json.loads(result)
 
         assert "error" in data
-        assert "Mail connection lost" in data["error"]
+        assert "RuntimeError" in data["error"]
+        assert "Mail connection lost" not in data["error"]  # sanitized
 
     @pytest.mark.asyncio
     async def test_reply_with_html_body(self, mail_state):
@@ -574,7 +575,8 @@ class TestMailToolErrorHandling:
         data = json.loads(result)
 
         assert "error" in data
-        assert "Connection failed" in data["error"]
+        assert "RuntimeError" in data["error"]
+        assert "Connection failed" not in data["error"]  # sanitized
 
     @pytest.mark.asyncio
     async def test_get_messages_exception(self, mail_state):
@@ -586,7 +588,7 @@ class TestMailToolErrorHandling:
         data = json.loads(result)
 
         assert "error" in data
-        assert "Unexpected" in data["error"]
+        assert "Unexpected error (RuntimeError)" in data["error"]
 
     @pytest.mark.asyncio
     async def test_search_exception(self, mail_state):
@@ -598,4 +600,5 @@ class TestMailToolErrorHandling:
         data = json.loads(result)
 
         assert "error" in data
-        assert "Search broke" in data["error"]
+        assert "RuntimeError" in data["error"]
+        assert "Search broke" not in data["error"]  # sanitized

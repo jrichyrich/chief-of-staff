@@ -84,6 +84,36 @@ class ScheduleType(StrEnum):
     once = "once"
 
 
+class FactCategory(StrEnum):
+    personal = "personal"
+    preference = "preference"
+    work = "work"
+    relationship = "relationship"
+    backlog = "backlog"
+
+
+class AgentMemoryType(StrEnum):
+    insight = "insight"
+    preference = "preference"
+    context = "context"
+
+
+class IdentityProvider(StrEnum):
+    imessage = "imessage"
+    email = "email"
+    m365_teams = "m365_teams"
+    m365_email = "m365_email"
+    slack = "slack"
+    jira = "jira"
+    confluence = "confluence"
+
+
+class AlertType(StrEnum):
+    overdue_delegation = "overdue_delegation"
+    pending_decision = "pending_decision"
+    upcoming_deadline = "upcoming_deadline"
+
+
 @dataclass
 class Fact:
     category: str
@@ -126,7 +156,7 @@ class Decision:
     alternatives_considered: str = ""
     decided_by: str = ""
     owner: str = ""
-    status: str = DecisionStatus.pending_execution
+    status: DecisionStatus = DecisionStatus.pending_execution
     follow_up_date: Optional[str] = None
     tags: str = ""
     source: str = ""
@@ -142,8 +172,8 @@ class Delegation:
     description: str = ""
     delegated_by: str = ""
     due_date: Optional[str] = None
-    priority: str = DelegationPriority.medium
-    status: str = DelegationStatus.active
+    priority: DelegationPriority = DelegationPriority.medium
+    status: DelegationStatus = DelegationStatus.active
     source: str = ""
     notes: str = ""
     id: Optional[int] = None
@@ -168,7 +198,7 @@ class WebhookEvent:
     source: str
     event_type: str
     payload: str = ""
-    status: str = WebhookStatus.pending
+    status: WebhookStatus = WebhookStatus.pending
     id: Optional[int] = None
     received_at: Optional[str] = None
     processed_at: Optional[str] = None
@@ -177,16 +207,16 @@ class WebhookEvent:
 @dataclass
 class ScheduledTask:
     name: str
-    schedule_type: str  # ScheduleType: interval, cron, once
+    schedule_type: ScheduleType  # interval, cron, once
     schedule_config: str = ""  # JSON string
-    handler_type: str = ""  # HandlerType: alert_eval, webhook_poll, custom, etc.
+    handler_type: HandlerType = HandlerType.custom
     handler_config: str = ""  # JSON string
     description: str = ""
     enabled: bool = True
     last_run_at: Optional[str] = None
     next_run_at: Optional[str] = None
     last_result: Optional[str] = None
-    delivery_channel: Optional[str] = None  # DeliveryChannel: email, imessage, notification, or None
+    delivery_channel: Optional[DeliveryChannel] = None
     delivery_config: Optional[dict] = None  # channel-specific JSON config
     id: Optional[int] = None
     created_at: Optional[str] = None
@@ -209,7 +239,7 @@ class SkillSuggestion:
     suggested_name: str = ""
     suggested_capabilities: str = ""
     confidence: float = 0.0
-    status: str = SkillSuggestionStatus.pending
+    status: SkillSuggestionStatus = SkillSuggestionStatus.pending
     id: Optional[int] = None
     created_at: Optional[str] = None
 

@@ -20,7 +20,8 @@ DEFAULT_MODEL_TIER = "sonnet"
 
 AGENT_TIMEOUT_SECONDS = 60
 MAX_TOOL_ROUNDS = 25
-VALID_FACT_CATEGORIES = {"personal", "preference", "work", "relationship", "backlog"}
+from memory.models import FactCategory
+VALID_FACT_CATEGORIES = frozenset(FactCategory)
 
 SHAREPOINT_DOWNLOAD_DIR = DATA_DIR / "sharepoint-downloads"
 OKR_DATA_DIR = DATA_DIR / "okr"

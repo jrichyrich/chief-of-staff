@@ -468,4 +468,6 @@ class TestCalendarToolErrorHandling:
         data = json.loads(result)
 
         assert "error" in data
-        assert "Connection failed" in data["error"]
+        assert "RuntimeError" in data["error"]
+        # Sanitized: no internal details leaked, only exception type name
+        assert "Connection failed" not in data["error"]

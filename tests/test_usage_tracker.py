@@ -114,10 +114,9 @@ class TestUsageTracker:
 
         mcp_server._state.memory_store = None
         try:
-            # list_locations will fail (needs memory_store), but the
-            # tracker wrapper itself should not be the cause of failure
-            with pytest.raises(Exception):
-                await mcp_server.mcp.call_tool("list_locations", {})
+            # list_locations will return an error JSON (caught by @tool_errors),
+            # but the tracker wrapper itself should not be the cause of failure
+            result = await mcp_server.mcp.call_tool("list_locations", {})
 
             # Verify nothing was recorded
             patterns = memory_store.get_skill_usage_patterns()
