@@ -1,12 +1,36 @@
 # Architecture
 
-This document provides visual architecture diagrams for the Chief of Staff (Jarvis) system using Mermaid.
+This document provides a comprehensive architectural overview of the Chief of Staff (Jarvis) system with Mermaid diagrams for visual reference.
+
+---
+
+## Table of Contents
+
+1. [System Architecture](#1-system-architecture)
+2. [Request Flow](#2-request-flow)
+3. [Data Model](#3-data-model)
+4. [Agent Execution](#4-agent-execution)
+5. [Unified Calendar System](#5-unified-calendar-system)
+6. [Scheduler and Daemon](#6-scheduler-and-daemon)
+7. [Webhook and Event-Driven Dispatch](#7-webhook-and-event-driven-dispatch)
+8. [Session Management](#8-session-management)
+9. [Channel Routing](#9-channel-routing)
+10. [Self-Authoring Skills](#10-self-authoring-skills)
+11. [Proactive Suggestion Engine](#11-proactive-suggestion-engine)
+12. [Identity Linking](#12-identity-linking)
+13. [Plugin Hooks](#13-plugin-hooks)
+14. [Person Enrichment](#14-person-enrichment)
+15. [Teams Browser Integration](#15-teams-browser-integration)
+16. [iMessage Inbox Monitor](#16-imessage-inbox-monitor)
+17. [Team Playbooks](#17-team-playbooks)
+18. [Delivery System](#18-delivery-system)
+19. [Humanizer](#19-humanizer)
 
 ---
 
 ## 1. System Architecture
 
-High-level component map showing all modules, data stores, platform integrations, and their interconnections. Arrows indicate data flow direction.
+High-level component map showing all modules, data stores, platform integrations, and their interconnections.
 
 ```mermaid
 graph TB
@@ -14,19 +38,22 @@ graph TB
     subgraph Clients["Clients"]
         CC["Claude Code"]
         CD["Claude Desktop"]
-        IM["iMessage<br/>(inbox-monitor.sh)"]
+        IM["iMessage<br/>(inbox-monitor)"]
+        DAEMON["JarvisDaemon<br/>(scheduler/daemon.py)"]
     end
 
     %% ── MCP Server ──────────────────────────────────────────────
-    subgraph MCP["MCP Server"]
+    subgraph MCP["MCP Server (mcp_server.py)"]
         direction TB
-        EP["mcp_server.py<br/><i>FastMCP entry point</i>"]
+        EP["FastMCP Entry Point<br/><i>stdio JSON-RPC transport</i>"]
         SS["ServerState<br/><i>mcp_tools/state.py</i>"]
+        UT["UsageTracker<br/><i>call_tool middleware</i>"]
         EP -->|populates| SS
+        EP -->|installs| UT
     end
 
     %% ── Tool Modules ────────────────────────────────────────────
-    subgraph Tools["Tool Modules  (105 tools + 3 resources)"]
+    subgraph Tools["Tool Modules (112 tools + 4 resources)"]
         direction TB
         TM["memory_tools<br/><i>7 tools</i>"]
         TD["document_tools<br/><i>2 tools</i>"]
@@ -35,10 +62,10 @@ graph TB
         TC["calendar_tools<br/><i>8 tools</i>"]
         TR["reminder_tools<br/><i>6 tools</i>"]
         TMA["mail_tools<br/><i>10 tools</i>"]
-        TI["imessage_tools<br/><i>7 tools</i>"]
-        TO["okr_tools<br/><i>2 tools</i>"]
+        TI["imessage_tools<br/><i>6 tools</i>"]
+        TO["okr_tools<br/><i>3 tools</i>"]
         TWH["webhook_tools<br/><i>3 tools</i>"]
-        TSK["skill_tools<br/><i>5 tools</i>"]
+        TSK["skill_tools<br/><i>6 tools</i>"]
         TSCHED["scheduler_tools<br/><i>6 tools</i>"]
         TCH["channel_tools<br/><i>2 tools</i>"]
         TPR["proactive_tools<br/><i>2 tools</i>"]
@@ -50,104 +77,93 @@ graph TB
         TRT["routing_tools<br/><i>1 tool</i>"]
         TBR["brain_tools<br/><i>2 tools</i>"]
         TPB["playbook_tools<br/><i>2 tools</i>"]
-        TRES["resources<br/><i>3 resources</i>"]
+        TFM["formatter_tools<br/><i>4 tools</i>"]
+        TDP["dispatch_tools<br/><i>1 tool</i>"]
+        TSP["sharepoint_tools<br/><i>1 tool</i>"]
+        TRES["resources<br/><i>4 resources</i>"]
     end
 
     %% ── Data Stores ─────────────────────────────────────────────
     subgraph DataStores["Data Stores"]
-        MS["MemoryStore<br/><i>SQLite (memory.db)</i><br/>facts, locations, context,<br/>decisions, delegations, alerts,<br/>event_rules, identities,<br/>webhook_events, scheduled_tasks,<br/>skill_usage, agent_memory"]
-        DS["DocumentStore<br/><i>ChromaDB (data/chroma/)</i><br/>all-MiniLM-L6-v2 embeddings"]
-        OS["OKRStore<br/><i>JSON (data/okr/)</i><br/>Excel-parsed snapshots"]
-        RDB["OwnershipDB<br/><i>SQLite (calendar-routing.db)</i><br/>event provider tracking"]
+        MS["MemoryStore<br/><i>SQLite (memory.db)</i><br/>14 tables"]
+        DS["DocumentStore<br/><i>ChromaDB (data/chroma/)</i><br/>all-MiniLM-L6-v2"]
+        OS["OKRStore<br/><i>JSON (data/okr/)</i>"]
+        RDB["OwnershipDB<br/><i>SQLite (calendar-routing.db)</i>"]
+        SB["SessionBrain<br/><i>Markdown (session_brain.md)</i>"]
     end
 
     %% ── Agent System ────────────────────────────────────────────
     subgraph AgentSystem["Agent System"]
         direction TB
-        AR["AgentRegistry<br/><i>YAML configs in agent_configs/</i>"]
-        BE["BaseExpertAgent<br/><i>Tool-use loop with Claude API</i>"]
+        AR["AgentRegistry<br/><i>34 YAML configs</i>"]
+        BE["BaseExpertAgent<br/><i>Tool-use loop</i>"]
         AF["AgentFactory<br/><i>Claude-generated configs</i>"]
-        CR["CapabilitiesRegistry<br/><i>34 capabilities, tool gating</i>"]
+        CR["CapabilitiesRegistry<br/><i>34 capabilities</i>"]
+        TR2["Triage<br/><i>Complexity classifier</i>"]
+        LD["LoopDetector<br/><i>Repetition guard</i>"]
         AR --> BE
         AF --> AR
         CR --> BE
+        TR2 --> BE
+        LD --> BE
     end
 
     %% ── Unified Calendar ────────────────────────────────────────
     subgraph Calendar["Unified Calendar"]
         direction TB
         UCS["UnifiedCalendarService<br/><i>Facade + dedup + ownership</i>"]
-        PR["ProviderRouter<br/><i>Read/write routing policy</i>"]
+        PR["ProviderRouter<br/><i>Read/write routing</i>"]
         AP["AppleCalendarProvider"]
-        MP["Microsoft365CalendarProvider"]
+        MP["Microsoft365Provider"]
         UCS --> PR
         PR --> AP
         PR --> MP
     end
 
     %% ── Apple Platform ──────────────────────────────────────────
-    subgraph Apple["Apple Platform Integrations"]
+    subgraph Apple["Apple Platform"]
         direction TB
         ACS["CalendarStore<br/><i>PyObjC EventKit</i>"]
         ARS["ReminderStore<br/><i>PyObjC EventKit</i>"]
-        AMS["MailStore<br/><i>osascript / AppleScript</i>"]
-        MSGS["MessageStore<br/><i>SQLite chat.db + osascript</i><br/><i>guid resolution for group chats</i>"]
+        AMS["MailStore<br/><i>AppleScript</i>"]
+        MSGS["MessageStore<br/><i>chat.db + AppleScript</i>"]
         NOT["Notifier<br/><i>osascript</i>"]
     end
 
-    %% ── Lifecycle ───────────────────────────────────────────────
-    subgraph Lifecycle["Lifecycle Engine"]
+    %% ── Infrastructure ──────────────────────────────────────────
+    subgraph Infra["Infrastructure"]
         direction TB
-        LT["lifecycle.py<br/><i>Decision/delegation/alert ops</i>"]
+        HR["HookRegistry<br/><i>YAML lifecycle hooks</i>"]
+        SM["SessionManager<br/><i>Tracking + flush</i>"]
+        PSE["ProactiveEngine<br/><i>Suggestion generation</i>"]
+        ED["EventDispatcher<br/><i>Agent dispatch</i>"]
+        DL["DeliveryService<br/><i>4 channel adapters</i>"]
+        HM["Humanizer<br/><i>Text post-processing</i>"]
     end
 
     %% ── External Services ───────────────────────────────────────
     subgraph External["External Services"]
-        CLAUDE_API["Claude API<br/><i>Anthropic Messages API</i>"]
-        M365["Microsoft 365<br/><i>via Claude CLI subprocess</i>"]
-        EK["EventKit Framework<br/><i>macOS Calendar + Reminders</i>"]
-        CHATDB["chat.db<br/><i>macOS iMessage database</i>"]
-        CHROMIUM["Chromium Browser<br/><i>Playwright persistent profile</i>"]
+        CLAUDE_API["Claude API<br/><i>Anthropic Messages</i>"]
+        M365["Microsoft 365<br/><i>Claude CLI bridge</i>"]
+        EK["EventKit<br/><i>macOS framework</i>"]
+        CHATDB["chat.db<br/><i>iMessage database</i>"]
+        CHROMIUM["Chromium<br/><i>Playwright browser</i>"]
     end
 
     %% ── Client connections ──────────────────────────────────────
     CC -->|"stdio JSON-RPC"| EP
     CD -->|"stdio JSON-RPC"| EP
-    IM -->|"claude CLI subprocess"| CLAUDE_API
+    IM -->|"claude CLI"| CLAUDE_API
+    DAEMON -->|"direct"| MS
 
-    %% ── Hooks & Session ─────────────────────────────────────────
-    subgraph Hooks["Plugin Hooks"]
-        HR["HookRegistry<br/><i>YAML configs in hooks/</i>"]
-    end
-
-    subgraph Session["Session Management"]
-        SM["SessionManager<br/><i>session/manager.py</i><br/>tracking, extraction, flush"]
-    end
-
-    subgraph Channels["Unified Channels"]
-        direction TB
-        EA["EventRouter<br/><i>channels/router.py</i>"]
-        ADP["Adapters: iMessage,<br/>Mail, Webhook<br/><i>channels/adapter.py</i>"]
-        ADP --> EA
-    end
-
-    subgraph Proactive["Proactive Engine"]
-        PSE["ProactiveSuggestionEngine<br/><i>proactive/engine.py</i>"]
-    end
-
-    subgraph EventDispatch["Event-Driven Dispatch"]
-        ED["EventDispatcher<br/><i>webhook/dispatcher.py</i>"]
-    end
-
-    %% ── Tool module wiring ──────────────────────────────────────
-    SS --> TM & TD & TA & TL & TC & TR & TMA & TI & TO & TWH & TSK & TSCHED & TCH & TPR & TSES & TER & TID & TEN & TTB & TRT & TBR & TPB & TRES
+    %% ── Tool module wiring (via ServerState) ────────────────────
+    SS --> Tools
 
     %% ── Tool to Store connections ───────────────────────────────
     TM --> MS
     TD --> DS
     TA --> AR
-    TL --> LT
-    LT --> MS
+    TL --> MS
     TC --> UCS
     TR --> ARS
     TMA --> AMS & NOT
@@ -156,30 +172,32 @@ graph TB
     TWH --> MS
     TSK --> MS
     TSCHED --> MS
-    TCH --> ADP
+    TCH --> MSGS & AMS & MS
     TPR --> PSE
     PSE --> MS
     TSES --> SM
-    SM --> MS
-    TER --> MS
-    TER --> ED
-    ED --> AR
+    SM --> MS & SB
+    TER --> MS & ED
+    ED --> AR & DL
     TID --> MS
-    TEN --> MS
+    TEN --> MS & MSGS & AMS
     TTB --> CHROMIUM
+    TBR --> SB
+    TDP --> AR & BE
+    TSP --> CHROMIUM
+    DL --> AMS & MSGS & NOT & CHROMIUM
+    DL --> HM
 
-    %% ── Calendar provider to backend ────────────────────────────
+    %% ── Calendar connections ────────────────────────────────────
     AP --> ACS
     ACS --> EK
     MP -->|"ClaudeM365Bridge"| M365
-
-    %% ── Unified calendar to ownership DB ────────────────────────
     UCS --> RDB
 
-    %% ── Agent system to external ────────────────────────────────
+    %% ── Agent to Claude API ─────────────────────────────────────
     BE --> CLAUDE_API
 
-    %% ── Message store to backend ────────────────────────────────
+    %% ── Apple backends ──────────────────────────────────────────
     MSGS --> CHATDB
     ARS --> EK
 
@@ -191,32 +209,33 @@ graph TB
     classDef agent fill:#e17055,stroke:#b33939,color:#fff
     classDef calendar fill:#fdcb6e,stroke:#d4a017,color:#333
     classDef apple fill:#a29bfe,stroke:#6c5ce7,color:#fff
-    classDef lifecycle fill:#fab1a0,stroke:#e17055,color:#333
     classDef external fill:#636e72,stroke:#2d3436,color:#fff
     classDef infra fill:#55efc4,stroke:#00b894,color:#333
 
-    class CC,CD,IM client
-    class EP,SS server
-    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TWH,TSK,TSCHED,TCH,TPR,TSES,TER,TID,TEN,TTB,TRT,TBR,TPB,TRES tool
-    class MS,DS,OS,RDB store
-    class AR,BE,AF,CR agent
+    class CC,CD,IM,DAEMON client
+    class EP,SS,UT server
+    class TM,TD,TA,TL,TC,TR,TMA,TI,TO,TWH,TSK,TSCHED,TCH,TPR,TSES,TER,TID,TEN,TTB,TRT,TBR,TPB,TFM,TDP,TSP,TRES tool
+    class MS,DS,OS,RDB,SB store
+    class AR,BE,AF,CR,TR2,LD agent
     class UCS,PR,AP,MP calendar
     class ACS,ARS,AMS,MSGS,NOT apple
-    class LT lifecycle
     class CLAUDE_API,M365,EK,CHATDB,CHROMIUM external
-    class HR,SM,EA,ADP,PSE,ED infra
+    class HR,SM,PSE,ED,DL,HM infra
 ```
 
 ---
 
 ## 2. Request Flow
 
-How a single MCP tool call flows from client to data store and back.
+### Standard MCP Tool Call
+
+How a single tool call flows from client through the MCP server to a data store and back.
 
 ```mermaid
 sequenceDiagram
     participant Client as Claude Code / Desktop
     participant FastMCP as FastMCP Server
+    participant Tracker as UsageTracker
     participant Handler as Tool Handler<br/>(mcp_tools/*.py)
     participant State as ServerState
     participant Store as Data Store<br/>(SQLite / ChromaDB)
@@ -224,7 +243,11 @@ sequenceDiagram
     Client->>FastMCP: JSON-RPC tool call<br/>(stdio transport)
     activate FastMCP
 
-    FastMCP->>Handler: Route to registered @mcp.tool()
+    FastMCP->>Tracker: Intercept via wrapped call_tool
+    activate Tracker
+    Tracker->>Tracker: Extract query pattern
+
+    Tracker->>Handler: Forward to @mcp.tool() handler
     activate Handler
 
     Handler->>State: Access state.memory_store<br/>or state.calendar_store, etc.
@@ -236,8 +259,12 @@ sequenceDiagram
     deactivate Store
 
     Handler->>Handler: json.dumps(result)
-    Handler-->>FastMCP: JSON string response
+    Handler-->>Tracker: JSON string response
     deactivate Handler
+
+    Tracker->>Tracker: Record invocation<br/>(tool_usage_log table)
+    Tracker-->>FastMCP: Response
+    deactivate Tracker
 
     FastMCP-->>Client: JSON-RPC response
     deactivate FastMCP
@@ -256,21 +283,20 @@ sequenceDiagram
     FastMCP->>Lifespan: Server startup
     activate Lifespan
 
-    Lifespan->>Lifespan: Create MemoryStore (SQLite)
+    Lifespan->>Lifespan: Create MemoryStore (SQLite + ChromaDB)
     Lifespan->>Lifespan: Create DocumentStore (ChromaDB)
     Lifespan->>Lifespan: Create AgentRegistry (YAML)
     Lifespan->>Lifespan: Create CalendarStore (EventKit)
     Lifespan->>Lifespan: Create ClaudeM365Bridge
-    Lifespan->>Lifespan: Create ProviderRouter
-    Lifespan->>Lifespan: Create UnifiedCalendarService
+    Lifespan->>Lifespan: Create ProviderRouter + UnifiedCalendarService
     Lifespan->>Lifespan: Create ReminderStore, MailStore,<br/>MessageStore, OKRStore
     Lifespan->>Lifespan: Create HookRegistry (YAML hooks)
-    Lifespan->>Lifespan: Create SessionManager
+    Lifespan->>Lifespan: Create SessionBrain + SessionManager
 
     Lifespan->>State: Populate all store references
     State-->>Lifespan: Ready
 
-    Lifespan->>Lifespan: Seed default scheduled tasks<br/>(alert_eval, webhook_poll, skill_analysis)
+    Lifespan->>Lifespan: Seed default scheduled tasks<br/>(alert_eval, webhook_poll,<br/>webhook_dispatch, skill_analysis)
     Lifespan->>Lifespan: Fire session_start hooks
 
     Lifespan-->>FastMCP: yield (server running)
@@ -281,161 +307,266 @@ sequenceDiagram
     FastMCP->>Lifespan: Server shutdown
     activate Lifespan
     Lifespan->>Lifespan: Fire session_end hooks
-    Lifespan->>State: Clear all references
+    Lifespan->>State: Reset all references to None
     Lifespan->>Lifespan: memory_store.close()
     deactivate Lifespan
 ```
 
 ---
 
-## 3. iMessage Inbox Monitor Flow
+## 3. Data Model
 
-The `inbox-monitor.sh` script is a cron-driven pipeline that polls iMessage for "jarvis:" commands. It uses three Claude CLI passes for classification, execution, and delivery.
+### SQLite Schema (memory.db)
+
+The MemoryStore manages 14 tables via a facade pattern that delegates to 7 domain stores sharing a single connection and lock.
 
 ```mermaid
-flowchart TD
-    START([Cron trigger / manual run]) --> READ_DB
+erDiagram
+    facts {
+        int id PK
+        text category "personal|preference|work|relationship|backlog"
+        text key "UNIQUE with category"
+        text value
+        real confidence "0.0 to 1.0"
+        text source
+        int pinned "0 or 1"
+        timestamp created_at
+        timestamp updated_at
+    }
 
-    %% ── Message ingestion ───────────────────────────────────────
-    subgraph Ingestion["Message Ingestion"]
-        READ_DB["Read iMessage database<br/><i>imessage-reader binary</i>"]
-        READ_DB --> FILTER["Filter: only 'jarvis:' prefixed<br/>messages in lookback window"]
-        FILTER --> CHECK_GUID{"Already<br/>processed?<br/>(check GUIDs)"}
-        CHECK_GUID -->|Yes| SKIP["Skip message"]
-        CHECK_GUID -->|No| STRIP["Strip 'jarvis:' prefix<br/>to get instruction"]
-    end
+    facts_fts {
+        text key
+        text value
+        text category
+    }
 
-    %% ── Approval check ──────────────────────────────────────────
-    STRIP --> APPROVAL_CMD{"Starts with<br/>'approve' or<br/>'reject'?"}
-    APPROVAL_CMD -->|Yes| HANDLE_APPROVAL["Handle approval/rejection<br/>from pending queue"]
-    APPROVAL_CMD -->|No| PASS1
+    locations {
+        int id PK
+        text name "UNIQUE"
+        text address
+        real latitude
+        real longitude
+        text notes
+        timestamp created_at
+    }
 
-    HANDLE_APPROVAL --> PASS3
+    context {
+        int id PK
+        text session_id
+        text topic
+        text summary
+        text agent
+        timestamp created_at
+    }
 
-    %% ── Pass 1: Classification ──────────────────────────────────
-    subgraph Pass1["Pass 1: Classify"]
-        PASS1["Invoke Claude CLI with<br/>inbox_triage.yaml prompt<br/>+ JSON schema"]
-        PASS1 --> PARSE1["Parse structured output:<br/>category, agent, instruction"]
-    end
+    decisions {
+        int id PK
+        text title
+        text description
+        text context
+        text status "pending_execution|executed|deferred|reversed"
+        text follow_up_date
+        text tags
+        text owner
+        timestamp created_at
+    }
 
-    %% ── Approval gate ───────────────────────────────────────────
-    PARSE1 --> NEEDS_APPROVAL{"Requires hard<br/>approval?<br/>(send, write ops)"}
-    NEEDS_APPROVAL -->|Yes| CREATE_PENDING["Create pending approval<br/>Notify user via iMessage<br/>with approval ID"]
-    CREATE_PENDING --> SAVE_GUID["Save GUID as processed"]
-    NEEDS_APPROVAL -->|No| PASS2
+    delegations {
+        int id PK
+        text task
+        text delegated_to
+        text due_date
+        text priority "low|medium|high|critical"
+        text status "active|completed|cancelled"
+        timestamp created_at
+    }
 
-    %% ── Pass 2: Execution ───────────────────────────────────────
-    subgraph Pass2["Pass 2: Execute"]
-        PASS2{"Named agent<br/>assigned?"}
-        PASS2 -->|Yes| AGENT_DISPATCH["Load agent YAML prompt<br/>Invoke Claude CLI with<br/>connector routing policy"]
-        PASS2 -->|No| INLINE["Handle inline:<br/>REMEMBER, TODO, NOTE,<br/>SEARCH, LOCATION"]
-        AGENT_DISPATCH --> PARSE2
-        INLINE --> PARSE2
-        PARSE2["Parse execution result:<br/>action_taken, success,<br/>provider_used, fallback_used"]
-    end
+    alert_rules {
+        int id PK
+        text name "UNIQUE"
+        text alert_type
+        text condition "JSON"
+        int enabled "0 or 1"
+        timestamp last_triggered_at
+    }
 
-    %% ── Provider validation ─────────────────────────────────────
-    PARSE2 --> VALIDATE{"Provider routing<br/>validation OK?"}
-    VALIDATE -->|No| LOG_ERROR["Log routing violation<br/>Mark as failed"]
-    VALIDATE -->|Yes| PASS3
+    webhook_events {
+        int id PK
+        text source
+        text event_type
+        text payload "JSON"
+        text status "pending|processed|failed"
+        timestamp received_at
+    }
 
-    %% ── Pass 3: Delivery ────────────────────────────────────────
-    subgraph Pass3["Pass 3: Deliver"]
-        PASS3["Determine delivery mode"]
-        PASS3 --> EMAIL{"Email<br/>requested?"}
-        EMAIL -->|Yes| SEND_EMAIL["Draft email via<br/>Claude CLI + send_email"]
-        EMAIL -->|No| IMSG{"iMessage<br/>reply?"}
-        IMSG -->|Yes| SEND_IMSG["Send iMessage reply<br/>via osascript"]
-        IMSG -->|No| NOTIFY["Send macOS notification<br/>+ create Reminder"]
-    end
+    event_rules {
+        int id PK
+        text name "UNIQUE"
+        text event_source
+        text event_type_pattern
+        text agent_name
+        text agent_input_template
+        text delivery_channel
+        int priority
+    }
 
-    SEND_EMAIL --> UPDATE
-    SEND_IMSG --> UPDATE
-    NOTIFY --> UPDATE
-    LOG_ERROR --> UPDATE
+    scheduled_tasks {
+        int id PK
+        text name "UNIQUE"
+        text schedule_type "interval|cron|once"
+        text schedule_config "JSON"
+        text handler_type
+        text handler_config "JSON"
+        int enabled
+        timestamp next_run_at
+        timestamp last_run_at
+        text delivery_channel
+    }
 
-    %% ── Bookkeeping ─────────────────────────────────────────────
-    subgraph Bookkeeping["Bookkeeping"]
-        UPDATE["Append to routing audit log"]
-        UPDATE --> SAVE_GUID2["Save GUID as processed"]
-        SAVE_GUID2 --> LOG_ENTRY["Append to inbox-log.md"]
-    end
+    skill_usage {
+        int id PK
+        text tool_name
+        text query_pattern "UNIQUE with tool_name"
+        int count
+        timestamp last_used
+    }
 
-    %% ── Styling ─────────────────────────────────────────────────
-    classDef pass1 fill:#6c5ce7,stroke:#4834d4,color:#fff
-    classDef pass2 fill:#e17055,stroke:#b33939,color:#fff
-    classDef pass3 fill:#00b894,stroke:#00816a,color:#fff
-    classDef approval fill:#fdcb6e,stroke:#d4a017,color:#333
-    classDef bookkeeping fill:#636e72,stroke:#2d3436,color:#fff
+    tool_usage_log {
+        int id PK
+        text tool_name
+        text query_pattern
+        int success
+        int duration_ms
+        text session_id
+        timestamp created_at
+    }
 
-    class PASS1,PARSE1 pass1
-    class PASS2,AGENT_DISPATCH,INLINE,PARSE2 pass2
-    class PASS3,EMAIL,SEND_EMAIL,IMSG,SEND_IMSG,NOTIFY pass3
-    class APPROVAL_CMD,HANDLE_APPROVAL,NEEDS_APPROVAL,CREATE_PENDING approval
-    class UPDATE,SAVE_GUID2,LOG_ENTRY bookkeeping
+    skill_suggestions {
+        int id PK
+        text description
+        text suggested_name
+        real confidence
+        text status "pending|accepted|rejected"
+    }
+
+    agent_memory {
+        int id PK
+        text agent_name
+        text memory_type "insight|preference|context"
+        text key "UNIQUE with agent_name+memory_type"
+        text value
+        real confidence
+        text namespace
+    }
+
+    identities {
+        int id PK
+        text canonical_name
+        text provider "UNIQUE with provider_id"
+        text provider_id
+        text display_name
+        text email
+    }
 ```
 
-### Three-Pass Summary
+### MemoryStore Facade Pattern
 
-| Pass | Purpose | Claude Model | Input | Output |
-|------|---------|-------------|-------|--------|
-| **Pass 1** | Classify message intent | Sonnet | Triage prompt + instruction | `{category, agent, instruction}` |
-| **Pass 2** | Execute via agent or inline | Sonnet | Agent/inline prompt + routing policy | `{action_taken, success, provider_used}` |
-| **Pass 3** | Deliver result to user | Sonnet | Delivery prompt + result text | Email, iMessage reply, or notification |
+```mermaid
+graph TB
+    MS["MemoryStore<br/><i>Facade</i>"]
+
+    FS["FactStore<br/><i>facts, locations, context</i><br/><i>FTS5 + vector search</i>"]
+    LS["LifecycleStore<br/><i>decisions, delegations, alert_rules</i>"]
+    WS["WebhookStore<br/><i>webhook_events, event_rules</i>"]
+    SS["SchedulerStore<br/><i>scheduled_tasks</i>"]
+    SKS["SkillStore<br/><i>skill_usage, tool_usage_log,<br/>skill_suggestions</i>"]
+    AMS["AgentMemoryStore<br/><i>agent_memory (private + shared)</i>"]
+    IS["IdentityStore<br/><i>identities</i>"]
+
+    CONN["SQLite Connection<br/><i>WAL mode, busy_timeout=30s</i>"]
+    LOCK["RLock<br/><i>Thread-safe writes</i>"]
+
+    MS --> FS & LS & WS & SS & SKS & AMS & IS
+    FS & LS & WS & SS & SKS & AMS & IS --> CONN
+    FS & LS & WS & SS & SKS & AMS & IS --> LOCK
+
+    classDef facade fill:#e17055,stroke:#b33939,color:#fff
+    classDef store fill:#6c5ce7,stroke:#4834d4,color:#fff
+    classDef infra fill:#636e72,stroke:#2d3436,color:#fff
+
+    class MS facade
+    class FS,LS,WS,SS,SKS,AMS,IS store
+    class CONN,LOCK infra
+```
 
 ---
 
 ## 4. Agent Execution
 
+### Tool-Use Loop
+
 The `BaseExpertAgent` runs an autonomous tool-use loop with the Claude API. Each agent is gated by the capabilities declared in its YAML config.
 
 ```mermaid
 sequenceDiagram
-    participant Caller as MCP Tool / Script
+    participant Caller as Caller<br/>(dispatch_tools, event_rule_tools)
     participant Agent as BaseExpertAgent
     participant CapReg as CapabilitiesRegistry
+    participant Hooks as HookRegistry
     participant Claude as Claude API
-    participant ToolExec as Tool Executor<br/>(memory, calendar, mail, etc.)
+    participant Dispatch as Dispatch Table
 
     Caller->>Agent: agent.execute(task)
     activate Agent
 
-    Agent->>CapReg: get_tools_for_capabilities(<br/>config.capabilities)
+    Agent->>CapReg: get_tools_for_capabilities(config.capabilities)
     CapReg-->>Agent: Filtered tool schemas
 
-    Agent->>Agent: Build system prompt<br/>from agent YAML config
+    Agent->>Agent: Build system prompt<br/>(YAML prompt + agent memory<br/>+ shared namespaces + date)
 
     loop Tool-use loop (max 25 rounds)
-        Agent->>Claude: messages.create(<br/>  system=prompt,<br/>  messages=conversation,<br/>  tools=filtered_schemas)
+        Agent->>Claude: messages.create(system, messages, tools)
         activate Claude
+        Note over Agent,Claude: retry_api_call decorator:<br/>3 retries with exponential backoff
         Claude-->>Agent: Response
         deactivate Claude
 
         alt stop_reason == "tool_use"
-            Agent->>Agent: Extract tool_use blocks
+            Agent->>Agent: LoopDetector.record(name, args)
 
-            loop For each tool call
-                Agent->>ToolExec: _handle_tool_call(name, input)
-                activate ToolExec
-                ToolExec-->>Agent: Result dict
-                deactivate ToolExec
+            alt Loop detected (break signal)
+                Agent-->>Caller: AgentResult(status=loop_detected)
             end
 
-            Agent->>Agent: Append assistant + tool_results<br/>to conversation
+            loop For each tool_use block
+                Agent->>Hooks: fire before_tool_call
+                Hooks-->>Agent: Optional arg transforms
+
+                Agent->>Agent: Check capability boundary
+                alt Tool not in allowed set
+                    Agent->>Agent: Return error dict
+                else Tool allowed
+                    Agent->>Dispatch: _dispatch_tool(name, input)
+                    Dispatch-->>Agent: Result dict
+                end
+
+                Agent->>Hooks: fire after_tool_call
+            end
+
+            Agent->>Agent: Append to conversation
             Note over Agent: Continue loop
 
         else stop_reason == "end_turn"
-            Agent->>Agent: Extract text response
-            Agent-->>Caller: Final text response
+            Agent-->>Caller: AgentResult(status=success, text)
         end
     end
 
+    Note over Agent: Max rounds reached
+    Agent-->>Caller: AgentResult(status=max_rounds_reached)
     deactivate Agent
 ```
 
 ### Capability Gating
-
-Agents only receive tool schemas matching their declared capabilities. This prevents an agent from accessing tools outside its scope.
 
 ```mermaid
 graph LR
@@ -443,7 +574,7 @@ graph LR
         CAP["capabilities:<br/>- memory_read<br/>- calendar_read<br/>- mail_read"]
     end
 
-    subgraph CapRegistry["Capabilities Registry"]
+    subgraph CapRegistry["Capabilities Registry (34 capabilities)"]
         C1["memory_read<br/><i>query_memory</i>"]
         C2["calendar_read<br/><i>get_calendar_events</i><br/><i>search_calendar_events</i>"]
         C3["mail_read<br/><i>get_mail_messages</i><br/><i>get_mail_message</i><br/><i>search_mail</i><br/><i>get_unread_count</i>"]
@@ -473,6 +604,25 @@ graph LR
     class T1,T2,T3,T4,T5,T6,T7 tool
 ```
 
+### Dynamic Complexity Triage
+
+Before dispatching an agent, a lightweight Haiku pre-call classifies task complexity. Simple tasks get downgraded to the Haiku model tier for cost savings.
+
+```mermaid
+flowchart TD
+    START["Agent dispatch requested"] --> CHECK_TIER{"Agent model<br/>== haiku or opus?"}
+    CHECK_TIER -->|Yes| SKIP["Skip triage<br/>(already cheapest or reserved)"]
+    CHECK_TIER -->|No| CLASSIFY["Haiku pre-call:<br/>classify_complexity()"]
+    CLASSIFY --> RESULT{"Classification?"}
+    RESULT -->|simple| DOWNGRADE["Downgrade to haiku tier<br/>(copy config, override model)"]
+    RESULT -->|standard| KEEP["Keep original model tier"]
+    RESULT -->|complex| KEEP
+    RESULT -->|error| KEEP
+    SKIP --> EXECUTE["Execute agent"]
+    DOWNGRADE --> EXECUTE
+    KEEP --> EXECUTE
+```
+
 ### Capabilities Reference
 
 | Capability | Tools | Status |
@@ -486,6 +636,7 @@ graph LR
 | `notifications` | send_notification | Implemented |
 | `mail_read` | get_mail_messages, get_mail_message, search_mail, get_unread_count | Implemented |
 | `mail_write` | send_email, mark_mail_read, mark_mail_flagged, move_mail_message | Implemented |
+| `teams_write` | open_teams_browser, post_teams_message, confirm_teams_post, cancel_teams_post, close_teams_browser | Implemented |
 | `decision_read` | search_decisions, list_pending_decisions | Implemented |
 | `decision_write` | create_decision, update_decision, delete_decision | Implemented |
 | `delegation_read` | list_delegations, check_overdue_delegations | Implemented |
@@ -514,496 +665,487 @@ graph LR
 
 ---
 
-## 5. Webhook Ingest System
+## 5. Unified Calendar System
 
-External automations (CI/CD pipelines, monitoring, third-party services) push events into Jarvis by dropping JSON files into a file-drop inbox directory (`data/webhook-inbox/` by default, controlled by `WEBHOOK_INBOX_DIR`).
+The unified calendar routes operations across Apple Calendar (EventKit) and Microsoft 365 (via Claude CLI bridge), with provider-specific routing, event deduplication, and ownership tracking.
 
-### Components
+```mermaid
+flowchart TD
+    TOOL["calendar_tools.py<br/>(MCP tool handler)"] --> UCS["UnifiedCalendarService"]
 
-| Module | Purpose |
-|--------|---------|
-| `webhook/ingest.py` | CLI that scans the inbox, validates JSON payloads, and stores them to the `webhook_events` table |
-| `webhook/receiver.py` | Standalone entry point (`python -m webhook.receiver`) for running ingestion outside the MCP server |
-| `webhook/dispatcher.py` | `EventDispatcher` — matches webhook events against event rules and dispatches to expert agents |
-| `mcp_tools/webhook_tools.py` | MCP tools (`list_webhook_events`, `get_webhook_event`, `process_webhook_event`) for querying and processing queued events |
-| `mcp_tools/event_rule_tools.py` | MCP tools for event rules and agent dispatch (`create_event_rule`, `update_event_rule`, `delete_event_rule`, `list_event_rules`, `process_webhook_event_with_agents`) |
-| `memory/store.py` | SQLite `webhook_events` and `event_rules` tables |
+    UCS --> ROUTER["ProviderRouter"]
 
-### Flow
+    ROUTER --> DECIDE{"decide_read() or<br/>decide_write()"}
 
+    DECIDE -->|"provider_preference=auto"| BOTH["Query both providers"]
+    DECIDE -->|"provider_preference=apple"| APPLE_ONLY["Apple preferred,<br/>M365 fallback"]
+    DECIDE -->|"provider_preference=microsoft_365"| M365_ONLY["M365 preferred,<br/>Apple fallback"]
+    DECIDE -->|"provider_preference=both"| BOTH
+
+    BOTH --> APPLE["AppleCalendarProvider<br/><i>CalendarStore (EventKit)</i>"]
+    BOTH --> M365["Microsoft365Provider<br/><i>ClaudeM365Bridge</i>"]
+    APPLE_ONLY --> APPLE
+    M365_ONLY --> M365
+
+    APPLE --> TAG["Tag events with provider"]
+    M365 --> TAG
+
+    TAG --> DEDUP["Deduplicate by iCal UID<br/>or title+start+end fallback"]
+    DEDUP --> FILTER["Apply source_filter"]
+    FILTER --> OWNERSHIP["Upsert ownership<br/>to calendar-routing.db"]
+    OWNERSHIP --> RETURN["Return events"]
+
+    subgraph WriteFlow["Write Operations"]
+        WRITE_REQ["create/update/delete"] --> RESOLVE["_resolve_write_provider()"]
+        RESOLVE --> PREFIXED{"Prefixed UID?<br/>(provider:id)"}
+        PREFIXED -->|Yes| EXTRACT["Extract provider + native_id"]
+        PREFIXED -->|No| LOOKUP["Lookup ownership DB"]
+        LOOKUP -->|Found| USE_OWNED["Use owning provider"]
+        LOOKUP -->|Not found| DEFAULT["Default routing<br/>(work calendars -> M365)"]
+    end
+
+    classDef service fill:#fdcb6e,stroke:#d4a017,color:#333
+    classDef provider fill:#6c5ce7,stroke:#4834d4,color:#fff
+    classDef process fill:#00b894,stroke:#00816a,color:#fff
+
+    class UCS,ROUTER service
+    class APPLE,M365 provider
+    class TAG,DEDUP,FILTER,OWNERSHIP,RESOLVE process
 ```
-External system  -->  drops JSON file to data/webhook-inbox/
-                        |
-                        v
-webhook/ingest.py  -->  validates & stores to webhook_events table
-                        |
-                        v
-MCP tools          -->  list / get / process events via Claude
-                        |
-                        v  (if event rules configured)
-EventDispatcher    -->  matches event_rules, dispatches to expert agents
-                        |
-                        v
-scheduler/delivery -->  delivers results via email, iMessage, or notification
-```
 
-The scheduler's `webhook_poll` handler can trigger periodic ingestion so events are picked up automatically.
+### Dual-Read Policy
+
+When `CALENDAR_REQUIRE_DUAL_READ=true` (default), both providers must succeed for read operations. If either fails, a structured error is returned containing partial results and the specific provider that failed.
 
 ---
 
-## 6. Self-Authoring Skills
+## 6. Scheduler and Daemon
 
-The self-authoring skills system detects repeated tool usage patterns and suggests new agent configurations automatically.
+### Scheduler Architecture
 
-### Components
+```mermaid
+flowchart TD
+    subgraph Entry["Entry Points"]
+        DAEMON["JarvisDaemon<br/><i>Persistent asyncio loop</i>"]
+        STANDALONE["python -m scheduler.engine<br/><i>One-shot evaluation</i>"]
+        MCP_TOOL["run_scheduled_task<br/><i>Manual trigger via MCP</i>"]
+    end
 
-| Module | Purpose |
-|--------|---------|
-| `mcp_tools/skill_tools.py` | MCP tools: `record_tool_usage`, `analyze_skill_patterns`, `list_skill_suggestions`, `auto_create_skill`, `auto_execute_skills` |
-| `skills/pattern_detector.py` | `PatternDetector` class that clusters usage rows using Jaccard similarity to find repeated patterns |
-| `memory/store.py` | SQLite tables: `skill_usage` (raw usage records) and `skill_suggestions` (detected patterns with confidence scores) |
-| `agents/factory.py` | `AgentFactory` creates YAML agent configs from natural-language descriptions via Claude |
+    DAEMON --> ENGINE["SchedulerEngine"]
+    STANDALONE --> ENGINE
+    MCP_TOOL --> ENGINE
 
-### Flow
+    ENGINE --> QUERY["get_due_tasks()<br/><i>WHERE next_run_at <= now<br/>AND enabled = 1</i>"]
+    QUERY --> SQLITE[(scheduled_tasks<br/>SQLite)]
 
+    ENGINE --> EXEC["Execute handler<br/><i>with timeout protection</i>"]
+
+    EXEC --> HANDLERS{Handler Type}
+    HANDLERS -->|alert_eval| ALERT["Alert rule evaluator"]
+    HANDLERS -->|webhook_poll| WPOLL["Webhook inbox ingestion"]
+    HANDLERS -->|webhook_dispatch| WDISP["Webhook event dispatch"]
+    HANDLERS -->|skill_analysis| SKILL["Pattern detector"]
+    HANDLERS -->|morning_brief| BRIEF["Morning brief generator"]
+    HANDLERS -->|proactive_push| PUSH["Proactive notifications"]
+    HANDLERS -->|custom| CUSTOM["Subprocess command<br/><i>(blocklist + sanitization)</i>"]
+
+    EXEC --> NEXT["calculate_next_run()"]
+    NEXT --> UPDATE["Update last_run_at,<br/>next_run_at, last_result"]
+    UPDATE --> SQLITE
+
+    EXEC --> DELIVER{"delivery_channel<br/>configured?"}
+    DELIVER -->|Yes| DELIVERY["DeliveryService<br/><i>email, iMessage,<br/>notification, Teams</i>"]
+    DELIVER -->|No| DONE["Done"]
+
+    classDef entry fill:#4a9eff,stroke:#2d6cc0,color:#fff
+    classDef engine fill:#e17055,stroke:#b33939,color:#fff
+    classDef handler fill:#6c5ce7,stroke:#4834d4,color:#fff
+
+    class DAEMON,STANDALONE,MCP_TOOL entry
+    class ENGINE engine
+    class ALERT,WPOLL,WDISP,SKILL,BRIEF,PUSH,CUSTOM handler
 ```
-Tool usage  -->  record_tool_usage (stores to skill_usage table)
-                        |
-                        v
-analyze_skill_patterns  -->  PatternDetector clusters by tool + Jaccard similarity
-                        |
-                        v
-Suggestions stored  -->  skill_suggestions table (confidence >= SKILL_SUGGESTION_THRESHOLD)
-                        |
-                        v
-auto_create_skill   -->  AgentFactory generates YAML config --> agent_configs/
-```
-
-Key configuration (from `config.py`):
-- `SKILL_SUGGESTION_THRESHOLD` (default `0.7`) -- minimum confidence to surface a suggestion
-- `SKILL_MIN_OCCURRENCES` (default `5`) -- minimum usage count before a pattern is considered
-
----
-
-## 7. Built-in Scheduler
-
-A lightweight task scheduler backed by SQLite, supporting interval, cron, and one-shot schedules.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `scheduler/engine.py` | `SchedulerEngine` class and `CronExpression` parser (stdlib only, no external cron libraries) |
-| `scheduler/delivery.py` | Delivery adapters for task results — routes to email, iMessage, or macOS notification |
-| `scheduler/availability.py` | Availability calculation helpers used by calendar scheduling tools |
-| `memory/store.py` | SQLite `scheduled_tasks` table with schedule type, config, next/last run times, and handler config |
-| `mcp_tools/scheduler_tools.py` | MCP tools for creating, listing, and managing scheduled tasks |
 
 ### Schedule Types
 
 | Type | Config Format | Example |
 |------|--------------|---------|
 | `interval` | `{"minutes": N}` or `{"hours": N}` | Run every 30 minutes |
-| `cron` | `{"expression": "*/15 * * * *"}` | Standard 5-field cron (minute hour day month weekday) |
+| `cron` | `{"expression": "*/15 * * * *"}` | Standard 5-field cron |
 | `once` | `{"run_at": "2026-03-01T09:00:00"}` | Single future execution |
 
-### Handler Types
+### Daemon Lifecycle
 
-| Handler | Behavior |
-|---------|----------|
-| `alert_eval` | Runs the alert rule evaluator (`scheduler/alert_evaluator.py`) |
-| `webhook_poll` | Triggers webhook inbox ingestion |
-| `skill_analysis` | Runs the skill pattern detector to surface new agent suggestions |
-| `custom` | Runs a subprocess command (with a blocklist of dangerous commands and shell metacharacter checks) |
+The `JarvisDaemon` replaces three separate launchd agents with a single persistent process:
 
-### Standalone Entry Point
-
-```bash
-python -m scheduler.engine
-```
-
-Reads `scheduled_tasks` from `data/memory.db`, evaluates all due tasks, executes their handlers, and updates next-run times. Intended to run via launchd (`com.chg.scheduler-engine`) every 5 minutes. Complements (does not replace) existing launchd plists for specific tasks like alert evaluation.
+| Old Agent | Poll Interval | Replacement |
+|-----------|--------------|-------------|
+| `com.chg.scheduler-engine.plist` | 5 min | Daemon tick loop |
+| `com.chg.alert-evaluator.plist` | 2 hours | `alert_eval` handler |
+| `com.chg.inbox-monitor.plist` | 5 min | `webhook_poll` handler |
 
 ---
 
-## 8. Unified Channel Adapter
+## 7. Webhook and Event-Driven Dispatch
 
-The channel system normalizes inbound events from iMessage, Mail, and Webhooks into a common `InboundEvent` model, enabling cross-channel queries and unified event routing.
+```mermaid
+flowchart TD
+    EXT["External system<br/>(CI/CD, monitoring, etc.)"] -->|"Drop JSON file"| INBOX["data/webhook-inbox/"]
 
-### Components
+    INBOX --> INGEST["webhook/ingest.py<br/><i>Validate + store</i>"]
+    INGEST --> WE_TABLE[(webhook_events<br/>SQLite)]
 
-| Module | Purpose |
-|--------|---------|
-| `channels/models.py` | `InboundEvent` dataclass — normalized event with channel, source, event_type, content, metadata |
-| `channels/adapter.py` | `ChannelAdapter` ABC with concrete adapters: `IMessageAdapter`, `MailAdapter`, `WebhookAdapter` |
-| `channels/router.py` | `EventRouter` — thread-safe handler dispatch by event_type |
-| `channels/consumers.py` | Built-in handlers: `log_event_handler`, `priority_filter` (urgent keyword detection) |
-| `mcp_tools/channel_tools.py` | MCP tools: `list_inbound_events`, `get_event_summary` |
+    WE_TABLE --> MATCH["match_event_rules()<br/><i>Source + type pattern matching</i>"]
 
-### Flow
+    MATCH --> ER_TABLE[(event_rules<br/>SQLite)]
 
+    MATCH --> DISPATCH["EventDispatcher"]
+
+    DISPATCH --> PARALLEL{"Multiple rules<br/>matched?"}
+    PARALLEL -->|Yes| GATHER["asyncio.gather<br/><i>with semaphore</i>"]
+    PARALLEL -->|No| SINGLE["Single dispatch"]
+
+    GATHER --> AGENT["BaseExpertAgent.execute()"]
+    SINGLE --> AGENT
+
+    AGENT --> RESULT["Agent result text"]
+
+    RESULT --> DELIVERY{"delivery_channel<br/>in rule?"}
+    DELIVERY -->|Yes| DELIVER["DeliveryService<br/>(email, iMessage,<br/>notification, Teams)"]
+    DELIVERY -->|No| RETURN["Return result"]
+
+    classDef external fill:#636e72,stroke:#2d3436,color:#fff
+    classDef store fill:#00b894,stroke:#00816a,color:#fff
+    classDef dispatch fill:#e17055,stroke:#b33939,color:#fff
+
+    class EXT external
+    class WE_TABLE,ER_TABLE store
+    class DISPATCH,GATHER dispatch
 ```
-Raw events (iMessage / Mail / Webhook)
-        |
-        v
-ChannelAdapter.normalize()  -->  InboundEvent
-        |
-        v
-EventRouter.route()  -->  registered handlers (log, priority, custom)
-        |
-        v
-MCP tools  -->  list_inbound_events, get_event_summary
-```
-
----
-
-## 9. Proactive Suggestion Engine
-
-Surfaces actionable insights by scanning existing data stores for items needing attention.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `proactive/engine.py` | `ProactiveSuggestionEngine` — generates prioritized suggestions from memory data |
-| `proactive/models.py` | `Suggestion` dataclass with category, priority, title, description, action |
-| `mcp_tools/proactive_tools.py` | MCP tools: `get_proactive_suggestions`, `dismiss_suggestion` |
-
-### Suggestion Categories
-
-| Category | Trigger | Priority |
-|----------|---------|----------|
-| `delegation` | Active delegations past due date | High |
-| `deadline` | Active delegations due within 3 days | High |
-| `decision` | Pending decisions older than 7 days | Medium |
-| `skill` | Pending skill suggestions from pattern analysis | Medium |
-| `checkpoint` | 50+ tool calls with no recent checkpoint | Medium |
-| `session` | Approaching context window limit or unflushed items | High/Medium |
-| `webhook` | Unprocessed webhook events | Low |
-
----
-
-## 10. Session Management
-
-Tracks interactions within a session, extracts structured data (decisions, action items, key facts), and persists them to long-term memory before context compaction.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `session/manager.py` | `SessionManager` — interaction tracking, token estimation, structured extraction, flush, restore |
-| `mcp_tools/session_tools.py` | MCP tools: `get_session_status`, `flush_session_memory`, `restore_session` |
-| `mcp_tools/memory_tools.py` | `checkpoint_session`, `get_session_health` — session checkpoint and health monitoring |
-| `mcp_tools/state.py` | `SessionHealth` dataclass — tracks tool call count, session start, last checkpoint |
-
-### Flow
-
-```
-Interactions recorded  -->  SessionManager._buffer
-        |
-        v
-extract_structured_data()  -->  decisions, action_items, key_facts, general
-        |
-        v
-flush()  -->  stores to facts table (work category) + context checkpoint
-        |
-        v
-restore_from_checkpoint()  -->  loads previous session context and related facts
-```
-
----
-
-## 11. Event-Driven Agent Dispatch
-
-Links webhook events to expert agents via configurable event rules. When a webhook event matches a rule, the corresponding agent is activated and results can be delivered to a specified channel.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `webhook/dispatcher.py` | `EventDispatcher` — matches events against rules, executes agents, delivers results |
-| `scheduler/delivery.py` | Delivery adapters: `EmailDeliveryAdapter`, `IMessageDeliveryAdapter`, `NotificationDeliveryAdapter` |
-| `mcp_tools/event_rule_tools.py` | MCP tools: `create_event_rule`, `update_event_rule`, `delete_event_rule`, `list_event_rules`, `process_webhook_event_with_agents` |
-| `memory/store.py` | SQLite `event_rules` table — name, source, type pattern, agent, template, delivery config, priority |
 
 ### Event Rule Schema
 
 | Field | Purpose |
 |-------|---------|
 | `event_source` | Source to match (e.g. "github", "jira") |
-| `event_type_pattern` | Glob pattern for event types (e.g. "alert.*", "incident.critical") |
+| `event_type_pattern` | Glob pattern for event types (e.g. "alert.*") |
 | `agent_name` | Expert agent to activate on match |
-| `agent_input_template` | String.Template with `$event_type`, `$source`, `$payload`, `$timestamp` vars |
-| `delivery_channel` | Result delivery: "email", "imessage", or "notification" |
+| `agent_input_template` | String.Template with `$event_type`, `$source`, `$payload`, `$timestamp` |
+| `delivery_channel` | Result delivery: "email", "imessage", "notification", or "teams" |
 | `priority` | Rule ordering (lower = higher priority) |
+
+---
+
+## 8. Session Management
+
+```mermaid
+flowchart TD
+    subgraph SessionManager["SessionManager"]
+        TRACK["track_interaction()<br/><i>Buffer interactions</i>"]
+        EXTRACT["extract_structured_data()<br/><i>Keyword matching</i>"]
+        FLUSH["flush()<br/><i>Persist to memory</i>"]
+        RESTORE["restore_from_checkpoint()"]
+        TOKENS["estimate_tokens()<br/><i>word_count * 1.3</i>"]
+    end
+
+    TRACK --> BUFFER["Session Buffer<br/><i>List of Interactions</i>"]
+    BUFFER --> EXTRACT
+
+    EXTRACT --> DECISIONS["decisions<br/><i>decided, agreed, will do</i>"]
+    EXTRACT --> ACTIONS["action_items<br/><i>TODO, need to, should</i>"]
+    EXTRACT --> FACTS["key_facts<br/><i>important, remember</i>"]
+
+    FLUSH --> STORE_FACTS["Store as work facts<br/><i>with confidence scores</i>"]
+    FLUSH --> STORE_CTX["Store context checkpoint"]
+    FLUSH --> BRAIN_UPDATE["Update Session Brain<br/><i>decisions + action items</i>"]
+
+    STORE_FACTS --> SQLITE[(memory.db)]
+    STORE_CTX --> SQLITE
+    BRAIN_UPDATE --> BRAIN["session_brain.md"]
+
+    RESTORE --> SQLITE
+
+    subgraph SessionBrain["Session Brain (Persistent Markdown)"]
+        WS["Active Workstreams"]
+        AI["Open Action Items"]
+        DEC["Recent Decisions"]
+        PPL["Key People Context"]
+        HN["Session Handoff Notes"]
+    end
+
+    BRAIN --> WS & AI & DEC & PPL & HN
+
+    classDef manager fill:#e17055,stroke:#b33939,color:#fff
+    classDef store fill:#00b894,stroke:#00816a,color:#fff
+    classDef brain fill:#fdcb6e,stroke:#d4a017,color:#333
+
+    class TRACK,EXTRACT,FLUSH,RESTORE,TOKENS manager
+    class SQLITE store
+    class WS,AI,DEC,PPL,HN brain
+```
+
+---
+
+## 9. Channel Routing
+
+Outbound message routing with safety tiers, determining how messages should be delivered based on recipient type, content sensitivity, first-contact status, urgency, and work hours.
+
+```mermaid
+flowchart TD
+    MSG["Outbound message"] --> TIER["determine_safety_tier()"]
+
+    TIER --> BASELINE{"Recipient type?"}
+    BASELINE -->|self| AUTO["AUTO_SEND<br/><i>Tier 1</i>"]
+    BASELINE -->|internal| CONFIRM["CONFIRM<br/><i>Tier 2</i>"]
+    BASELINE -->|external| DRAFT["DRAFT_ONLY<br/><i>Tier 3</i>"]
+
+    AUTO --> SENSITIVE{"Sensitive<br/>content?"}
+    CONFIRM --> SENSITIVE
+    SENSITIVE -->|Yes| BUMP["Bump tier +1<br/><i>(capped at DRAFT_ONLY)</i>"]
+    SENSITIVE -->|No| FIRST{"First<br/>contact?"}
+    BUMP --> FIRST
+    FIRST -->|Yes, not self| FORCE_DRAFT["Force DRAFT_ONLY"]
+    FIRST -->|No| CHANNEL["select_channel()"]
+    FORCE_DRAFT --> CHANNEL
+
+    CHANNEL --> SELF_CH{"self?"}
+    SELF_CH -->|urgent| IMSG["iMessage"]
+    SELF_CH -->|ephemeral| NOTIF["Notification"]
+    SELF_CH -->|other| EMAIL_S["Email"]
+
+    CHANNEL --> INT_CH{"internal?"}
+    INT_CH -->|work hours + informal/urgent| TEAMS["Teams"]
+    INT_CH -->|work hours + other| EMAIL_I["Email"]
+    INT_CH -->|off hours + urgent| IMSG2["iMessage"]
+    INT_CH -->|off hours + other| QUEUE["Queued"]
+
+    CHANNEL --> EXT_CH{"external?"}
+    EXT_CH --> EMAIL_E["Email (always)"]
+```
+
+### Sensitive Topic Detection
+
+Content is scanned for keywords matching HR, legal, financial, and confidential topics. Keywords include: salary, compensation, confidential, termination, PIP, harassment, merger, layoff, and others. Detection is case-insensitive and word-boundary aware.
+
+---
+
+## 10. Self-Authoring Skills
+
+The system detects repeated tool usage patterns and suggests new agent configurations automatically.
+
+```mermaid
+flowchart TD
+    TOOL_CALL["Tool invocation"] --> TRACKER["UsageTracker middleware<br/><i>Wraps call_tool</i>"]
+    TRACKER --> RECORD["Record to skill_usage<br/>+ tool_usage_log"]
+    RECORD --> SQLITE[(SQLite)]
+
+    SQLITE --> ANALYZE["analyze_skill_patterns<br/><i>PatternDetector</i>"]
+    ANALYZE --> CLUSTER["Cluster by tool_name<br/>+ Jaccard similarity"]
+    CLUSTER --> THRESHOLD{"confidence >=<br/>SKILL_SUGGESTION_THRESHOLD?"}
+    THRESHOLD -->|Yes| SUGGEST["Store skill_suggestion"]
+    THRESHOLD -->|No| DISCARD["Below threshold"]
+
+    SUGGEST --> SQLITE
+
+    SUGGEST --> AUTO["auto_create_skill"]
+    AUTO --> FACTORY["AgentFactory<br/><i>Claude generates YAML</i>"]
+    FACTORY --> YAML["New agent config<br/><i>agent_configs/*.yaml</i>"]
+
+    classDef track fill:#6c5ce7,stroke:#4834d4,color:#fff
+    classDef detect fill:#e17055,stroke:#b33939,color:#fff
+    classDef create fill:#00b894,stroke:#00816a,color:#fff
+
+    class TRACKER,RECORD track
+    class ANALYZE,CLUSTER detect
+    class AUTO,FACTORY,YAML create
+```
+
+---
+
+## 11. Proactive Suggestion Engine
+
+Surfaces actionable insights by scanning existing data stores for items needing attention.
+
+| Category | Trigger | Priority |
+|----------|---------|----------|
+| `delegation` | Active delegations past due date | High |
+| `deadline` | Active delegations due within 3 days | High |
+| `session` | Approaching context window limit (~120k tokens) | High |
+| `decision` | Pending decisions older than 7 days | Medium |
+| `skill` | Pending skill suggestions from pattern analysis | Medium |
+| `checkpoint` | 50+ tool calls with no recent checkpoint | Medium |
+| `session` | Unflushed decisions or action items | Medium |
+| `session` | Open action items from previous sessions (via Brain) | Medium |
+| `webhook` | Unprocessed webhook events | Low |
+| `session` | Active workstreams (via Brain) | Low |
 
 ---
 
 ## 12. Identity Linking
 
-Cross-channel identity resolution that maps provider-specific accounts (iMessage phone, email, Teams ID) to canonical person names.
+Cross-channel identity resolution maps provider-specific accounts to canonical person names.
 
-### Components
+```mermaid
+graph LR
+    subgraph Providers
+        IM["iMessage<br/><i>+1234567890</i>"]
+        EM["Email<br/><i>john@example.com</i>"]
+        TEAMS["M365 Teams<br/><i>john.smith@company.com</i>"]
+        JIRA["Jira<br/><i>jsmith</i>"]
+    end
 
-| Module | Purpose |
-|--------|---------|
-| `mcp_tools/identity_tools.py` | MCP tools: `link_identity`, `unlink_identity`, `get_identity`, `search_identity` |
-| `memory/store.py` | SQLite `identities` table — canonical_name, provider, provider_id, display_name, email |
+    subgraph IdentityStore
+        CANON["Canonical Name<br/><i>John Smith</i>"]
+    end
 
-### Supported Providers
+    IM --> CANON
+    EM --> CANON
+    TEAMS --> CANON
+    JIRA --> CANON
 
-`imessage`, `email`, `m365_teams`, `m365_email`, `slack`, `jira`, `confluence`
+    CANON --> RESOLVE["resolve_sender()<br/><i>Used by enrichment,<br/>channels, etc.</i>"]
+```
+
+Supported providers: `imessage`, `email`, `m365_teams`, `m365_email`, `slack`, `jira`, `confluence`.
 
 ---
 
 ## 13. Plugin Hooks
 
-Lifecycle hooks that fire at key points in the MCP server lifecycle and tool execution, enabling extensibility without modifying core code.
+YAML-configured lifecycle hooks that fire at key points without modifying core code.
 
-### Components
+```mermaid
+sequenceDiagram
+    participant Server as MCP Server
+    participant Registry as HookRegistry
+    participant Hook as Hook Callback
 
-| Module | Purpose |
-|--------|---------|
-| `hooks/registry.py` | `HookRegistry` — registers and fires hooks by event type, YAML config loading |
-| `hooks/builtin.py` | Built-in hook implementations |
-| `hooks/hook_configs/` | YAML hook configuration files |
+    Note over Server: Session Start
+    Server->>Registry: fire_hooks("session_start", ctx)
+    Registry->>Hook: callback(ctx_copy)
+    Hook-->>Registry: result
 
-### Event Types
+    Note over Server: Tool Execution
+    Server->>Registry: fire_hooks("before_tool_call", ctx)
+    Registry->>Hook: callback(ctx_copy)
+    Hook-->>Registry: Optional {tool_args: transformed}
 
-| Event | When Fired |
-|-------|-----------|
-| `before_tool_call` | Before a tool handler executes |
-| `after_tool_call` | After a tool handler executes (includes result) |
-| `session_start` | When the MCP server starts |
-| `session_end` | When the MCP server shuts down |
+    Note over Server: Execute tool handler
+
+    Server->>Registry: fire_hooks("after_tool_call", ctx)
+    Registry->>Hook: callback(ctx_copy)
+    Hook-->>Registry: result
+
+    Note over Server: Session End
+    Server->>Registry: fire_hooks("session_end", ctx)
+    Registry->>Hook: callback(ctx_copy)
+```
+
+Hook YAML config format:
+```yaml
+- event_type: before_tool_call
+  name: my_hook
+  handler: hooks.builtin.audit_log_hook
+  priority: 50
+  enabled: true
+```
 
 ---
 
 ## 14. Person Enrichment
 
-Builds a consolidated profile for a person by fetching from multiple data sources simultaneously. A single `enrich_person` call replaces what would otherwise require six separate tool calls.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `mcp_tools/enrichment.py` | MCP tool: `enrich_person` — parallel data fetching and profile assembly |
-| `memory/store.py` | Source for identity links, facts, delegations, and decisions |
-| `apple_messages/messages.py` | Source for recent iMessage threads |
-| `apple_mail/mail.py` | Source for recent email threads |
-
-### Data Sources (fetched in parallel)
+Builds a consolidated profile by fetching from 6 data sources in parallel.
 
 | Source | Data Retrieved | Store |
 |--------|---------------|-------|
 | Identities | Provider links (iMessage, email, Teams, etc.) | `memory_store.search_identity()` |
 | Facts | Stored facts mentioning the person | `memory_store.search_facts()` |
-| Delegations | Active delegations assigned to the person | `memory_store.list_delegations(delegated_to=name)` |
+| Delegations | Active delegations assigned to the person | `memory_store.list_delegations()` |
 | Decisions | Decisions referencing the person | `memory_store.search_decisions()` |
 | iMessages | Recent message threads with the person | `messages_store.search_messages()` |
 | Emails | Recent email threads with the person | `mail_store.search_messages()` |
 
-### Flow
-
-```
-enrich_person(name, days_back=7)
-        |
-        v
-asyncio.gather() — all 6 fetches run concurrently
-        |
-        v
-Results merged into context dict (empty sections omitted)
-        |
-        v
-Returns JSON profile: {name, identities?, facts?, delegations?,
-                        decisions?, recent_messages?, recent_emails?}
-```
-
-Key design choices:
-- All fetches run concurrently via `asyncio.gather` — latency is bounded by the slowest source, not the sum of all sources.
-- Failed or unavailable sources are silently skipped (debug-logged only), so the tool degrades gracefully on systems without iMessage or Mail access.
-- Results are capped at 10 items per source to keep response size manageable.
+All fetches run concurrently via `asyncio.gather`. Failed sources are silently skipped. Results capped at 10 items per source.
 
 ---
 
 ## 15. Teams Browser Integration
 
-Playwright-based automation for posting messages to Microsoft Teams channels and DMs through a persistent browser session. Designed as a two-phase flow (prepare + confirm) to prevent accidental sends.
+Playwright-based automation for posting messages to Microsoft Teams through a persistent browser session.
 
-### Components
+```mermaid
+flowchart TD
+    OPEN["open_teams_browser()"] --> LAUNCH["Launch Chromium<br/><i>Persistent profile</i>"]
+    LAUNCH --> NAV["Navigate to<br/>teams.cloud.microsoft"]
+    NAV -->|"Okta login needed?"| OKTA["OktaAuth flow<br/><i>browser/okta_auth.py</i>"]
+    OKTA --> READY["Browser ready"]
+    NAV -->|"Already logged in"| READY
 
-| Module | Purpose |
-|--------|---------|
-| `mcp_tools/teams_browser_tools.py` | Five MCP tools: `open_teams_browser`, `post_teams_message`, `confirm_teams_post`, `cancel_teams_post`, `close_teams_browser` |
-| `browser/manager.py` | `TeamsBrowserManager` — launches and manages a persistent Chromium process with a cached profile |
-| `browser/teams_poster.py` | `PlaywrightTeamsPoster` — connects to the running browser, searches Teams for the target, prepares and sends messages |
+    POST["post_teams_message(target, msg)"] --> SEARCH["Search Teams<br/>for target by name"]
+    SEARCH --> STAGE["Navigate to chat/channel<br/>Stage message in input box"]
+    STAGE --> CONFIRM{"Confirm?"}
 
-### Tool Summary
+    CONFIRM -->|"confirm_teams_post()"| SEND["Send message"]
+    CONFIRM -->|"cancel_teams_post()"| ABORT["Abort message"]
 
-| Tool | Purpose |
-|------|---------|
-| `open_teams_browser` | Launch Chromium and navigate to `teams.cloud.microsoft`. Idempotent — returns current status if already running. Session is cached in a persistent browser profile. |
-| `post_teams_message` | Search Teams for the target by name (channel or person), navigate to their chat/channel, and stage the message. Returns `confirm_required` unless `auto_send=True`. |
-| `confirm_teams_post` | Send the previously staged message. Must be called after `post_teams_message` returns `confirm_required`. |
-| `cancel_teams_post` | Abort the staged message and disconnect without sending. |
-| `close_teams_browser` | Send SIGTERM to the Chromium process. Call `open_teams_browser` to restart. |
-
-### Flow
-
+    CLOSE["close_teams_browser()"] --> KILL["SIGTERM Chromium"]
 ```
-open_teams_browser()
-        |  Launch Chromium, navigate to Teams, cache session
-        v
-post_teams_message(target, message)
-        |  Search Teams for target by name, navigate, stage message
-        v
-     confirm_required?
-        |  Yes                    No (auto_send=True)
-        v                               v
-confirm_teams_post()            Message sent immediately
-        |
-        v
-Message delivered
-```
-
-Key design choices:
-- The browser process is persistent across MCP tool calls — `open_teams_browser` is called once; subsequent `post_teams_message` calls reuse the existing session.
-- Target resolution uses the Teams search bar (name-based), so callers do not need to know internal channel IDs or user GUIDs.
-- The two-step prepare/confirm flow gives Claude Code a chance to surface the staged message to the user for review before it is sent.
-- `auto_send=True` collapses the flow to a single call for trusted automation contexts.
 
 ---
 
-## 16. Persistent Daemon
+## 16. iMessage Inbox Monitor
 
-`JarvisDaemon` is a long-running asyncio process that wraps `SchedulerEngine` in a configurable tick loop. It replaces three separate launchd agents with a single persistent process, reducing system overhead and simplifying operational management.
+The `inbox-monitor.sh` script polls iMessage for "jarvis:" commands using a three-pass Claude CLI pipeline.
 
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `scheduler/daemon.py` | `JarvisDaemon` — asyncio tick loop wrapping `SchedulerEngine`; standalone `__main__` entry point |
-| `scheduler/engine.py` | `SchedulerEngine` — evaluates due tasks from the `scheduled_tasks` SQLite table |
-| `memory/store.py` | SQLite `scheduled_tasks` table — source of truth for all scheduled work |
-| `config.py` | `DAEMON_TICK_INTERVAL_SECONDS`, `DAEMON_LOG_FILE`, `MEMORY_DB_PATH` — runtime configuration |
-
-### Replaced launchd Agents
-
-| Old Agent | Poll Interval | Replacement Handler |
-|-----------|--------------|---------------------|
-| `com.chg.scheduler-engine.plist` | 5 minutes | Daemon tick loop (configurable) |
-| `com.chg.alert-evaluator.plist` | 2 hours | `alert_eval` scheduled task handler |
-| `com.chg.inbox-monitor.plist` | 5 minutes | `webhook_poll` scheduled task handler |
-
-### Flow
-
-```
-python -m scheduler.daemon
-        |
-        v
-JarvisDaemon.run()  -->  asyncio event loop
-        |
-        v
-loop:
-    _tick()  -->  SchedulerEngine.evaluate_due_tasks()
-                        |  Query scheduled_tasks for items where next_run_at <= now
-                        v
-                  Execute due tasks (alert_eval, webhook_poll, skill_analysis, custom)
-                        |
-                        v
-                  Update next_run_at, last_run_at in SQLite
-        |
-    sleep(tick_interval)  [default: 60s, configurable via DAEMON_TICK_INTERVAL_SECONDS]
-        |
-    repeat until SIGTERM / SIGINT received
-        |
-        v
-Graceful shutdown  -->  current tick completes, then exits
-```
-
-Key design choices:
-- SIGTERM and SIGINT are caught via `loop.add_signal_handler` and set a `_shutdown` flag, allowing the current tick to complete cleanly before the process exits.
-- The sleep task is cancelled immediately on shutdown signal, so the daemon does not wait out a full tick interval before stopping.
-- Tick errors are caught and logged at the `_tick` level — a single failing handler never crashes the daemon loop.
-- Logs are written to both `DAEMON_LOG_FILE` and stderr, suitable for `launchd StandardErrorPath` redirection.
-
-### Standalone Entry Point
-
-```bash
-python -m scheduler.daemon
-```
-
-Or run directly:
-
-```bash
-python scheduler/daemon.py
-```
-
-Reads `DAEMON_TICK_INTERVAL_SECONDS` and `MEMORY_DB_PATH` from `config.py` (which reads environment variables). Exits with code 1 if the memory database does not exist.
+| Pass | Purpose | Claude Model | Output |
+|------|---------|-------------|--------|
+| **Pass 1** | Classify message intent | Sonnet | `{category, agent, instruction}` |
+| **Pass 2** | Execute via agent or inline | Sonnet | `{action_taken, success, provider_used}` |
+| **Pass 3** | Deliver result to user | Sonnet | Email, iMessage reply, or notification |
 
 ---
 
-## 17. Session Brain
+## 17. Team Playbooks
 
-The Session Brain (`session/brain.py`) maintains a human-readable markdown file (`data/session_brain.md`) that carries context across sessions. It tracks active workstreams, open action items, recent decisions, key people context, and session handoff notes. The SessionManager automatically updates the brain during session flush.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `session/brain.py` | `SessionBrain` — markdown-based persistent context document with structured sections |
-| `mcp_tools/brain_tools.py` | MCP tools: `get_session_brain`, `update_session_brain` |
-
-### Sections
-
-| Section | Contents |
-|---------|----------|
-| Workstreams | Active parallel workstreams with status and context |
-| Action Items | Open tasks with completion tracking |
-| Decisions | Recent decisions with rationale |
-| People | Key people context (role, preferences, recent interactions) |
-| Handoff Notes | Session-to-session context transfer notes |
-
----
-
-## 18. Channel Routing
-
-Channel routing (`channels/routing.py`) determines the safety tier and delivery channel for outbound messages. Three safety tiers: AUTO_SEND (to self), CONFIRM (to known colleagues), DRAFT_ONLY (external/sensitive). Channel selection considers recipient type, urgency, and work hours.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `channels/routing.py` | `ChannelRouter` — safety tier determination and channel selection |
-| `mcp_tools/routing_tools.py` | MCP tool: `route_message` |
-
-### Safety Tiers
-
-| Tier | When Used | Behavior |
-|------|-----------|----------|
-| `AUTO_SEND` | Messages to self | Sends without confirmation |
-| `CONFIRM` | Internal/known colleagues | Requires user confirmation before sending |
-| `DRAFT_ONLY` | External recipients, sensitive topics, first contact | Creates draft only; user must review and send manually |
-
----
-
-## 19. Team Playbooks
-
-Playbooks (`playbooks/`) are YAML-defined parallel workstreams. Each playbook declares inputs, workstreams (with optional conditions), a synthesis prompt, and delivery options. The PlaybookLoader (`playbooks/loader.py`) handles parsing, input substitution, and condition evaluation. Four built-in playbooks: meeting_prep, expert_research, software_dev_team, daily_briefing.
-
-### Components
-
-| Module | Purpose |
-|--------|---------|
-| `playbooks/loader.py` | `PlaybookLoader` — YAML parsing, input substitution, condition evaluation |
-| `playbooks/*.yaml` | Built-in playbook definitions |
-| `mcp_tools/playbook_tools.py` | MCP tools: `list_playbooks`, `get_playbook` |
-
-### Built-in Playbooks
+YAML-defined parallel workstreams with input substitution and condition evaluation.
 
 | Playbook | Purpose | Workstreams |
 |----------|---------|-------------|
-| `meeting_prep` | Pre-meeting research and agenda preparation | Attendee research, topic prep, agenda drafting |
-| `expert_research` | Multi-source research on a topic | Web search, document search, memory search, synthesis |
-| `software_dev_team` | Parallel software development tasks | Architecture, implementation, testing, review |
-| `daily_briefing` | Morning briefing from all data sources | Calendar, email, messages, delegations, reminders |
+| `meeting_prep` | Pre-meeting research and agenda | Attendee research, topic prep, agenda drafting |
+| `expert_research` | Multi-source research | Web, documents, memory, synthesis |
+| `software_dev_team` | Parallel development | Architecture, implementation, testing, review |
+| `daily_briefing` | Morning briefing | Calendar, email, messages, delegations, reminders |
+
+---
+
+## 18. Delivery System
+
+Task and event results are delivered via configurable channel adapters. The delivery service is used by the scheduler, event dispatcher, and proactive engine.
+
+```mermaid
+flowchart LR
+    RESULT["Task/event result"] --> HUMANIZE["Humanizer<br/><i>Remove AI patterns</i>"]
+    HUMANIZE --> BRIEF{"Daily brief<br/>JSON?"}
+    BRIEF -->|Yes| FORMAT["render_daily()<br/><i>formatter/brief.py</i>"]
+    BRIEF -->|No| ADAPTER
+
+    FORMAT --> ADAPTER{"Delivery Channel"}
+    ADAPTER -->|email| EMAIL["EmailDeliveryAdapter<br/><i>Apple Mail</i>"]
+    ADAPTER -->|imessage| IMSG["IMessageDeliveryAdapter<br/><i>AppleScript</i>"]
+    ADAPTER -->|notification| NOTIF["NotificationDeliveryAdapter<br/><i>osascript</i>"]
+    ADAPTER -->|teams| TEAMS["TeamsDeliveryAdapter<br/><i>Playwright browser</i>"]
+```
+
+---
+
+## 19. Humanizer
+
+Rule-based text transformer that removes common AI writing patterns before delivery. Applied automatically by the delivery service.
+
+Categories of rules:
+- **Em dash removal** -- Replaces `--` and `---` with commas
+- **AI vocabulary swaps** -- "utilize" to "use", "leverage" to "use", "comprehensive" to "full", etc.
+- **Filler phrase removal** -- "In order to" to "To", "It is worth noting that" removed entirely
+- **Sycophantic pattern removal** -- "Great question!", "I hope this helps!", etc.
+- **Copula avoidance** -- "serves as" to "is", "functions as" to "is"
+- **Hedging reduction** -- "could potentially" to "could"
