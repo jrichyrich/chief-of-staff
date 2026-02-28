@@ -1,10 +1,28 @@
 """Server state and retry helper for MCP tools."""
 
+from __future__ import annotations
+
 import sqlite3
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from datetime import datetime
-from typing import Any, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from agents.registry import AgentRegistry
+    from apple_calendar.eventkit import CalendarStore
+    from apple_mail.mail import MailStore
+    from apple_messages.messages import MessageStore
+    from apple_reminders.eventkit import ReminderStore
+    from connectors.calendar_unified import UnifiedCalendarService
+    from connectors.claude_m365_bridge import ClaudeM365Bridge
+    from documents.store import DocumentStore
+    from hooks.registry import HookRegistry
+    from memory.store import MemoryStore
+    from okr.store import OKRStore
+    from session.brain import SessionBrain
+    from session.manager import SessionManager
 
 
 @dataclass
@@ -41,26 +59,32 @@ class SessionHealth:
 @dataclass
 class ServerState:
     """Module-level state populated by the lifespan manager."""
-    memory_store: Any = None
-    document_store: Any = None
-    agent_registry: Any = None
-    apple_calendar_store: Any = None
-    m365_bridge: Any = None
-    calendar_store: Any = None
-    reminder_store: Any = None
-    mail_store: Any = None
-    messages_store: Any = None
-    okr_store: Any = None
-    hook_registry: Any = None
-    allowed_ingest_roots: Optional[list] = None
+    memory_store: Optional[MemoryStore] = None
+    document_store: Optional[DocumentStore] = None
+    agent_registry: Optional[AgentRegistry] = None
+    apple_calendar_store: Optional[CalendarStore] = None
+    m365_bridge: Optional[ClaudeM365Bridge] = None
+    calendar_store: Optional[UnifiedCalendarService] = None
+    reminder_store: Optional[ReminderStore] = None
+    mail_store: Optional[MailStore] = None
+    messages_store: Optional[MessageStore] = None
+    okr_store: Optional[OKRStore] = None
+    hook_registry: Optional[HookRegistry] = None
+    allowed_ingest_roots: Optional[list[Path]] = None
     session_health: SessionHealth = field(default_factory=SessionHealth)
-    session_manager: Any = None
-    session_brain: Any = None
+    session_manager: Optional[SessionManager] = None
+    session_brain: Optional[SessionBrain] = None
+
+    @staticmethod
+    def _field_names() -> frozenset[str]:
+        """Return the set of declared dataclass field names."""
+        return frozenset(f.name for f in dataclass_fields(ServerState))
 
     def update(self, values: dict) -> None:
         """Update state from a dictionary (for backward compatibility with tests)."""
+        valid = self._field_names()
         for key, value in values.items():
-            if hasattr(self, key):
+            if key in valid:
                 setattr(self, key, value)
 
     def clear(self) -> None:
@@ -83,21 +107,21 @@ class ServerState:
 
     def __setitem__(self, key: str, value: Any) -> None:
         """Dict-style assignment (for backward compatibility with tests)."""
-        if hasattr(self, key):
+        if key in self._field_names():
             setattr(self, key, value)
         else:
-            raise KeyError(f"ServerState has no attribute '{key}'")
+            raise KeyError(f"ServerState has no field '{key}'")
 
     def __getitem__(self, key: str) -> Any:
         """Dict-style access (for backward compatibility with tests)."""
-        if hasattr(self, key):
+        if key in self._field_names():
             return getattr(self, key)
         else:
-            raise KeyError(f"ServerState has no attribute '{key}'")
+            raise KeyError(f"ServerState has no field '{key}'")
 
     def pop(self, key: str, default: Any = None) -> Any:
         """Dict-style pop (for backward compatibility with tests)."""
-        if hasattr(self, key):
+        if key in self._field_names():
             value = getattr(self, key)
             setattr(self, key, None)
             return value
