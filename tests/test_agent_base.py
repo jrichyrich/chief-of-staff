@@ -301,6 +301,14 @@ class TestHandleToolCall:
         assert "error" in result
         assert "Unknown tool" in result["error"]
 
+    def test_hooks_fire_before_and_after(self, agent):
+        """Hooks are fired around tool dispatch."""
+        hook_registry = MagicMock()
+        hook_registry.fire_hooks.return_value = []
+        agent.hook_registry = hook_registry
+        agent._handle_tool_call("query_memory", {"query": "test"})
+        assert hook_registry.fire_hooks.call_count == 2
+
     def test_query_memory_dispatches(self, agent, memory_store):
         memory_store.store_fact(
             __import__("memory.models", fromlist=["Fact"]).Fact(
@@ -752,3 +760,68 @@ class TestModelTierResolution:
         call_kwargs = client.messages.create.call_args.kwargs
         import config as app_config
         assert call_kwargs["model"] == app_config.MODEL_TIERS[app_config.DEFAULT_MODEL_TIER]
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table tests
+# ---------------------------------------------------------------------------
+
+# Complete list of tools that _get_dispatch_table must contain.
+EXPECTED_DISPATCH_TOOLS = {
+    "query_memory", "store_memory", "search_documents",
+    "create_decision", "search_decisions", "update_decision",
+    "list_pending_decisions", "delete_decision",
+    "create_delegation", "list_delegations", "update_delegation",
+    "check_overdue_delegations", "delete_delegation",
+    "create_alert_rule", "list_alert_rules", "check_alerts", "dismiss_alert",
+    "get_calendar_events", "search_calendar_events",
+    "list_reminders", "search_reminders", "create_reminder", "complete_reminder",
+    "send_notification",
+    "get_mail_messages", "get_mail_message", "search_mail",
+    "get_unread_count", "send_email",
+    "mark_mail_read", "mark_mail_flagged", "move_mail_message",
+}
+
+
+class TestDispatchTable:
+    def test_dispatch_table_is_dict(self, agent):
+        table = agent._get_dispatch_table()
+        assert isinstance(table, dict)
+
+    def test_dispatch_table_contains_all_known_tools(self, agent):
+        table = agent._get_dispatch_table()
+        assert set(table.keys()) == EXPECTED_DISPATCH_TOOLS
+
+    def test_dispatch_table_values_are_callable(self, agent):
+        table = agent._get_dispatch_table()
+        for name, handler in table.items():
+            assert callable(handler), f"Handler for '{name}' is not callable"
+
+    def test_unknown_tool_returns_error(self, agent):
+        result = agent._dispatch_tool("totally_fake_tool", {})
+        assert result == {"error": "Unknown tool: totally_fake_tool"}
+
+    def test_dispatch_table_is_cached(self, agent):
+        table1 = agent._get_dispatch_table()
+        table2 = agent._get_dispatch_table()
+        assert table1 is table2
+
+    def test_query_memory_via_dispatch(self, agent, memory_store):
+        from memory.models import Fact
+        memory_store.store_fact(Fact(category="personal", key="city", value="Portland"))
+        result = agent._dispatch_tool("query_memory", {"query": "city"})
+        assert isinstance(result, list)
+        assert any(r["key"] == "city" for r in result)
+
+    def test_store_memory_via_dispatch(self, agent):
+        result = agent._dispatch_tool(
+            "store_memory",
+            {"category": "personal", "key": "lang", "value": "Python"},
+        )
+        assert result["status"] == "stored"
+
+    def test_zero_arg_handlers_via_dispatch(self, agent):
+        """list_pending_decisions, check_overdue_delegations, check_alerts accept tool_input."""
+        for tool_name in ("list_pending_decisions", "check_overdue_delegations", "check_alerts"):
+            result = agent._dispatch_tool(tool_name, {})
+            assert isinstance(result, (list, dict)), f"{tool_name} returned unexpected type"

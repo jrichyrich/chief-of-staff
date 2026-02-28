@@ -1,6 +1,6 @@
 # agents/base.py
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 import anthropic
@@ -236,115 +236,71 @@ class BaseExpertAgent:
 
         return result
 
+    def _get_dispatch_table(self) -> dict:
+        """Build and cache a dispatch table mapping tool names to handlers."""
+        if hasattr(self, "_dispatch_cache"):
+            return self._dispatch_cache
+
+        table: dict[str, Any] = {
+            # Memory & document tools
+            "query_memory": lambda ti: execute_query_memory(
+                self.memory_store, ti["query"], ti.get("category")
+            ),
+            "store_memory": lambda ti: execute_store_memory(
+                self.memory_store, ti["category"], ti["key"], ti["value"],
+                source=self.name,
+            ),
+            "search_documents": lambda ti: execute_search_documents(
+                self.document_store, ti["query"], ti.get("top_k", 5)
+            ),
+            # Lifecycle — decisions
+            "create_decision": self._handle_create_decision,
+            "search_decisions": self._handle_search_decisions,
+            "update_decision": self._handle_update_decision,
+            "list_pending_decisions": self._handle_list_pending_decisions,
+            "delete_decision": self._handle_delete_decision,
+            # Lifecycle — delegations
+            "create_delegation": self._handle_create_delegation,
+            "list_delegations": self._handle_list_delegations,
+            "update_delegation": self._handle_update_delegation,
+            "check_overdue_delegations": self._handle_check_overdue_delegations,
+            "delete_delegation": self._handle_delete_delegation,
+            # Lifecycle — alerts
+            "create_alert_rule": self._handle_create_alert_rule,
+            "list_alert_rules": self._handle_list_alert_rules,
+            "check_alerts": self._handle_check_alerts,
+            "dismiss_alert": self._handle_dismiss_alert,
+            # Calendar
+            "get_calendar_events": self._handle_calendar_get_events,
+            "search_calendar_events": self._handle_calendar_search,
+            # Reminders
+            "list_reminders": self._handle_reminder_list,
+            "search_reminders": self._handle_reminder_search,
+            "create_reminder": self._handle_reminder_create,
+            "complete_reminder": self._handle_reminder_complete,
+            # Notifications
+            "send_notification": self._handle_send_notification,
+            # Mail
+            "get_mail_messages": self._handle_mail_get_messages,
+            "get_mail_message": self._handle_mail_get_message,
+            "search_mail": self._handle_mail_search,
+            "get_unread_count": self._handle_mail_get_unread_count,
+            "send_email": self._handle_mail_send,
+            "mark_mail_read": self._handle_mail_mark_read,
+            "mark_mail_flagged": self._handle_mail_mark_flagged,
+            "move_mail_message": self._handle_mail_move_message,
+        }
+
+        self._dispatch_cache = table
+        return table
+
     def _dispatch_tool(self, tool_name: str, tool_input: dict) -> Any:
         """Route a tool call to the appropriate handler. Returns the result."""
-        if tool_name == "query_memory":
-            return execute_query_memory(
-                self.memory_store, tool_input["query"], tool_input.get("category")
-            )
-
-        elif tool_name == "store_memory":
-            return execute_store_memory(
-                self.memory_store,
-                tool_input["category"],
-                tool_input["key"],
-                tool_input["value"],
-                source=self.name,
-            )
-
-        elif tool_name == "search_documents":
-            return execute_search_documents(
-                self.document_store, tool_input["query"], tool_input.get("top_k", 5)
-            )
-
-        elif tool_name == "create_decision":
-            return self._handle_create_decision(tool_input)
-
-        elif tool_name == "search_decisions":
-            return self._handle_search_decisions(tool_input)
-
-        elif tool_name == "update_decision":
-            return self._handle_update_decision(tool_input)
-
-        elif tool_name == "list_pending_decisions":
-            return self._handle_list_pending_decisions()
-
-        elif tool_name == "delete_decision":
-            return self._handle_delete_decision(tool_input)
-
-        elif tool_name == "create_delegation":
-            return self._handle_create_delegation(tool_input)
-
-        elif tool_name == "list_delegations":
-            return self._handle_list_delegations(tool_input)
-
-        elif tool_name == "update_delegation":
-            return self._handle_update_delegation(tool_input)
-
-        elif tool_name == "check_overdue_delegations":
-            return self._handle_check_overdue_delegations()
-
-        elif tool_name == "delete_delegation":
-            return self._handle_delete_delegation(tool_input)
-
-        elif tool_name == "create_alert_rule":
-            return self._handle_create_alert_rule(tool_input)
-
-        elif tool_name == "list_alert_rules":
-            return self._handle_list_alert_rules(tool_input)
-
-        elif tool_name == "check_alerts":
-            return self._handle_check_alerts()
-
-        elif tool_name == "dismiss_alert":
-            return self._handle_dismiss_alert(tool_input)
-
-        elif tool_name == "get_calendar_events":
-            return self._handle_calendar_get_events(tool_input)
-
-        elif tool_name == "search_calendar_events":
-            return self._handle_calendar_search(tool_input)
-
-        elif tool_name == "list_reminders":
-            return self._handle_reminder_list(tool_input)
-
-        elif tool_name == "search_reminders":
-            return self._handle_reminder_search(tool_input)
-
-        elif tool_name == "create_reminder":
-            return self._handle_reminder_create(tool_input)
-
-        elif tool_name == "complete_reminder":
-            return self._handle_reminder_complete(tool_input)
-
-        elif tool_name == "send_notification":
-            return self._handle_send_notification(tool_input)
-
-        elif tool_name == "get_mail_messages":
-            return self._handle_mail_get_messages(tool_input)
-
-        elif tool_name == "get_mail_message":
-            return self._handle_mail_get_message(tool_input)
-
-        elif tool_name == "search_mail":
-            return self._handle_mail_search(tool_input)
-
-        elif tool_name == "get_unread_count":
-            return self._handle_mail_get_unread_count(tool_input)
-
-        elif tool_name == "send_email":
-            return self._handle_mail_send(tool_input)
-
-        elif tool_name == "mark_mail_read":
-            return self._handle_mail_mark_read(tool_input)
-
-        elif tool_name == "mark_mail_flagged":
-            return self._handle_mail_mark_flagged(tool_input)
-
-        elif tool_name == "move_mail_message":
-            return self._handle_mail_move_message(tool_input)
-
-        return {"error": f"Unknown tool: {tool_name}"}
+        table = self._get_dispatch_table()
+        handler = table.get(tool_name)
+        if handler is None:
+            return {"error": f"Unknown tool: {tool_name}"}
+        return handler(tool_input)
 
     def _handle_create_decision(self, tool_input: dict) -> Any:
         return lifecycle_tools.create_decision(
@@ -375,7 +331,7 @@ class BaseExpertAgent:
             notes=tool_input.get("notes", ""),
         )
 
-    def _handle_list_pending_decisions(self) -> Any:
+    def _handle_list_pending_decisions(self, tool_input: dict = None) -> Any:
         return lifecycle_tools.list_pending_decisions(self.memory_store)
 
     def _handle_delete_decision(self, tool_input: dict) -> Any:
@@ -410,7 +366,7 @@ class BaseExpertAgent:
             notes=tool_input.get("notes", ""),
         )
 
-    def _handle_check_overdue_delegations(self) -> Any:
+    def _handle_check_overdue_delegations(self, tool_input: dict = None) -> Any:
         return lifecycle_tools.check_overdue_delegations(self.memory_store)
 
     def _handle_delete_delegation(self, tool_input: dict) -> Any:
@@ -435,7 +391,7 @@ class BaseExpertAgent:
             enabled_only=tool_input.get("enabled_only", False),
         )
 
-    def _handle_check_alerts(self) -> Any:
+    def _handle_check_alerts(self, tool_input: dict = None) -> Any:
         return lifecycle_tools.check_alerts(self.memory_store)
 
     def _handle_dismiss_alert(self, tool_input: dict) -> Any:
@@ -447,7 +403,6 @@ class BaseExpertAgent:
     def _handle_calendar_get_events(self, tool_input: dict) -> Any:
         if self.calendar_store is None:
             return {"error": "Calendar not available (macOS only)"}
-        from datetime import datetime
         start_dt = datetime.fromisoformat(tool_input["start_date"])
         end_dt = datetime.fromisoformat(tool_input["end_date"])
         calendar_names = [tool_input["calendar_name"]] if tool_input.get("calendar_name") else None
@@ -462,7 +417,6 @@ class BaseExpertAgent:
     def _handle_calendar_search(self, tool_input: dict) -> Any:
         if self.calendar_store is None:
             return {"error": "Calendar not available (macOS only)"}
-        from datetime import datetime, timedelta
         now = datetime.now()
         start_dt = datetime.fromisoformat(tool_input["start_date"]) if tool_input.get("start_date") else now - timedelta(days=30)
         end_dt = datetime.fromisoformat(tool_input["end_date"]) if tool_input.get("end_date") else now + timedelta(days=30)
