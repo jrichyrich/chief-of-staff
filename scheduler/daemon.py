@@ -51,14 +51,15 @@ class JarvisDaemon:
             loop.add_signal_handler(sig, self.shutdown)
 
     async def _tick(self) -> list[dict]:
-        """Run one evaluation cycle. Never raises."""
+        """Run one evaluation cycle with async timeout support. Never raises."""
         try:
-            results = self.engine.evaluate_due_tasks()
+            results = await self.engine.evaluate_due_tasks_async()
             if results:
                 logger.info(
-                    "Tick complete: %d tasks evaluated (%d errors)",
+                    "Tick complete: %d tasks evaluated (%d errors, %d timeouts)",
                     len(results),
                     sum(1 for r in results if r.get("status") == "error"),
+                    sum(1 for r in results if r.get("status") == "timeout"),
                 )
             return results
         except Exception as e:

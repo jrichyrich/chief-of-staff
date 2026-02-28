@@ -4,6 +4,7 @@ import logging
 import math
 import re
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -18,36 +19,39 @@ _FTS5_SPECIAL = re.compile(r'[*"^\-():,]|\b(?:OR|AND|NOT|NEAR)\b')
 class FactStore:
     """Manages facts (with FTS5 + ChromaDB vector search), locations, and context."""
 
-    def __init__(self, conn: sqlite3.Connection, chroma_collection=None):
+    def __init__(self, conn: sqlite3.Connection, chroma_collection=None, *, lock=None):
         self.conn = conn
         self._facts_collection = chroma_collection
+        self._lock = lock or threading.RLock()
 
     # --- Facts ---
 
     def store_fact(self, fact: Fact) -> Fact:
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO facts (category, key, value, confidence, source, pinned, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(category, key) DO UPDATE SET
-                   value=excluded.value,
-                   confidence=excluded.confidence,
-                   source=excluded.source,
-                   pinned=excluded.pinned,
-                   updated_at=excluded.updated_at""",
-            (fact.category, fact.key, fact.value, fact.confidence, fact.source,
-             1 if fact.pinned else 0, now, now),
-        )
-        self.conn.commit()
-        if self._facts_collection is not None:
-            try:
-                self._facts_collection.upsert(
-                    ids=[f"{fact.category}:{fact.key}"],
-                    documents=[f"{fact.key}: {fact.value}"],
-                    metadatas=[{"category": fact.category, "key": fact.key}],
-                )
-            except Exception as e:
-                logger.warning("ChromaDB upsert failed for %s:%s: %s", fact.category, fact.key, e)
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO facts (category, key, value, confidence, source, pinned, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(category, key) DO UPDATE SET
+                       value=excluded.value,
+                       confidence=excluded.confidence,
+                       source=excluded.source,
+                       pinned=excluded.pinned,
+                       updated_at=excluded.updated_at""",
+                (fact.category, fact.key, fact.value, fact.confidence, fact.source,
+                 1 if fact.pinned else 0, now, now),
+            )
+            if self._facts_collection is not None:
+                try:
+                    self._facts_collection.upsert(
+                        ids=[f"{fact.category}:{fact.key}"],
+                        documents=[f"{fact.key}: {fact.value}"],
+                        metadatas=[{"category": fact.category, "key": fact.key}],
+                    )
+                except Exception:
+                    self.conn.rollback()
+                    raise
+            self.conn.commit()
         return self.get_fact(fact.category, fact.key)
 
     def get_fact(self, category: str, key: str) -> Optional[Fact]:
@@ -260,16 +264,37 @@ class FactStore:
         return results
 
     def delete_fact(self, category: str, key: str) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM facts WHERE category=? AND key=?", (category, key)
-        )
-        self.conn.commit()
-        if self._facts_collection is not None:
-            try:
-                self._facts_collection.delete(ids=[f"{category}:{key}"])
-            except Exception as e:
-                logger.warning("ChromaDB delete failed for %s:%s: %s", category, key, e)
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM facts WHERE category=? AND key=?", (category, key)
+            )
+            if self._facts_collection is not None:
+                try:
+                    self._facts_collection.delete(ids=[f"{category}:{key}"])
+                except Exception:
+                    self.conn.rollback()
+                    raise
+            self.conn.commit()
         return cursor.rowcount > 0
+
+    def repair_vector_index(self) -> int:
+        """Rebuild ChromaDB vector index from all SQLite facts.
+
+        Returns the number of facts synced. Skips if no ChromaDB collection.
+        """
+        if self._facts_collection is None:
+            return 0
+        rows = self.conn.execute("SELECT * FROM facts").fetchall()
+        count = 0
+        for row in rows:
+            fact = self._row_to_fact(row)
+            self._facts_collection.upsert(
+                ids=[f"{fact.category}:{fact.key}"],
+                documents=[f"{fact.key}: {fact.value}"],
+                metadatas=[{"category": fact.category, "key": fact.key}],
+            )
+            count += 1
+        return count
 
     def _row_to_fact(self, row: sqlite3.Row) -> Fact:
         pinned = False
@@ -293,17 +318,18 @@ class FactStore:
 
     def store_location(self, location: Location) -> Location:
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO locations (name, address, latitude, longitude, notes, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(name) DO UPDATE SET
-                   address=excluded.address,
-                   latitude=excluded.latitude,
-                   longitude=excluded.longitude,
-                   notes=excluded.notes""",
-            (location.name, location.address, location.latitude, location.longitude, location.notes, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO locations (name, address, latitude, longitude, notes, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                       address=excluded.address,
+                       latitude=excluded.latitude,
+                       longitude=excluded.longitude,
+                       notes=excluded.notes""",
+                (location.name, location.address, location.latitude, location.longitude, location.notes, now),
+            )
+            self.conn.commit()
         return self.get_location(location.name)
 
     def get_location(self, name: str) -> Optional[Location]:
@@ -332,12 +358,13 @@ class FactStore:
     # --- Context ---
 
     def store_context(self, entry: ContextEntry) -> ContextEntry:
-        cursor = self.conn.execute(
-            """INSERT INTO context (session_id, topic, summary, agent)
-               VALUES (?, ?, ?, ?)""",
-            (entry.session_id, entry.topic, entry.summary, entry.agent),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                """INSERT INTO context (session_id, topic, summary, agent)
+                   VALUES (?, ?, ?, ?)""",
+                (entry.session_id, entry.topic, entry.summary, entry.agent),
+            )
+            self.conn.commit()
         row = self.conn.execute("SELECT * FROM context WHERE id=?", (cursor.lastrowid,)).fetchone()
         return self._row_to_context(row)
 

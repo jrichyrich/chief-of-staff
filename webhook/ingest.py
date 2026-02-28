@@ -149,16 +149,20 @@ def ingest_events(
                 event_type=event_type,
                 payload=payload,
             )
-            stored = memory_store.store_webhook_event(event)
-            logger.info(
-                "Ingested event id=%s source=%s type=%s from %s",
-                stored.id,
-                source,
-                event_type,
-                filepath.name,
-            )
-            _move_file(filepath, processed_dir)
-            counts["ingested"] += 1
+            try:
+                stored = memory_store.store_webhook_event(event)
+                logger.info(
+                    "Ingested event id=%s source=%s type=%s from %s",
+                    stored.id,
+                    source,
+                    event_type,
+                    filepath.name,
+                )
+                _move_file(filepath, processed_dir)
+                counts["ingested"] += 1
+            except Exception as exc:
+                logger.error("Failed to store event from %s: %s", filepath.name, exc)
+                counts["failed"] += 1
 
         logger.info(
             "Ingest complete: %d ingested, %d failed, %d skipped",

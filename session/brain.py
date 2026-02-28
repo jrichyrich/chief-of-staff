@@ -5,6 +5,7 @@ and handoff notes in a human-readable markdown format that survives session
 boundaries.
 """
 
+import fcntl
 import os
 import re
 import tempfile
@@ -32,6 +33,7 @@ class SessionBrain:
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._lock_path = self.path.parent / ".brain.lock"
         self.workstreams: list[dict] = []
         self.action_items: list[dict] = []
         self.decisions: list[dict] = []
@@ -45,20 +47,33 @@ class SessionBrain:
         """
         if not self.path.exists():
             return
-        text = self.path.read_text(encoding="utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lf = open(self._lock_path, "w")
+        try:
+            fcntl.flock(lf, fcntl.LOCK_SH)
+            text = self.path.read_text(encoding="utf-8")
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            lf.close()
         self._parse(text)
 
     def save(self) -> None:
         """Render and write the brain to the markdown file atomically."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         content = self.render()
-        with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.tmp', dir=str(self.path.parent),
-            delete=False, encoding="utf-8"
-        ) as f:
-            f.write(content)
-            tmp = f.name
-        os.replace(tmp, str(self.path))
+        lf = open(self._lock_path, "w")
+        try:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            with tempfile.NamedTemporaryFile(
+                mode='w', suffix='.tmp', dir=str(self.path.parent),
+                delete=False, encoding="utf-8"
+            ) as f:
+                f.write(content)
+                tmp = f.name
+            os.replace(tmp, str(self.path))
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            lf.close()
 
     def render(self) -> str:
         """Generate markdown with all sections.

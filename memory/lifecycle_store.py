@@ -2,6 +2,7 @@
 """Domain store for decisions, delegations, and alert rules."""
 import re
 import sqlite3
+import threading
 from datetime import date, datetime
 from typing import Optional
 
@@ -25,23 +26,25 @@ class LifecycleStore:
         "name", "description", "alert_type", "condition", "enabled", "last_triggered_at",
     })
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, *, lock=None):
         self.conn = conn
+        self._lock = lock or threading.RLock()
 
     # --- Decisions ---
 
     def store_decision(self, decision: Decision) -> Decision:
         now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO decisions (title, description, context, alternatives_considered,
-               decided_by, owner, status, follow_up_date, tags, source, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (decision.title, decision.description, decision.context,
-             decision.alternatives_considered, decision.decided_by, decision.owner,
-             decision.status, decision.follow_up_date, decision.tags, decision.source,
-             now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                """INSERT INTO decisions (title, description, context, alternatives_considered,
+                   decided_by, owner, status, follow_up_date, tags, source, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (decision.title, decision.description, decision.context,
+                 decision.alternatives_considered, decision.decided_by, decision.owner,
+                 decision.status, decision.follow_up_date, decision.tags, decision.source,
+                 now, now),
+            )
+            self.conn.commit()
         return self.get_decision(cursor.lastrowid)
 
     def get_decision(self, decision_id: int) -> Optional[Decision]:
@@ -74,17 +77,19 @@ class LifecycleStore:
             raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [decision_id]
-        self.conn.execute(
-            f"UPDATE decisions SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                f"UPDATE decisions SET {set_clause} WHERE id=?", values
+            )
+            self.conn.commit()
         return self.get_decision(decision_id)
 
     def delete_decision(self, decision_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM decisions WHERE id=?", (decision_id,)
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM decisions WHERE id=?", (decision_id,)
+            )
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def _row_to_decision(self, row: sqlite3.Row) -> Decision:
@@ -108,15 +113,16 @@ class LifecycleStore:
 
     def store_delegation(self, delegation: Delegation) -> Delegation:
         now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO delegations (task, description, delegated_to, delegated_by,
-               due_date, priority, status, source, notes, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (delegation.task, delegation.description, delegation.delegated_to,
-             delegation.delegated_by, delegation.due_date, delegation.priority,
-             delegation.status, delegation.source, delegation.notes, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                """INSERT INTO delegations (task, description, delegated_to, delegated_by,
+                   due_date, priority, status, source, notes, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (delegation.task, delegation.description, delegation.delegated_to,
+                 delegation.delegated_by, delegation.due_date, delegation.priority,
+                 delegation.status, delegation.source, delegation.notes, now, now),
+            )
+            self.conn.commit()
         return self.get_delegation(cursor.lastrowid)
 
     def get_delegation(self, delegation_id: int) -> Optional[Delegation]:
@@ -156,17 +162,19 @@ class LifecycleStore:
             raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [delegation_id]
-        self.conn.execute(
-            f"UPDATE delegations SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                f"UPDATE delegations SET {set_clause} WHERE id=?", values
+            )
+            self.conn.commit()
         return self.get_delegation(delegation_id)
 
     def delete_delegation(self, delegation_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM delegations WHERE id=?", (delegation_id,)
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM delegations WHERE id=?", (delegation_id,)
+            )
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def _row_to_delegation(self, row: sqlite3.Row) -> Delegation:
@@ -189,18 +197,19 @@ class LifecycleStore:
 
     def store_alert_rule(self, rule: AlertRule) -> AlertRule:
         now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO alert_rules (name, description, alert_type, condition, enabled, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(name) DO UPDATE SET
-                   description=excluded.description,
-                   alert_type=excluded.alert_type,
-                   condition=excluded.condition,
-                   enabled=excluded.enabled""",
-            (rule.name, rule.description, rule.alert_type, rule.condition,
-             1 if rule.enabled else 0, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO alert_rules (name, description, alert_type, condition, enabled, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                       description=excluded.description,
+                       alert_type=excluded.alert_type,
+                       condition=excluded.condition,
+                       enabled=excluded.enabled""",
+                (rule.name, rule.description, rule.alert_type, rule.condition,
+                 1 if rule.enabled else 0, now),
+            )
+            self.conn.commit()
         row = self.conn.execute(
             "SELECT * FROM alert_rules WHERE name=?", (rule.name,)
         ).fetchone()
@@ -233,17 +242,19 @@ class LifecycleStore:
             kwargs["enabled"] = 1 if kwargs["enabled"] else 0
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [rule_id]
-        self.conn.execute(
-            f"UPDATE alert_rules SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                f"UPDATE alert_rules SET {set_clause} WHERE id=?", values
+            )
+            self.conn.commit()
         return self.get_alert_rule(rule_id)
 
     def delete_alert_rule(self, rule_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM alert_rules WHERE id=?", (rule_id,)
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM alert_rules WHERE id=?", (rule_id,)
+            )
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def _row_to_alert_rule(self, row: sqlite3.Row) -> AlertRule:

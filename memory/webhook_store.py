@@ -3,6 +3,7 @@
 import fnmatch
 import re
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -18,19 +19,21 @@ class WebhookStore:
         "delivery_config", "enabled", "priority", "updated_at",
     })
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, *, lock=None):
         self.conn = conn
+        self._lock = lock or threading.RLock()
 
     # --- Webhook Events ---
 
     def store_webhook_event(self, event: WebhookEvent) -> WebhookEvent:
         now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO webhook_events (source, event_type, payload, status, received_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (event.source, event.event_type, event.payload, event.status or WebhookStatus.pending, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                """INSERT INTO webhook_events (source, event_type, payload, status, received_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (event.source, event.event_type, event.payload, event.status or WebhookStatus.pending, now),
+            )
+            self.conn.commit()
         return self.get_webhook_event(cursor.lastrowid)
 
     def get_webhook_event(self, event_id: int) -> Optional[WebhookEvent]:
@@ -59,11 +62,12 @@ class WebhookStore:
 
     def update_webhook_event_status(self, event_id: int, status: str) -> Optional[WebhookEvent]:
         now = datetime.now().isoformat() if status in (WebhookStatus.processed, WebhookStatus.failed) else None
-        self.conn.execute(
-            "UPDATE webhook_events SET status=?, processed_at=? WHERE id=?",
-            (status, now, event_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE webhook_events SET status=?, processed_at=? WHERE id=?",
+                (status, now, event_id),
+            )
+            self.conn.commit()
         return self.get_webhook_event(event_id)
 
     def _row_to_webhook_event(self, row: sqlite3.Row) -> WebhookEvent:
@@ -94,16 +98,17 @@ class WebhookStore:
     ) -> dict:
         import json as _json
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO event_rules (name, description, event_source, event_type_pattern,
-               agent_name, agent_input_template, delivery_channel, delivery_config,
-               enabled, priority, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, description, event_source, event_type_pattern, agent_name,
-             agent_input_template, delivery_channel, delivery_config,
-             1 if enabled else 0, priority, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO event_rules (name, description, event_source, event_type_pattern,
+                   agent_name, agent_input_template, delivery_channel, delivery_config,
+                   enabled, priority, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (name, description, event_source, event_type_pattern, agent_name,
+                 agent_input_template, delivery_channel, delivery_config,
+                 1 if enabled else 0, priority, now, now),
+            )
+            self.conn.commit()
         row = self.conn.execute(
             "SELECT * FROM event_rules WHERE name=?", (name,)
         ).fetchone()
@@ -139,17 +144,19 @@ class WebhookStore:
             kwargs["enabled"] = 1 if kwargs["enabled"] else 0
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [rule_id]
-        self.conn.execute(
-            f"UPDATE event_rules SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                f"UPDATE event_rules SET {set_clause} WHERE id=?", values
+            )
+            self.conn.commit()
         return self.get_event_rule(rule_id)
 
     def delete_event_rule(self, rule_id: int) -> dict:
-        cursor = self.conn.execute(
-            "DELETE FROM event_rules WHERE id=?", (rule_id,)
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM event_rules WHERE id=?", (rule_id,)
+            )
+            self.conn.commit()
         if cursor.rowcount > 0:
             return {"status": "deleted", "id": rule_id}
         return {"status": "not_found", "id": rule_id}

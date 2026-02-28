@@ -1,6 +1,7 @@
 # memory/identity_store.py
 """Domain store for identity resolution."""
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -8,8 +9,9 @@ from typing import Optional
 class IdentityStore:
     """Manages identity linking and resolution across providers."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, *, lock=None):
         self.conn = conn
+        self._lock = lock or threading.RLock()
 
     def link_identity(
         self,
@@ -22,18 +24,19 @@ class IdentityStore:
     ) -> dict:
         """Link a provider identity to a canonical name. Upserts on (provider, provider_id)."""
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO identities (canonical_name, provider, provider_id, display_name, email, metadata, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(provider, provider_id) DO UPDATE SET
-                   canonical_name=excluded.canonical_name,
-                   display_name=excluded.display_name,
-                   email=excluded.email,
-                   metadata=excluded.metadata,
-                   updated_at=excluded.updated_at""",
-            (canonical_name, provider, provider_id, display_name, email, metadata, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO identities (canonical_name, provider, provider_id, display_name, email, metadata, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(provider, provider_id) DO UPDATE SET
+                       canonical_name=excluded.canonical_name,
+                       display_name=excluded.display_name,
+                       email=excluded.email,
+                       metadata=excluded.metadata,
+                       updated_at=excluded.updated_at""",
+                (canonical_name, provider, provider_id, display_name, email, metadata, now, now),
+            )
+            self.conn.commit()
         row = self.conn.execute(
             "SELECT * FROM identities WHERE provider=? AND provider_id=?",
             (provider, provider_id),
@@ -42,11 +45,12 @@ class IdentityStore:
 
     def unlink_identity(self, provider: str, provider_id: str) -> dict:
         """Remove an identity link. Returns status dict."""
-        cursor = self.conn.execute(
-            "DELETE FROM identities WHERE provider=? AND provider_id=?",
-            (provider, provider_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM identities WHERE provider=? AND provider_id=?",
+                (provider, provider_id),
+            )
+            self.conn.commit()
         if cursor.rowcount > 0:
             return {"status": "unlinked", "provider": provider, "provider_id": provider_id}
         return {"status": "not_found", "provider": provider, "provider_id": provider_id}

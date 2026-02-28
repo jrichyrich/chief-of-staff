@@ -186,6 +186,9 @@ class EventDispatcher:
 
             duration = round(time.monotonic() - start, 3)
 
+            # Detect agent-level errors (AgentResult with is_error)
+            agent_had_error = hasattr(result_text, "is_error") and result_text.is_error
+
             # Deliver result if delivery channel configured
             delivery_status = None
             delivery_channel = rule.get("delivery_channel")
@@ -209,10 +212,13 @@ class EventDispatcher:
                     logger.error("Delivery failed for rule '%s': %s", rule_name, e)
                     delivery_status = {"status": "error", "error": str(e)}
 
-            # Reflect delivery failure in overall status
-            overall_status = "success"
-            if delivery_status and delivery_status.get("status") == "error":
+            # Reflect agent or delivery failure in overall status
+            if agent_had_error:
+                overall_status = getattr(result_text, "status", "error")
+            elif delivery_status and delivery_status.get("status") == "error":
                 overall_status = "delivery_failed"
+            else:
+                overall_status = "success"
 
             logger.info(
                 "Dispatched rule='%s' agent='%s' status=%s duration=%.3fs",

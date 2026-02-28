@@ -1,6 +1,7 @@
 # memory/skill_store.py
 """Domain store for skill usage, tool usage log, and skill suggestions."""
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -10,22 +11,24 @@ from memory.models import SkillSuggestion, SkillSuggestionStatus, SkillUsage
 class SkillStore:
     """Manages skill usage tracking, tool invocation logs, and skill suggestions."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, *, lock=None):
         self.conn = conn
+        self._lock = lock or threading.RLock()
 
     # --- Skill Usage ---
 
     def record_skill_usage(self, tool_name: str, query_pattern: str) -> SkillUsage:
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO skill_usage (tool_name, query_pattern, count, last_used, created_at)
-               VALUES (?, ?, 1, ?, ?)
-               ON CONFLICT(tool_name, query_pattern) DO UPDATE SET
-                   count = count + 1,
-                   last_used = excluded.last_used""",
-            (tool_name, query_pattern, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO skill_usage (tool_name, query_pattern, count, last_used, created_at)
+                   VALUES (?, ?, 1, ?, ?)
+                   ON CONFLICT(tool_name, query_pattern) DO UPDATE SET
+                       count = count + 1,
+                       last_used = excluded.last_used""",
+                (tool_name, query_pattern, now, now),
+            )
+            self.conn.commit()
         row = self.conn.execute(
             "SELECT * FROM skill_usage WHERE tool_name=? AND query_pattern=?",
             (tool_name, query_pattern),
@@ -70,13 +73,14 @@ class SkillStore:
     ) -> None:
         """Log a single tool invocation to the temporal log table."""
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO tool_usage_log
-               (tool_name, query_pattern, success, duration_ms, session_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (tool_name, query_pattern, int(success), duration_ms, session_id, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO tool_usage_log
+                   (tool_name, query_pattern, success, duration_ms, session_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (tool_name, query_pattern, int(success), duration_ms, session_id, now),
+            )
+            self.conn.commit()
 
     def get_tool_usage_log(
         self,
@@ -157,15 +161,16 @@ class SkillStore:
     # --- Skill Suggestions ---
 
     def store_skill_suggestion(self, suggestion: SkillSuggestion) -> SkillSuggestion:
-        cursor = self.conn.execute(
-            """INSERT INTO skill_suggestions (description, suggested_name, suggested_capabilities,
-               confidence, status)
-               VALUES (?, ?, ?, ?, ?)""",
-            (suggestion.description, suggestion.suggested_name,
-             suggestion.suggested_capabilities, suggestion.confidence,
-             suggestion.status or SkillSuggestionStatus.pending),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                """INSERT INTO skill_suggestions (description, suggested_name, suggested_capabilities,
+                   confidence, status)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (suggestion.description, suggestion.suggested_name,
+                 suggestion.suggested_capabilities, suggestion.confidence,
+                 suggestion.status or SkillSuggestionStatus.pending),
+            )
+            self.conn.commit()
         return self.get_skill_suggestion(cursor.lastrowid)
 
     def get_skill_suggestion(self, suggestion_id: int) -> Optional[SkillSuggestion]:
@@ -184,11 +189,12 @@ class SkillStore:
         return [self._row_to_skill_suggestion(r) for r in rows]
 
     def update_skill_suggestion_status(self, suggestion_id: int, status: str) -> Optional[SkillSuggestion]:
-        self.conn.execute(
-            "UPDATE skill_suggestions SET status=? WHERE id=?",
-            (status, suggestion_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE skill_suggestions SET status=? WHERE id=?",
+                (status, suggestion_id),
+            )
+            self.conn.commit()
         return self.get_skill_suggestion(suggestion_id)
 
     def _row_to_skill_suggestion(self, row: sqlite3.Row) -> SkillSuggestion:

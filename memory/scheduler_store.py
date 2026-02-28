@@ -3,6 +3,7 @@
 import json as _json
 import re
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -19,33 +20,35 @@ class SchedulerStore:
         "delivery_channel", "delivery_config", "updated_at",
     })
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, *, lock=None):
         self.conn = conn
+        self._lock = lock or threading.RLock()
 
     def store_scheduled_task(self, task: ScheduledTask) -> ScheduledTask:
         now = datetime.now().isoformat()
         delivery_config_str = _json.dumps(task.delivery_config) if task.delivery_config else None
-        cursor = self.conn.execute(
-            """INSERT INTO scheduled_tasks (name, description, schedule_type, schedule_config,
-               handler_type, handler_config, enabled, next_run_at,
-               delivery_channel, delivery_config, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(name) DO UPDATE SET
-                   description=excluded.description,
-                   schedule_type=excluded.schedule_type,
-                   schedule_config=excluded.schedule_config,
-                   handler_type=excluded.handler_type,
-                   handler_config=excluded.handler_config,
-                   enabled=excluded.enabled,
-                   next_run_at=excluded.next_run_at,
-                   delivery_channel=excluded.delivery_channel,
-                   delivery_config=excluded.delivery_config,
-                   updated_at=excluded.updated_at""",
-            (task.name, task.description, task.schedule_type, task.schedule_config,
-             task.handler_type, task.handler_config, 1 if task.enabled else 0,
-             task.next_run_at, task.delivery_channel, delivery_config_str, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO scheduled_tasks (name, description, schedule_type, schedule_config,
+                   handler_type, handler_config, enabled, next_run_at,
+                   delivery_channel, delivery_config, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                       description=excluded.description,
+                       schedule_type=excluded.schedule_type,
+                       schedule_config=excluded.schedule_config,
+                       handler_type=excluded.handler_type,
+                       handler_config=excluded.handler_config,
+                       enabled=excluded.enabled,
+                       next_run_at=excluded.next_run_at,
+                       delivery_channel=excluded.delivery_channel,
+                       delivery_config=excluded.delivery_config,
+                       updated_at=excluded.updated_at""",
+                (task.name, task.description, task.schedule_type, task.schedule_config,
+                 task.handler_type, task.handler_config, 1 if task.enabled else 0,
+                 task.next_run_at, task.delivery_channel, delivery_config_str, now, now),
+            )
+            self.conn.commit()
         row = self.conn.execute(
             "SELECT * FROM scheduled_tasks WHERE name=?", (task.name,)
         ).fetchone()
@@ -98,17 +101,19 @@ class SchedulerStore:
             kwargs["delivery_config"] = _json.dumps(kwargs["delivery_config"])
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [task_id]
-        self.conn.execute(
-            f"UPDATE scheduled_tasks SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                f"UPDATE scheduled_tasks SET {set_clause} WHERE id=?", values
+            )
+            self.conn.commit()
         return self.get_scheduled_task(task_id)
 
     def delete_scheduled_task(self, task_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM scheduled_tasks WHERE id=?", (task_id,)
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM scheduled_tasks WHERE id=?", (task_id,)
+            )
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def _row_to_scheduled_task(self, row: sqlite3.Row) -> ScheduledTask:

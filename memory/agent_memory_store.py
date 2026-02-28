@@ -1,6 +1,7 @@
 # memory/agent_memory_store.py
 """Domain store for agent memory and shared memory."""
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -10,24 +11,26 @@ from memory.models import AgentMemory
 class AgentMemoryStore:
     """Manages per-agent memory and namespace-based shared memory."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, *, lock=None):
         self.conn = conn
+        self._lock = lock or threading.RLock()
 
     # --- Agent Memory ---
 
     def store_agent_memory(self, memory: AgentMemory) -> AgentMemory:
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
-                   value=excluded.value,
-                   confidence=excluded.confidence,
-                   updated_at=excluded.updated_at""",
-            (memory.agent_name, memory.memory_type, memory.key, memory.value,
-             memory.confidence, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
+                       value=excluded.value,
+                       confidence=excluded.confidence,
+                       updated_at=excluded.updated_at""",
+                (memory.agent_name, memory.memory_type, memory.key, memory.value,
+                 memory.confidence, now, now),
+            )
+            self.conn.commit()
         row = self.conn.execute(
             "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? AND key=?",
             (memory.agent_name, memory.memory_type, memory.key),
@@ -55,24 +58,26 @@ class AgentMemoryStore:
         return [self._row_to_agent_memory(r) for r in rows]
 
     def delete_agent_memory(self, agent_name: str, key: str, memory_type: str = "") -> bool:
-        if memory_type:
-            cursor = self.conn.execute(
-                "DELETE FROM agent_memory WHERE agent_name=? AND key=? AND memory_type=?",
-                (agent_name, key, memory_type),
-            )
-        else:
-            cursor = self.conn.execute(
-                "DELETE FROM agent_memory WHERE agent_name=? AND key=?",
-                (agent_name, key),
-            )
-        self.conn.commit()
+        with self._lock:
+            if memory_type:
+                cursor = self.conn.execute(
+                    "DELETE FROM agent_memory WHERE agent_name=? AND key=? AND memory_type=?",
+                    (agent_name, key, memory_type),
+                )
+            else:
+                cursor = self.conn.execute(
+                    "DELETE FROM agent_memory WHERE agent_name=? AND key=?",
+                    (agent_name, key),
+                )
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def clear_agent_memories(self, agent_name: str) -> int:
-        cursor = self.conn.execute(
-            "DELETE FROM agent_memory WHERE agent_name=?", (agent_name,)
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM agent_memory WHERE agent_name=?", (agent_name,)
+            )
+            self.conn.commit()
         return cursor.rowcount
 
     def _row_to_agent_memory(self, row: sqlite3.Row) -> AgentMemory:
@@ -104,17 +109,18 @@ class AgentMemoryStore:
     ) -> AgentMemory:
         agent_name = self._shared_agent_name(namespace)
         now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, namespace, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
-                   value=excluded.value,
-                   confidence=excluded.confidence,
-                   namespace=excluded.namespace,
-                   updated_at=excluded.updated_at""",
-            (agent_name, memory_type, key, value, confidence, namespace, now, now),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, namespace, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
+                       value=excluded.value,
+                       confidence=excluded.confidence,
+                       namespace=excluded.namespace,
+                       updated_at=excluded.updated_at""",
+                (agent_name, memory_type, key, value, confidence, namespace, now, now),
+            )
+            self.conn.commit()
         row = self.conn.execute(
             "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? AND key=?",
             (agent_name, memory_type, key),

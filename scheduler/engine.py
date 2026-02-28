@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
@@ -232,6 +233,106 @@ class SchedulerEngine:
             logger.error(f"Error executing task {task.name}: {error_msg}")
 
             # Still update last_run_at so we don't retry immediately
+            try:
+                self.memory_store.update_scheduled_task(
+                    task.id,
+                    last_run_at=now.isoformat(),
+                    last_result=json.dumps({"status": "error", "error": error_msg}),
+                )
+            except Exception:
+                pass
+
+        return task_result
+
+    async def evaluate_due_tasks_async(self, now: Optional[datetime] = None) -> list[dict]:
+        """Async version of evaluate_due_tasks with per-handler timeout."""
+        if now is None:
+            now = datetime.now()
+
+        due_tasks = self.memory_store.get_due_tasks(now=now.isoformat())
+        results = []
+
+        for task in due_tasks:
+            result = await self._execute_task_async(task, now)
+            results.append(result)
+
+        return results
+
+    async def _execute_task_async(self, task, now: datetime) -> dict:
+        """Execute a single scheduled task with timeout protection."""
+        from config import SCHEDULER_HANDLER_TIMEOUT_SECONDS
+
+        task_result = {
+            "task_id": task.id,
+            "name": task.name,
+            "handler_type": task.handler_type,
+        }
+
+        try:
+            next_run = calculate_next_run(task.schedule_type, task.schedule_config, from_time=now)
+            self.memory_store.update_scheduled_task(task.id, next_run_at=next_run)
+
+            try:
+                handler_result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        execute_handler,
+                        task.handler_type, task.handler_config,
+                        memory_store=self.memory_store,
+                        agent_registry=self.agent_registry,
+                        document_store=self.document_store,
+                    ),
+                    timeout=SCHEDULER_HANDLER_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                timeout_msg = f"Handler timed out after {SCHEDULER_HANDLER_TIMEOUT_SECONDS}s"
+                logger.error("Timeout executing task %s: %s", task.name, timeout_msg)
+                task_result["status"] = "timeout"
+                task_result["error"] = timeout_msg
+                self.memory_store.update_scheduled_task(
+                    task.id,
+                    last_run_at=now.isoformat(),
+                    next_run_at=next_run,
+                    last_result=json.dumps({"status": "timeout", "error": timeout_msg}),
+                )
+                return task_result
+
+            task_result["result"] = handler_result
+
+            self.memory_store.update_scheduled_task(
+                task.id,
+                last_run_at=now.isoformat(),
+                next_run_at=next_run,
+                last_result=handler_result,
+            )
+
+            task_result["next_run_at"] = next_run
+            task_result["status"] = "executed"
+
+            if getattr(task, "delivery_channel", None):
+                try:
+                    delivery_result = self._deliver(task, handler_result)
+                    task_result["delivery"] = delivery_result
+                except Exception as e:
+                    task_result["delivery"] = {"status": "failed", "error": str(e)}
+                    logger.error("Delivery failed for task %s: %s", task.name, e)
+
+                if "delivery" in task_result:
+                    try:
+                        combined = json.loads(handler_result) if isinstance(handler_result, str) else handler_result
+                    except (json.JSONDecodeError, TypeError):
+                        combined = {"handler_result": handler_result}
+                    combined["delivery"] = task_result["delivery"]
+                    self.memory_store.update_scheduled_task(
+                        task.id,
+                        last_result=json.dumps(combined),
+                    )
+
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            task_result["status"] = "error"
+            task_result["error"] = error_msg
+            logger.error(f"Error executing task {task.name}: {error_msg}")
+
             try:
                 self.memory_store.update_scheduled_task(
                     task.id,

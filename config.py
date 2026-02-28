@@ -43,6 +43,12 @@ SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").strip().lower() 
 DAEMON_TICK_INTERVAL_SECONDS = int(os.environ.get("DAEMON_TICK_INTERVAL_SECONDS", "60"))
 DAEMON_LOG_FILE = DATA_DIR / "jarvis-daemon.log"
 
+# Scheduler handler timeout (seconds). Handlers exceeding this are killed.
+try:
+    SCHEDULER_HANDLER_TIMEOUT_SECONDS = int(os.environ.get("SCHEDULER_HANDLER_TIMEOUT_SECONDS", "300"))
+except ValueError:
+    SCHEDULER_HANDLER_TIMEOUT_SECONDS = 300
+
 # Parallel agent dispatch settings (0 = unlimited)
 try:
     MAX_CONCURRENT_AGENT_DISPATCHES = max(0, int(os.environ.get("MAX_CONCURRENT_AGENT_DISPATCHES", "5")))

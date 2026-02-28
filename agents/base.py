@@ -9,6 +9,36 @@ import config as app_config
 from config import MAX_TOOL_ROUNDS
 from agents.loop_detector import LoopDetector
 
+
+class AgentResult(str):
+    """Agent execution result that behaves as a str for backward compat.
+
+    Adds .status, .is_success, .is_error, .metadata properties so callers
+    can distinguish successful text from error JSON without parsing.
+    """
+
+    def __new__(cls, text: str, *, status: str = "success", metadata: dict | None = None):
+        instance = super().__new__(cls, text)
+        instance._status = status
+        instance._metadata = metadata or {}
+        return instance
+
+    @property
+    def status(self) -> str:
+        return self._status
+
+    @property
+    def is_success(self) -> bool:
+        return self._status == "success"
+
+    @property
+    def is_error(self) -> bool:
+        return self._status != "success"
+
+    @property
+    def metadata(self) -> dict:
+        return self._metadata
+
 MAX_TOOL_RESULT_LENGTH = 10000
 from agents.registry import AgentConfig
 from capabilities.registry import get_tools_for_capabilities
@@ -119,7 +149,8 @@ class BaseExpertAgent:
 
                 if should_break:
                     messages.append({"role": "user", "content": tool_results})
-                    return json.dumps({"status": "loop_detected", "rounds": _round + 1, "message": "Agent terminated early: repetitive tool call loop detected"})
+                    text = json.dumps({"status": "loop_detected", "rounds": _round + 1, "message": "Agent terminated early: repetitive tool call loop detected"})
+                    return AgentResult(text, status="loop_detected", metadata={"rounds": _round + 1})
 
                 messages.append({"role": "user", "content": tool_results})
                 continue
@@ -127,11 +158,12 @@ class BaseExpertAgent:
             # Extract text response
             for block in response.content:
                 if block.type == "text":
-                    return block.text
+                    return AgentResult(block.text, status="success")
 
-            return ""
+            return AgentResult("", status="success")
 
-        return json.dumps({"status": "max_rounds_reached", "rounds": MAX_TOOL_ROUNDS, "message": "Agent reached maximum tool rounds without producing a final response"})
+        text = json.dumps({"status": "max_rounds_reached", "rounds": MAX_TOOL_ROUNDS, "message": "Agent reached maximum tool rounds without producing a final response"})
+        return AgentResult(text, status="max_rounds_reached", metadata={"rounds": MAX_TOOL_ROUNDS})
 
     @retry_api_call
     async def _call_api(self, messages: list, tools: list) -> Any:

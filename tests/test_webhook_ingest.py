@@ -224,6 +224,46 @@ class TestIngestEvents:
         assert (inbox_dir / "processed" / "good.json").exists()
         assert (inbox_dir / "failed" / "bad.json").exists()
 
+    def test_store_failure_leaves_file_in_inbox(self, memory_store, inbox_dir):
+        """When store_webhook_event raises, the file stays in inbox for retry."""
+        (inbox_dir / "event.json").write_text(
+            json.dumps({"source": "s", "event_type": "e", "payload": "data"})
+        )
+
+        with patch.object(memory_store, "store_webhook_event", side_effect=RuntimeError("DB locked")):
+            result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
+
+        assert result["failed"] == 1
+        assert result["ingested"] == 0
+        # File should remain in inbox (not moved to processed/ or failed/)
+        assert (inbox_dir / "event.json").exists()
+        assert not (inbox_dir / "processed" / "event.json").exists()
+
+    def test_store_failure_does_not_block_other_files(self, memory_store, inbox_dir):
+        """One store failure should not prevent other files from being processed."""
+        for i in range(3):
+            (inbox_dir / f"event_{i:02d}.json").write_text(
+                json.dumps({"source": f"src{i}", "event_type": "test"})
+            )
+
+        call_count = [0]
+        original_store = memory_store.store_webhook_event
+
+        def store_that_fails_on_second(event):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise RuntimeError("DB locked on second file")
+            return original_store(event)
+
+        with patch.object(memory_store, "store_webhook_event", side_effect=store_that_fails_on_second):
+            result = ingest_events(memory_store, inbox_dir, debounce_seconds=0)
+
+        assert result["ingested"] == 2
+        assert result["failed"] == 1
+        # The second file should still be in inbox
+        remaining = list(inbox_dir.glob("*.json"))
+        assert len(remaining) == 1  # Only the failed file remains
+
 
 @pytest.mark.asyncio
 class TestDispatchPendingEvents:

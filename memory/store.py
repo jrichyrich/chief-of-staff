@@ -6,6 +6,7 @@ Table creation, migrations, and connection management remain centralized here.
 """
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 
 from memory.agent_memory_store import AgentMemoryStore
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 class MemoryStore:
     def __init__(self, db_path: Path, chroma_client=None):
         self.db_path = db_path
-        self.conn = sqlite3.connect(str(db_path))
+        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA foreign_keys=ON")
@@ -39,14 +40,17 @@ class MemoryStore:
         self._migrate_agent_memory_namespace()
         self._migrate_scheduled_tasks_delivery()
 
-        # --- Domain stores (shared connection) ---
-        self._fact_store = FactStore(self.conn, self._facts_collection)
-        self._lifecycle_store = LifecycleStore(self.conn)
-        self._webhook_store = WebhookStore(self.conn)
-        self._scheduler_store = SchedulerStore(self.conn)
-        self._skill_store = SkillStore(self.conn)
-        self._agent_memory_store = AgentMemoryStore(self.conn)
-        self._identity_store = IdentityStore(self.conn)
+        # --- Thread safety: shared lock for all write operations ---
+        self._lock = threading.RLock()
+
+        # --- Domain stores (shared connection + lock) ---
+        self._fact_store = FactStore(self.conn, self._facts_collection, lock=self._lock)
+        self._lifecycle_store = LifecycleStore(self.conn, lock=self._lock)
+        self._webhook_store = WebhookStore(self.conn, lock=self._lock)
+        self._scheduler_store = SchedulerStore(self.conn, lock=self._lock)
+        self._skill_store = SkillStore(self.conn, lock=self._lock)
+        self._agent_memory_store = AgentMemoryStore(self.conn, lock=self._lock)
+        self._identity_store = IdentityStore(self.conn, lock=self._lock)
 
         # --- Delegate all public methods ---
 
@@ -61,6 +65,7 @@ class MemoryStore:
         self.search_facts_vector = self._fact_store.search_facts_vector
         self.search_facts_hybrid = self._fact_store.search_facts_hybrid
         self.delete_fact = self._fact_store.delete_fact
+        self.repair_vector_index = self._fact_store.repair_vector_index
         self.store_location = self._fact_store.store_location
         self.get_location = self._fact_store.get_location
         self.list_locations = self._fact_store.list_locations

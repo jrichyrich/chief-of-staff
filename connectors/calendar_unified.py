@@ -26,6 +26,7 @@ class UnifiedCalendarService:
     def _open_ownership_db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.ownership_db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
         return conn
 
     @staticmethod

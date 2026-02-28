@@ -136,13 +136,19 @@ def register(mcp, state):
                 duration = round(time.monotonic() - start, 3)
 
                 # Truncate long results
-                if len(result_text) > max_result_len:
-                    result_text = result_text[:max_result_len] + "... [truncated]"
+                display_text = str(result_text)
+                if len(display_text) > max_result_len:
+                    display_text = display_text[:max_result_len] + "... [truncated]"
+
+                # Reflect agent-reported status if available (AgentResult)
+                agent_status = "success"
+                if hasattr(result_text, "is_error") and result_text.is_error:
+                    agent_status = getattr(result_text, "status", "error")
 
                 return {
                     "agent_name": config.name,
-                    "status": "success",
-                    "result": result_text,
+                    "status": agent_status,
+                    "result": display_text,
                     "duration_seconds": duration,
                     "model_used": effective_config.model,
                 }
