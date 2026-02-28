@@ -110,6 +110,16 @@ class CalendarStore:
         granted_flag.wait(timeout=30)
         return result["granted"]
 
+    def _check_access(self) -> Optional[dict]:
+        """Re-check current calendar authorization (catches mid-session revocation)."""
+        if not _EVENTKIT_AVAILABLE:
+            return None  # _ensure_store handles this
+        status = EventKit.EKEventStore.authorizationStatusForEntityType_(0)  # 0 = Event
+        if status not in (3, 4):  # EKAuthorizationStatusAuthorized, FullAccess
+            self._access_granted = False
+            return _PERMISSION_ERROR
+        return None
+
     def _get_calendar_by_name(self, name: str, source: Optional[str] = None):
         """Find an EKCalendar by display title (and optionally source), or None.
 
@@ -164,6 +174,9 @@ class CalendarStore:
         err = self._ensure_store()
         if err:
             return [err]
+        err = self._check_access()
+        if err:
+            return [err]
 
         try:
             calendars = self._store.calendarsForEntityType_(0)  # 0 = Event
@@ -200,6 +213,9 @@ class CalendarStore:
     ) -> list[dict]:
         """Return events in the given date range."""
         err = self._ensure_store()
+        if err:
+            return [err]
+        err = self._check_access()
         if err:
             return [err]
 
@@ -242,6 +258,9 @@ class CalendarStore:
         err = self._ensure_store()
         if err:
             return err
+        err = self._check_access()
+        if err:
+            return err
 
         try:
             event = EventKit.EKEvent.eventWithEventStore_(self._store)
@@ -279,6 +298,9 @@ class CalendarStore:
         err = self._ensure_store()
         if err:
             return err
+        err = self._check_access()
+        if err:
+            return err
 
         try:
             event = self._find_event_by_uid(event_uid, calendar_name)
@@ -312,6 +334,9 @@ class CalendarStore:
         err = self._ensure_store()
         if err:
             return err
+        err = self._check_access()
+        if err:
+            return err
 
         try:
             event = self._find_event_by_uid(event_uid, calendar_name)
@@ -334,6 +359,9 @@ class CalendarStore:
     ) -> list[dict]:
         """Search events by title text within a date range."""
         err = self._ensure_store()
+        if err:
+            return [err]
+        err = self._check_access()
         if err:
             return [err]
 

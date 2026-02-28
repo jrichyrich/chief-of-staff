@@ -1,5 +1,7 @@
 """JSON-backed snapshot store for OKR data."""
 import json
+import os
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
@@ -16,9 +18,15 @@ class OKRStore:
         self._snapshot_path = self._data_dir / "latest_snapshot.json"
 
     def save(self, snapshot: OKRSnapshot) -> Path:
-        """Serialize snapshot to JSON and write to disk."""
+        """Serialize snapshot to JSON and write to disk atomically."""
         data = asdict(snapshot)
-        self._snapshot_path.write_text(json.dumps(data, indent=2, default=str))
+        content = json.dumps(data, indent=2, default=str)
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.tmp', dir=str(self._snapshot_path.parent), delete=False
+        ) as f:
+            f.write(content)
+            tmp = f.name
+        os.replace(tmp, str(self._snapshot_path))
         return self._snapshot_path
 
     def load_latest(self) -> Optional[OKRSnapshot]:

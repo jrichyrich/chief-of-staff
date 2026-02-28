@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import signal
 import subprocess
 from datetime import datetime
 from typing import Callable, Optional
@@ -241,13 +243,28 @@ class ClaudeM365Bridge:
 
     def _run(self, args: list[str], timeout: int) -> subprocess.CompletedProcess | None:
         try:
-            return self._runner(
+            if self._runner is not subprocess.run:
+                # Custom runner (e.g. test mock) — use as-is
+                return self._runner(
+                    args,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+            # Default runner: use Popen with process group cleanup on timeout
+            proc = subprocess.Popen(
                 args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                start_new_session=True,
             )
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout)
+                return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                proc.wait(timeout=5)
+                return None
         except FileNotFoundError:
             return None
         except Exception:

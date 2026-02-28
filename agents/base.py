@@ -119,7 +119,7 @@ class BaseExpertAgent:
 
                 if should_break:
                     messages.append({"role": "user", "content": tool_results})
-                    return "[Agent terminated early: repetitive tool call loop detected]"
+                    return json.dumps({"status": "loop_detected", "rounds": _round + 1, "message": "Agent terminated early: repetitive tool call loop detected"})
 
                 messages.append({"role": "user", "content": tool_results})
                 continue
@@ -131,7 +131,7 @@ class BaseExpertAgent:
 
             return ""
 
-        return "[Agent reached maximum tool rounds without producing a final response]"
+        return json.dumps({"status": "max_rounds_reached", "rounds": MAX_TOOL_ROUNDS, "message": "Agent reached maximum tool rounds without producing a final response"})
 
     @retry_api_call
     async def _call_api(self, messages: list, tools: list) -> Any:

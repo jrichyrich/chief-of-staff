@@ -119,6 +119,16 @@ class ReminderStore:
         granted_flag.wait(timeout=30)
         return result["granted"]
 
+    def _check_access(self) -> Optional[dict]:
+        """Re-check current reminders authorization (catches mid-session revocation)."""
+        if not _EVENTKIT_AVAILABLE:
+            return None  # _ensure_store handles this
+        status = EventKit.EKEventStore.authorizationStatusForEntityType_(_EK_ENTITY_TYPE_REMINDER)
+        if status not in (3, 4):  # EKAuthorizationStatusAuthorized, FullAccess
+            self._access_granted = False
+            return _PERMISSION_ERROR
+        return None
+
     def _get_reminder_list_by_name(self, name: str):
         """Find an EKCalendar (reminder list) by display title, or None."""
         for cal in self._store.calendarsForEntityType_(_EK_ENTITY_TYPE_REMINDER):
@@ -162,6 +172,9 @@ class ReminderStore:
         store = self._ensure_store()
         if isinstance(store, dict):
             return [store]
+        err = self._check_access()
+        if err:
+            return [err]
 
         try:
             calendars = store.calendarsForEntityType_(_EK_ENTITY_TYPE_REMINDER)
@@ -198,6 +211,9 @@ class ReminderStore:
         store = self._ensure_store()
         if isinstance(store, dict):
             return [store]
+        err = self._check_access()
+        if err:
+            return [err]
 
         try:
             calendars = None
@@ -244,6 +260,9 @@ class ReminderStore:
         store = self._ensure_store()
         if isinstance(store, dict):
             return store
+        err = self._check_access()
+        if err:
+            return err
 
         try:
             reminder = EventKit.EKReminder.reminderWithEventStore_(store)
@@ -287,6 +306,9 @@ class ReminderStore:
         store = self._ensure_store()
         if isinstance(store, dict):
             return store
+        err = self._check_access()
+        if err:
+            return err
 
         try:
             reminder = self._find_reminder_by_id(reminder_id)
@@ -308,6 +330,9 @@ class ReminderStore:
         store = self._ensure_store()
         if isinstance(store, dict):
             return store
+        err = self._check_access()
+        if err:
+            return err
 
         try:
             reminder = self._find_reminder_by_id(reminder_id)
@@ -336,6 +361,9 @@ class ReminderStore:
         store = self._ensure_store()
         if isinstance(store, dict):
             return [store]
+        err = self._check_access()
+        if err:
+            return [err]
 
         try:
             if include_completed:

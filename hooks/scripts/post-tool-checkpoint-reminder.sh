@@ -14,7 +14,7 @@ read -r INPUT 2>/dev/null || true
 
 # If this was a checkpoint_session call, record the timestamp for cooldown
 TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || echo "")
-if [ "$TOOL_NAME" = "mcp__jarvis__checkpoint_session" ] || [ "$TOOL_NAME" = "mcp__chief-of-staff__checkpoint_session" ]; then
+if [ "$TOOL_NAME" = "mcp__jarvis__checkpoint_session" ]; then
     date +%s > "$CHECKPOINT_FILE"
     echo "0" > "$COUNTER_FILE"
     echo "{}"

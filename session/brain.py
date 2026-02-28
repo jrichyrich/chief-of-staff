@@ -5,7 +5,9 @@ and handoff notes in a human-readable markdown format that survives session
 boundaries.
 """
 
+import os
 import re
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -47,9 +49,16 @@ class SessionBrain:
         self._parse(text)
 
     def save(self) -> None:
-        """Render and write the brain to the markdown file."""
+        """Render and write the brain to the markdown file atomically."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(self.render(), encoding="utf-8")
+        content = self.render()
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.tmp', dir=str(self.path.parent),
+            delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            tmp = f.name
+        os.replace(tmp, str(self.path))
 
     def render(self) -> str:
         """Generate markdown with all sections.

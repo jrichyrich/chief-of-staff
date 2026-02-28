@@ -34,6 +34,14 @@ LOOKBACK_MINUTES=20
 MAX_RETRIES=2
 CLAUDE_MCP_ARGS=()
 PRINT_CONNECTOR_STATUS=false
+
+# ── Concurrency lock ─────────────────────────────────────────────────────────
+LOCK_FILE="${DATA_DIR}/.inbox-monitor.lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo "Another instance is running, exiting."
+    exit 0
+fi
 MCP_LIST_OUTPUT=""
 HAS_M365_CONNECTOR=false
 HAS_LOCAL_JARVIS_CONNECTOR=false
@@ -140,7 +148,7 @@ detect_connector_state() {
         HAS_M365_CONNECTOR=false
     fi
 
-    if echo "${MCP_LIST_OUTPUT}" | grep -Eiq "(chief-of-staff|jarvis):.*connected"; then
+    if echo "${MCP_LIST_OUTPUT}" | grep -Eiq "jarvis:.*connected"; then
         HAS_LOCAL_JARVIS_CONNECTOR=true
     else
         HAS_LOCAL_JARVIS_CONNECTOR=false
@@ -808,8 +816,9 @@ invoke_claude() {
             break
         }
         if [[ ${attempt} -le ${MAX_RETRIES} ]]; then
-            log "    Claude invocation failed (attempt ${attempt}/$((MAX_RETRIES + 1))), retrying in 5s..."
-            sleep 5
+            local sleep_time=$((2 ** attempt))
+            log "    Claude invocation failed (attempt ${attempt}/$((MAX_RETRIES + 1))), retrying in ${sleep_time}s..."
+            sleep "${sleep_time}"
         fi
     done
 
@@ -835,8 +844,9 @@ invoke_claude_structured() {
             break
         }
         if [[ ${attempt} -le ${MAX_RETRIES} ]]; then
-            log "    Claude invocation failed (attempt ${attempt}/$((MAX_RETRIES + 1))), retrying in 5s..."
-            sleep 5
+            local sleep_time=$((2 ** attempt))
+            log "    Claude invocation failed (attempt ${attempt}/$((MAX_RETRIES + 1))), retrying in ${sleep_time}s..."
+            sleep "${sleep_time}"
         fi
     done
 
@@ -1044,8 +1054,9 @@ ${INSTRUCTION}" --output-format json --json-schema "${CLASSIFY_SCHEMA}" "${CLAUD
                 break
             }
             if [[ ${CLASSIFY_ATTEMPT} -le ${MAX_RETRIES} ]]; then
-                log "    Classification failed (attempt ${CLASSIFY_ATTEMPT}/$((MAX_RETRIES + 1))), retrying in 5s..."
-                sleep 5
+                local sleep_time=$((2 ** CLASSIFY_ATTEMPT))
+                log "    Classification failed (attempt ${CLASSIFY_ATTEMPT}/$((MAX_RETRIES + 1))), retrying in ${sleep_time}s..."
+                sleep "${sleep_time}"
             fi
         done
 

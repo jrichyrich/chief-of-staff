@@ -1,6 +1,8 @@
 import base64
 import logging
+import os
 import platform
+import signal
 import subprocess
 from typing import Optional
 
@@ -27,20 +29,33 @@ def _escape_osascript(text: str) -> str:
     )
 
 
+def _run_with_cleanup(cmd, timeout, **kwargs):
+    """Run a subprocess with proper cleanup on timeout (kills process group)."""
+    proc = subprocess.Popen(cmd, start_new_session=True, **kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        proc.wait(timeout=5)
+        raise
+
+
 def _run_applescript(script: str, timeout: int = _DEFAULT_TIMEOUT) -> dict:
     """Execute AppleScript and return {'output': ...} or {'error': ...}."""
     if not _IS_MACOS:
         return _PLATFORM_ERROR
     try:
-        result = subprocess.run(
+        result = _run_with_cleanup(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=timeout, check=True,
+            timeout=timeout,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
-        return {"output": result.stdout.strip()}
+        if result.returncode != 0:
+            return {"error": f"osascript failed: {(result.stderr or '').strip()}"}
+        return {"output": (result.stdout or "").strip()}
     except subprocess.TimeoutExpired:
         return {"error": "Mail operation timed out"}
-    except subprocess.CalledProcessError as e:
-        return {"error": f"osascript failed: {e.stderr.strip()}"}
     except FileNotFoundError:
         return {"error": "osascript not found — not running on macOS?"}
 

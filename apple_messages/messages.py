@@ -1,8 +1,11 @@
 import json
 import logging
+import os
 import platform
+import signal
 import sqlite3
 import subprocess
+import time
 from pathlib import Path
 from datetime import UTC, datetime
 
@@ -43,6 +46,18 @@ _DEFAULT_TIMEOUT = 15
 _SEND_TIMEOUT = 30
 
 
+def _run_with_cleanup(cmd, timeout, **kwargs):
+    """Run a subprocess with proper cleanup on timeout (kills process group)."""
+    proc = subprocess.Popen(cmd, start_new_session=True, **kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        proc.wait(timeout=5)
+        raise
+
+
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -77,6 +92,17 @@ class MessageStore:
         conn = sqlite3.connect(uri, uri=True)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _query_with_retry(self, query_fn, max_retries=3):
+        """Retry a chat.db query on 'database is locked' errors."""
+        for attempt in range(max_retries):
+            try:
+                return query_fn()
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < max_retries - 1:
+                    time.sleep(0.1 * (2 ** attempt))
+                    continue
+                raise
 
     @staticmethod
     def _normalize_limit(limit: int) -> int:
@@ -270,8 +296,10 @@ class MessageStore:
             LIMIT ?
         """
         try:
-            with self._open_chat_db() as conn:
-                rows = conn.execute(query, params).fetchall()
+            def _do_query():
+                with self._open_chat_db() as conn:
+                    return conn.execute(query, params).fetchall()
+            rows = self._query_with_retry(_do_query)
         except (sqlite3.OperationalError, sqlite3.IntegrityError) as exc:
             logger.error("SQLite error in get_messages: %s", exc)
             return [{"error": str(exc)}]
@@ -339,8 +367,10 @@ class MessageStore:
             LIMIT ?
         """
         try:
-            with self._open_chat_db() as conn:
-                rows = conn.execute(sql, params).fetchall()
+            def _do_query():
+                with self._open_chat_db() as conn:
+                    return conn.execute(sql, params).fetchall()
+            rows = self._query_with_retry(_do_query)
         except (sqlite3.OperationalError, sqlite3.IntegrityError) as exc:
             logger.error("SQLite error in search_messages: %s", exc)
             return [{"error": str(exc)}]
@@ -411,8 +441,10 @@ class MessageStore:
             LIMIT ?
         """
         try:
-            with self._open_chat_db() as conn:
-                rows = conn.execute(sql, (safe_minutes, safe_limit)).fetchall()
+            def _do_query():
+                with self._open_chat_db() as conn:
+                    return conn.execute(sql, (safe_minutes, safe_limit)).fetchall()
+            rows = self._query_with_retry(_do_query)
         except Exception as exc:
             return [{"error": str(exc)}]
         results: list[dict] = []
@@ -488,8 +520,10 @@ class MessageStore:
             LIMIT ?
         """
         try:
-            with self._open_chat_db() as conn:
-                rows = conn.execute(sql, params).fetchall()
+            def _do_query():
+                with self._open_chat_db() as conn:
+                    return conn.execute(sql, params).fetchall()
+            rows = self._query_with_retry(_do_query)
         except (sqlite3.OperationalError, sqlite3.IntegrityError) as exc:
             logger.error("SQLite error in get_thread_messages: %s", exc)
             return [{"error": str(exc)}]
@@ -645,12 +679,10 @@ class MessageStore:
         else:
             cmd.extend(["--to", to])
         try:
-            proc = subprocess.run(
+            proc = _run_with_cleanup(
                 cmd,
-                capture_output=True,
-                text=True,
                 timeout=_SEND_TIMEOUT,
-                check=False,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
         except subprocess.TimeoutExpired:
             return {"error": "iMessage send timed out"}

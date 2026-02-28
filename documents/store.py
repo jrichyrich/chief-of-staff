@@ -5,6 +5,10 @@ import chromadb
 from chromadb.config import Settings
 
 
+COLLECTION_NAME = "jarvis_docs"
+_OLD_COLLECTION_NAME = "chief_of_staff_docs"
+
+
 class DocumentStore:
     def __init__(self, persist_dir: Path):
         self.client = chromadb.Client(Settings(
@@ -12,10 +16,18 @@ class DocumentStore:
             is_persistent=True,
             anonymized_telemetry=False,
         ))
+        self._migrate_collection_name()
         self.collection = self.client.get_or_create_collection(
-            name="chief_of_staff_docs",
+            name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
         )
+
+    def _migrate_collection_name(self) -> None:
+        """Rename legacy collection from chief_of_staff_docs to jarvis_docs."""
+        existing = {c.name for c in self.client.list_collections()}
+        if _OLD_COLLECTION_NAME in existing and COLLECTION_NAME not in existing:
+            old = self.client.get_collection(_OLD_COLLECTION_NAME)
+            old.modify(name=COLLECTION_NAME)
 
     def add_documents(
         self,
