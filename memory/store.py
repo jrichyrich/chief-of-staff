@@ -1,15 +1,22 @@
 # memory/store.py
-import math
-import re
-import sqlite3
-from datetime import date, datetime
-from pathlib import Path
-from typing import Optional
+"""MemoryStore facade — delegates to domain-scoped stores.
 
-from memory.models import (
-    AgentMemory, AlertRule, ContextEntry, Decision, Delegation, EventRule, Fact,
-    Identity, Location, ScheduledTask, SkillSuggestion, SkillUsage, WebhookEvent,
-)
+All public methods are preserved for backward compatibility.
+Table creation, migrations, and connection management remain centralized here.
+"""
+import logging
+import sqlite3
+from pathlib import Path
+
+from memory.agent_memory_store import AgentMemoryStore
+from memory.fact_store import FactStore
+from memory.identity_store import IdentityStore
+from memory.lifecycle_store import LifecycleStore
+from memory.scheduler_store import SchedulerStore
+from memory.skill_store import SkillStore
+from memory.webhook_store import WebhookStore
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryStore:
@@ -17,6 +24,7 @@ class MemoryStore:
         self.db_path = db_path
         self.conn = sqlite3.connect(str(db_path))
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.row_factory = sqlite3.Row
         self._chroma_client = chroma_client
@@ -30,6 +38,140 @@ class MemoryStore:
         self._migrate_facts_pinned()
         self._migrate_agent_memory_namespace()
         self._migrate_scheduled_tasks_delivery()
+
+        # --- Domain stores (shared connection) ---
+        self._fact_store = FactStore(self.conn, self._facts_collection)
+        self._lifecycle_store = LifecycleStore(self.conn)
+        self._webhook_store = WebhookStore(self.conn)
+        self._scheduler_store = SchedulerStore(self.conn)
+        self._skill_store = SkillStore(self.conn)
+        self._agent_memory_store = AgentMemoryStore(self.conn)
+        self._identity_store = IdentityStore(self.conn)
+
+        # --- Delegate all public methods ---
+
+        # FactStore: facts, locations, context
+        self.store_fact = self._fact_store.store_fact
+        self.get_fact = self._fact_store.get_fact
+        self.get_facts_by_category = self._fact_store.get_facts_by_category
+        self.search_facts = self._fact_store.search_facts
+        self.rank_facts = self._fact_store.rank_facts
+        self.search_facts_ranked = self._fact_store.search_facts_ranked
+        self.search_facts_fts = self._fact_store.search_facts_fts
+        self.search_facts_vector = self._fact_store.search_facts_vector
+        self.search_facts_hybrid = self._fact_store.search_facts_hybrid
+        self.delete_fact = self._fact_store.delete_fact
+        self.store_location = self._fact_store.store_location
+        self.get_location = self._fact_store.get_location
+        self.list_locations = self._fact_store.list_locations
+        self.store_context = self._fact_store.store_context
+        self.list_context = self._fact_store.list_context
+        self.search_context = self._fact_store.search_context
+
+        # LifecycleStore: decisions, delegations, alert rules
+        self.store_decision = self._lifecycle_store.store_decision
+        self.get_decision = self._lifecycle_store.get_decision
+        self.search_decisions = self._lifecycle_store.search_decisions
+        self.list_decisions_by_status = self._lifecycle_store.list_decisions_by_status
+        self.update_decision = self._lifecycle_store.update_decision
+        self.delete_decision = self._lifecycle_store.delete_decision
+        self.store_delegation = self._lifecycle_store.store_delegation
+        self.get_delegation = self._lifecycle_store.get_delegation
+        self.list_delegations = self._lifecycle_store.list_delegations
+        self.list_overdue_delegations = self._lifecycle_store.list_overdue_delegations
+        self.update_delegation = self._lifecycle_store.update_delegation
+        self.delete_delegation = self._lifecycle_store.delete_delegation
+        self.store_alert_rule = self._lifecycle_store.store_alert_rule
+        self.get_alert_rule = self._lifecycle_store.get_alert_rule
+        self.list_alert_rules = self._lifecycle_store.list_alert_rules
+        self.update_alert_rule = self._lifecycle_store.update_alert_rule
+        self.delete_alert_rule = self._lifecycle_store.delete_alert_rule
+
+        # WebhookStore: webhook events, event rules
+        self.store_webhook_event = self._webhook_store.store_webhook_event
+        self.get_webhook_event = self._webhook_store.get_webhook_event
+        self.list_webhook_events = self._webhook_store.list_webhook_events
+        self.update_webhook_event_status = self._webhook_store.update_webhook_event_status
+        self.create_event_rule = self._webhook_store.create_event_rule
+        self.get_event_rule = self._webhook_store.get_event_rule
+        self.list_event_rules = self._webhook_store.list_event_rules
+        self.update_event_rule = self._webhook_store.update_event_rule
+        self.delete_event_rule = self._webhook_store.delete_event_rule
+        self.match_event_rules = self._webhook_store.match_event_rules
+
+        # SchedulerStore: scheduled tasks
+        self.store_scheduled_task = self._scheduler_store.store_scheduled_task
+        self.get_scheduled_task = self._scheduler_store.get_scheduled_task
+        self.get_scheduled_task_by_name = self._scheduler_store.get_scheduled_task_by_name
+        self.list_scheduled_tasks = self._scheduler_store.list_scheduled_tasks
+        self.get_due_tasks = self._scheduler_store.get_due_tasks
+        self.update_scheduled_task = self._scheduler_store.update_scheduled_task
+        self.delete_scheduled_task = self._scheduler_store.delete_scheduled_task
+
+        # SkillStore: skill usage, tool usage log, skill suggestions
+        self.record_skill_usage = self._skill_store.record_skill_usage
+        self.get_skill_usage_patterns = self._skill_store.get_skill_usage_patterns
+        self.log_tool_invocation = self._skill_store.log_tool_invocation
+        self.get_tool_usage_log = self._skill_store.get_tool_usage_log
+        self.get_tool_stats_summary = self._skill_store.get_tool_stats_summary
+        self.get_top_patterns_by_tool = self._skill_store.get_top_patterns_by_tool
+        self.store_skill_suggestion = self._skill_store.store_skill_suggestion
+        self.get_skill_suggestion = self._skill_store.get_skill_suggestion
+        self.list_skill_suggestions = self._skill_store.list_skill_suggestions
+        self.update_skill_suggestion_status = self._skill_store.update_skill_suggestion_status
+
+        # AgentMemoryStore: agent memory, shared memory
+        self.store_agent_memory = self._agent_memory_store.store_agent_memory
+        self.get_agent_memories = self._agent_memory_store.get_agent_memories
+        self.search_agent_memories = self._agent_memory_store.search_agent_memories
+        self.delete_agent_memory = self._agent_memory_store.delete_agent_memory
+        self.clear_agent_memories = self._agent_memory_store.clear_agent_memories
+        self.store_shared_memory = self._agent_memory_store.store_shared_memory
+        self.get_shared_memories = self._agent_memory_store.get_shared_memories
+        self.search_shared_memories = self._agent_memory_store.search_shared_memories
+
+        # IdentityStore: identities
+        self.link_identity = self._identity_store.link_identity
+        self.unlink_identity = self._identity_store.unlink_identity
+        self.get_identity = self._identity_store.get_identity
+        self.search_identity = self._identity_store.search_identity
+        self.resolve_sender = self._identity_store.resolve_sender
+        self.resolve_handle_to_name = self._identity_store.resolve_handle_to_name
+
+    # Preserve backward compat for _mmr_rerank (was a @staticmethod on MemoryStore)
+    _mmr_rerank = staticmethod(FactStore._mmr_rerank)
+
+    # --- Domain store properties ---
+
+    @property
+    def fact_store(self) -> FactStore:
+        return self._fact_store
+
+    @property
+    def lifecycle_store(self) -> LifecycleStore:
+        return self._lifecycle_store
+
+    @property
+    def webhook_store(self) -> WebhookStore:
+        return self._webhook_store
+
+    @property
+    def scheduler_store(self) -> SchedulerStore:
+        return self._scheduler_store
+
+    @property
+    def skill_store(self) -> SkillStore:
+        return self._skill_store
+
+    @property
+    def agent_memory_store(self) -> AgentMemoryStore:
+        return self._agent_memory_store
+
+    @property
+    def identity_store(self) -> IdentityStore:
+        return self._identity_store
+
+    # --- Table creation (centralized) ---
 
     def _create_tables(self):
         self.conn.executescript("""
@@ -228,13 +370,14 @@ class MemoryStore:
         self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
         self.conn.commit()
 
+    # --- Migrations (centralized) ---
+
     def _migrate_facts_pinned(self):
         """Add pinned column to facts if it doesn't exist."""
         try:
             self.conn.execute("ALTER TABLE facts ADD COLUMN pinned INTEGER DEFAULT 0")
             self.conn.commit()
         except sqlite3.OperationalError:
-            # Column already exists
             pass
 
     def _migrate_agent_memory_namespace(self):
@@ -243,7 +386,6 @@ class MemoryStore:
             self.conn.execute("ALTER TABLE agent_memory ADD COLUMN namespace TEXT")
             self.conn.commit()
         except sqlite3.OperationalError:
-            # Column already exists
             pass
 
     def _migrate_scheduled_tasks_delivery(self):
@@ -253,1376 +395,9 @@ class MemoryStore:
                 self.conn.execute(f"ALTER TABLE scheduled_tasks ADD COLUMN {col} {col_type}")
                 self.conn.commit()
             except sqlite3.OperationalError:
-                # Column already exists
                 pass
 
-    # --- Facts ---
-
-    def store_fact(self, fact: Fact) -> Fact:
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO facts (category, key, value, confidence, source, pinned, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(category, key) DO UPDATE SET
-                   value=excluded.value,
-                   confidence=excluded.confidence,
-                   source=excluded.source,
-                   pinned=excluded.pinned,
-                   updated_at=excluded.updated_at""",
-            (fact.category, fact.key, fact.value, fact.confidence, fact.source,
-             1 if fact.pinned else 0, now, now),
-        )
-        self.conn.commit()
-        if self._facts_collection is not None:
-            try:
-                self._facts_collection.upsert(
-                    ids=[f"{fact.category}:{fact.key}"],
-                    documents=[f"{fact.key}: {fact.value}"],
-                    metadatas=[{"category": fact.category, "key": fact.key}],
-                )
-            except Exception:
-                pass
-        return self.get_fact(fact.category, fact.key)
-
-    def get_fact(self, category: str, key: str) -> Optional[Fact]:
-        row = self.conn.execute(
-            "SELECT * FROM facts WHERE category=? AND key=?", (category, key)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_fact(row)
-
-    def get_facts_by_category(self, category: str) -> list[Fact]:
-        rows = self.conn.execute(
-            "SELECT * FROM facts WHERE category=?", (category,)
-        ).fetchall()
-        return [self._row_to_fact(r) for r in rows]
-
-    def search_facts(self, query: str) -> list[Fact]:
-        rows = self.conn.execute(
-            "SELECT * FROM facts WHERE value LIKE ? OR key LIKE ?",
-            (f"%{query}%", f"%{query}%"),
-        ).fetchall()
-        return [self._row_to_fact(r) for r in rows]
-
-    def rank_facts(self, facts: list[Fact], half_life_days: float = 90.0) -> list[tuple[Fact, float]]:
-        """Apply temporal decay scoring to a list of facts.
-
-        Score = confidence * exp(-ln(2) * age_days / half_life_days)
-        Pinned facts bypass decay and return full confidence score.
-        Returns list of (Fact, score) tuples sorted by score descending.
-        """
-        half_life_days = max(half_life_days, 0.001)
-        now = datetime.now()
-        ln2 = math.log(2)
-        scored: list[tuple[Fact, float]] = []
-        for fact in facts:
-            if fact.pinned:
-                scored.append((fact, fact.confidence))
-                continue
-            timestamp = fact.updated_at or fact.created_at
-            if timestamp:
-                dt = datetime.fromisoformat(str(timestamp))
-                age_days = (now - dt).total_seconds() / 86400.0
-            else:
-                age_days = 0.0
-            score = fact.confidence * math.exp(-ln2 * age_days / half_life_days)
-            scored.append((fact, score))
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return scored
-
-    def search_facts_ranked(self, query: str, half_life_days: float = 90.0) -> list[tuple[Fact, float]]:
-        """Search facts with temporal decay scoring.
-
-        Score = confidence * exp(-ln(2) * age_days / half_life_days)
-        Returns list of (Fact, score) tuples sorted by score descending.
-        """
-        return self.rank_facts(self.search_facts(query), half_life_days)
-
-    # FTS5 special characters/operators to strip from user queries
-    _FTS5_SPECIAL = re.compile(r'[*"^\-():,]|\b(?:OR|AND|NOT|NEAR)\b')
-
-    def search_facts_fts(self, query: str) -> list[Fact]:
-        """Full-text search over facts using FTS5.
-
-        Falls back to LIKE-based search_facts() if the FTS query fails.
-        """
-        if not query or not query.strip():
-            return []
-        try:
-            sanitized = self._FTS5_SPECIAL.sub(" ", query)
-            tokens = sanitized.split()
-            if not tokens:
-                return []
-            fts_query = " ".join(f'"{t}"' for t in tokens)
-            rows = self.conn.execute(
-                "SELECT f.* FROM facts f JOIN facts_fts fts ON f.id = fts.rowid "
-                "WHERE facts_fts MATCH ? ORDER BY rank",
-                (fts_query,),
-            ).fetchall()
-            return [self._row_to_fact(r) for r in rows]
-        except Exception:
-            return self.search_facts(query)
-
-    def search_facts_vector(self, query: str, top_k: int = 20) -> list[tuple[Fact, float]]:
-        """Semantic vector search over facts using ChromaDB.
-
-        Returns (Fact, score) tuples where score = 1.0 - cosine_distance.
-        """
-        if not self._facts_collection or not query or not query.strip():
-            return []
-        try:
-            count = self._facts_collection.count()
-            if count == 0:
-                return []
-            n = min(top_k, count)
-            results = self._facts_collection.query(
-                query_texts=[query], n_results=n,
-            )
-        except Exception:
-            return []
-        scored: list[tuple[Fact, float]] = []
-        ids = results.get("ids", [[]])[0]
-        distances = results.get("distances", [[]])[0]
-        for i, doc_id in enumerate(ids):
-            parts = doc_id.split(":", 1)
-            if len(parts) != 2:
-                continue
-            category, key = parts
-            fact = self.get_fact(category, key)
-            if fact is None:
-                continue
-            distance = distances[i] if i < len(distances) else 1.0
-            score = max(0.0, 1.0 - distance)
-            scored.append((fact, score))
-        return scored
-
-    @staticmethod
-    def _mmr_rerank(
-        results: list[tuple[Fact, float]],
-        lambda_param: float = 0.7,
-        top_k: int | None = None,
-    ) -> list[tuple[Fact, float]]:
-        """Maximal Marginal Relevance re-ranking to reduce redundancy.
-
-        Iteratively selects results that maximize:
-            lambda * relevance - (1 - lambda) * max_similarity_to_already_selected
-
-        Uses Jaccard token similarity between fact values.
-        """
-        if not results:
-            return []
-
-        def _jaccard(a: str, b: str) -> float:
-            words_a = set(a.lower().split())
-            words_b = set(b.lower().split())
-            if not words_a or not words_b:
-                return 0.0
-            return len(words_a & words_b) / len(words_a | words_b)
-
-        remaining = list(results)
-        selected: list[tuple[Fact, float]] = []
-        k = top_k if top_k is not None else len(results)
-
-        while remaining and len(selected) < k:
-            best_idx = 0
-            best_mmr = float("-inf")
-            for i, (fact, score) in enumerate(remaining):
-                max_sim = 0.0
-                for sel_fact, _ in selected:
-                    sim = _jaccard(fact.value, sel_fact.value)
-                    if sim > max_sim:
-                        max_sim = sim
-                mmr = lambda_param * score - (1 - lambda_param) * max_sim
-                if mmr > best_mmr:
-                    best_mmr = mmr
-                    best_idx = i
-            selected.append(remaining.pop(best_idx))
-
-        return selected
-
-    def search_facts_hybrid(self, query: str, diverse: bool = False, half_life_days: float = 90.0) -> list[tuple[Fact, float]]:
-        """Hybrid search combining FTS5 BM25, LIKE, and vector search.
-
-        Returns (Fact, score) tuples sorted by score descending.
-        When diverse=True, applies MMR re-ranking to reduce redundant results.
-        Applies temporal decay with configurable half_life_days; pinned facts bypass decay.
-        """
-        if not query or not query.strip():
-            return []
-
-        merged: dict[int, tuple[Fact, float]] = {}
-
-        # FTS5 results with BM25 rank (rank is negative; negate for a positive score)
-        try:
-            sanitized = self._FTS5_SPECIAL.sub(" ", query)
-            tokens = sanitized.split()
-            if tokens:
-                fts_query = " ".join(f'"{t}"' for t in tokens)
-                rows = self.conn.execute(
-                    "SELECT f.*, fts.rank FROM facts f "
-                    "JOIN facts_fts fts ON f.id = fts.rowid "
-                    "WHERE facts_fts MATCH ? ORDER BY rank",
-                    (fts_query,),
-                ).fetchall()
-                for row in rows:
-                    fact = self._row_to_fact(row)
-                    score = -float(row["rank"])  # BM25 rank is negative
-                    merged[fact.id] = (fact, score)
-        except Exception:
-            pass
-
-        # LIKE results with a fixed score
-        like_results = self.search_facts(query)
-        for fact in like_results:
-            if fact.id not in merged:
-                merged[fact.id] = (fact, 0.5)
-
-        # Vector results (ChromaDB semantic search)
-        vector_results = self.search_facts_vector(query)
-        for fact, score in vector_results:
-            if fact.id not in merged:
-                merged[fact.id] = (fact, score)
-            else:
-                if score > merged[fact.id][1]:
-                    merged[fact.id] = (fact, score)
-
-        # Apply temporal decay to merged results; pinned facts bypass decay
-        half_life_days = max(half_life_days, 0.001)
-        now = datetime.now()
-        ln2 = math.log(2)
-        results: list[tuple[Fact, float]] = []
-        for fact, score in merged.values():
-            if fact.pinned:
-                results.append((fact, score))
-                continue
-            timestamp = fact.updated_at or fact.created_at
-            if timestamp:
-                dt = datetime.fromisoformat(str(timestamp))
-                age_days = (now - dt).total_seconds() / 86400.0
-            else:
-                age_days = 0.0
-            decay = math.exp(-ln2 * age_days / half_life_days)
-            results.append((fact, score * decay))
-        results.sort(key=lambda x: x[1], reverse=True)
-
-        if diverse:
-            results = self._mmr_rerank(results)
-
-        return results
-
-    def delete_fact(self, category: str, key: str) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM facts WHERE category=? AND key=?", (category, key)
-        )
-        self.conn.commit()
-        if self._facts_collection is not None:
-            try:
-                self._facts_collection.delete(ids=[f"{category}:{key}"])
-            except Exception:
-                pass
-        return cursor.rowcount > 0
-
-    def _row_to_fact(self, row: sqlite3.Row) -> Fact:
-        pinned = False
-        try:
-            pinned = bool(row["pinned"])
-        except (IndexError, KeyError):
-            pass
-        return Fact(
-            id=row["id"],
-            category=row["category"],
-            key=row["key"],
-            value=row["value"],
-            confidence=row["confidence"],
-            source=row["source"],
-            pinned=pinned,
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-
-    # --- Locations ---
-
-    def store_location(self, location: Location) -> Location:
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO locations (name, address, latitude, longitude, notes, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(name) DO UPDATE SET
-                   address=excluded.address,
-                   latitude=excluded.latitude,
-                   longitude=excluded.longitude,
-                   notes=excluded.notes""",
-            (location.name, location.address, location.latitude, location.longitude, location.notes, now),
-        )
-        self.conn.commit()
-        return self.get_location(location.name)
-
-    def get_location(self, name: str) -> Optional[Location]:
-        row = self.conn.execute(
-            "SELECT * FROM locations WHERE name=?", (name,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_location(row)
-
-    def list_locations(self) -> list[Location]:
-        rows = self.conn.execute("SELECT * FROM locations").fetchall()
-        return [self._row_to_location(r) for r in rows]
-
-    def _row_to_location(self, row: sqlite3.Row) -> Location:
-        return Location(
-            id=row["id"],
-            name=row["name"],
-            address=row["address"],
-            latitude=row["latitude"],
-            longitude=row["longitude"],
-            notes=row["notes"],
-            created_at=row["created_at"],
-        )
-
-    # --- Context ---
-
-    def store_context(self, entry: ContextEntry) -> ContextEntry:
-        cursor = self.conn.execute(
-            """INSERT INTO context (session_id, topic, summary, agent)
-               VALUES (?, ?, ?, ?)""",
-            (entry.session_id, entry.topic, entry.summary, entry.agent),
-        )
-        self.conn.commit()
-        row = self.conn.execute("SELECT * FROM context WHERE id=?", (cursor.lastrowid,)).fetchone()
-        return self._row_to_context(row)
-
-    def list_context(self, session_id: Optional[str] = None, limit: int = 20) -> list[ContextEntry]:
-        query = "SELECT * FROM context"
-        params: list = []
-        if session_id:
-            query += " WHERE session_id=?"
-            params.append(session_id)
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-        rows = self.conn.execute(query, params).fetchall()
-        return [self._row_to_context(r) for r in rows]
-
-    def search_context(self, query: str, limit: int = 20) -> list[ContextEntry]:
-        rows = self.conn.execute(
-            """SELECT * FROM context
-               WHERE topic LIKE ? OR summary LIKE ?
-               ORDER BY created_at DESC
-               LIMIT ?""",
-            (f"%{query}%", f"%{query}%", limit),
-        ).fetchall()
-        return [self._row_to_context(r) for r in rows]
-
-    def _row_to_context(self, row: sqlite3.Row) -> ContextEntry:
-        return ContextEntry(
-            id=row["id"],
-            session_id=row["session_id"],
-            topic=row["topic"],
-            summary=row["summary"],
-            agent=row["agent"],
-            created_at=row["created_at"],
-        )
-
-    # --- Decisions ---
-
-    def store_decision(self, decision: Decision) -> Decision:
-        now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO decisions (title, description, context, alternatives_considered,
-               decided_by, owner, status, follow_up_date, tags, source, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (decision.title, decision.description, decision.context,
-             decision.alternatives_considered, decision.decided_by, decision.owner,
-             decision.status, decision.follow_up_date, decision.tags, decision.source,
-             now, now),
-        )
-        self.conn.commit()
-        return self.get_decision(cursor.lastrowid)
-
-    def get_decision(self, decision_id: int) -> Optional[Decision]:
-        row = self.conn.execute(
-            "SELECT * FROM decisions WHERE id=?", (decision_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_decision(row)
-
-    def search_decisions(self, query: str) -> list[Decision]:
-        rows = self.conn.execute(
-            "SELECT * FROM decisions WHERE title LIKE ? OR description LIKE ? OR tags LIKE ?",
-            (f"%{query}%", f"%{query}%", f"%{query}%"),
-        ).fetchall()
-        return [self._row_to_decision(r) for r in rows]
-
-    def list_decisions_by_status(self, status: str) -> list[Decision]:
-        rows = self.conn.execute(
-            "SELECT * FROM decisions WHERE status=?", (status,)
-        ).fetchall()
-        return [self._row_to_decision(r) for r in rows]
-
-    _DECISION_COLUMNS = frozenset({
-        "title", "description", "context", "alternatives_considered",
-        "decided_by", "owner", "status", "follow_up_date", "tags", "source", "updated_at",
-    })
-
-    def update_decision(self, decision_id: int, **kwargs) -> Optional[Decision]:
-        kwargs["updated_at"] = datetime.now().isoformat()
-        invalid = set(kwargs) - self._DECISION_COLUMNS
-        if invalid:
-            raise ValueError(f"Invalid decision fields: {invalid}")
-        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
-            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
-        set_clause = ", ".join(f"{k}=?" for k in kwargs)
-        values = list(kwargs.values()) + [decision_id]
-        self.conn.execute(
-            f"UPDATE decisions SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
-        return self.get_decision(decision_id)
-
-    def delete_decision(self, decision_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM decisions WHERE id=?", (decision_id,)
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    def _row_to_decision(self, row: sqlite3.Row) -> Decision:
-        return Decision(
-            id=row["id"],
-            title=row["title"],
-            description=row["description"],
-            context=row["context"],
-            alternatives_considered=row["alternatives_considered"],
-            decided_by=row["decided_by"],
-            owner=row["owner"],
-            status=row["status"],
-            follow_up_date=row["follow_up_date"],
-            tags=row["tags"],
-            source=row["source"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-
-    # --- Delegations ---
-
-    def store_delegation(self, delegation: Delegation) -> Delegation:
-        now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO delegations (task, description, delegated_to, delegated_by,
-               due_date, priority, status, source, notes, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (delegation.task, delegation.description, delegation.delegated_to,
-             delegation.delegated_by, delegation.due_date, delegation.priority,
-             delegation.status, delegation.source, delegation.notes, now, now),
-        )
-        self.conn.commit()
-        return self.get_delegation(cursor.lastrowid)
-
-    def get_delegation(self, delegation_id: int) -> Optional[Delegation]:
-        row = self.conn.execute(
-            "SELECT * FROM delegations WHERE id=?", (delegation_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_delegation(row)
-
-    def list_delegations(self, status: Optional[str] = None, delegated_to: Optional[str] = None) -> list[Delegation]:
-        query = "SELECT * FROM delegations WHERE 1=1"
-        params = []
-        if status is not None:
-            query += " AND status=?"
-            params.append(status)
-        if delegated_to is not None:
-            query += " AND delegated_to=?"
-            params.append(delegated_to)
-        rows = self.conn.execute(query, params).fetchall()
-        return [self._row_to_delegation(r) for r in rows]
-
-    def list_overdue_delegations(self) -> list[Delegation]:
-        today = date.today().isoformat()
-        rows = self.conn.execute(
-            "SELECT * FROM delegations WHERE status='active' AND due_date IS NOT NULL AND due_date < ?",
-            (today,),
-        ).fetchall()
-        return [self._row_to_delegation(r) for r in rows]
-
-    _DELEGATION_COLUMNS = frozenset({
-        "task", "description", "delegated_to", "delegated_by",
-        "due_date", "priority", "status", "source", "notes", "updated_at",
-    })
-
-    def update_delegation(self, delegation_id: int, **kwargs) -> Optional[Delegation]:
-        kwargs["updated_at"] = datetime.now().isoformat()
-        invalid = set(kwargs) - self._DELEGATION_COLUMNS
-        if invalid:
-            raise ValueError(f"Invalid delegation fields: {invalid}")
-        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
-            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
-        set_clause = ", ".join(f"{k}=?" for k in kwargs)
-        values = list(kwargs.values()) + [delegation_id]
-        self.conn.execute(
-            f"UPDATE delegations SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
-        return self.get_delegation(delegation_id)
-
-    def delete_delegation(self, delegation_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM delegations WHERE id=?", (delegation_id,)
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    def _row_to_delegation(self, row: sqlite3.Row) -> Delegation:
-        return Delegation(
-            id=row["id"],
-            task=row["task"],
-            description=row["description"],
-            delegated_to=row["delegated_to"],
-            delegated_by=row["delegated_by"],
-            due_date=row["due_date"],
-            priority=row["priority"],
-            status=row["status"],
-            source=row["source"],
-            notes=row["notes"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-
-    # --- Alert Rules ---
-
-    def store_alert_rule(self, rule: AlertRule) -> AlertRule:
-        now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO alert_rules (name, description, alert_type, condition, enabled, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(name) DO UPDATE SET
-                   description=excluded.description,
-                   alert_type=excluded.alert_type,
-                   condition=excluded.condition,
-                   enabled=excluded.enabled""",
-            (rule.name, rule.description, rule.alert_type, rule.condition,
-             1 if rule.enabled else 0, now),
-        )
-        self.conn.commit()
-        # For upsert, fetch by name since lastrowid may be 0 on conflict
-        row = self.conn.execute(
-            "SELECT * FROM alert_rules WHERE name=?", (rule.name,)
-        ).fetchone()
-        return self._row_to_alert_rule(row)
-
-    def get_alert_rule(self, rule_id: int) -> Optional[AlertRule]:
-        row = self.conn.execute(
-            "SELECT * FROM alert_rules WHERE id=?", (rule_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_alert_rule(row)
-
-    def list_alert_rules(self, enabled_only: bool = False) -> list[AlertRule]:
-        if enabled_only:
-            rows = self.conn.execute(
-                "SELECT * FROM alert_rules WHERE enabled=1"
-            ).fetchall()
-        else:
-            rows = self.conn.execute("SELECT * FROM alert_rules").fetchall()
-        return [self._row_to_alert_rule(r) for r in rows]
-
-    _ALERT_RULE_COLUMNS = frozenset({
-        "name", "description", "alert_type", "condition", "enabled", "last_triggered_at",
-    })
-
-    def update_alert_rule(self, rule_id: int, **kwargs) -> Optional[AlertRule]:
-        invalid = set(kwargs) - self._ALERT_RULE_COLUMNS
-        if invalid:
-            raise ValueError(f"Invalid alert_rule fields: {invalid}")
-        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
-            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
-        if "enabled" in kwargs:
-            kwargs["enabled"] = 1 if kwargs["enabled"] else 0
-        set_clause = ", ".join(f"{k}=?" for k in kwargs)
-        values = list(kwargs.values()) + [rule_id]
-        self.conn.execute(
-            f"UPDATE alert_rules SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
-        return self.get_alert_rule(rule_id)
-
-    def delete_alert_rule(self, rule_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM alert_rules WHERE id=?", (rule_id,)
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    def _row_to_alert_rule(self, row: sqlite3.Row) -> AlertRule:
-        return AlertRule(
-            id=row["id"],
-            name=row["name"],
-            description=row["description"],
-            alert_type=row["alert_type"],
-            condition=row["condition"],
-            enabled=bool(row["enabled"]),
-            last_triggered_at=row["last_triggered_at"],
-            created_at=row["created_at"],
-        )
-
-    # --- Webhook Events ---
-
-    def store_webhook_event(self, event: WebhookEvent) -> WebhookEvent:
-        now = datetime.now().isoformat()
-        cursor = self.conn.execute(
-            """INSERT INTO webhook_events (source, event_type, payload, status, received_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (event.source, event.event_type, event.payload, event.status or "pending", now),
-        )
-        self.conn.commit()
-        return self.get_webhook_event(cursor.lastrowid)
-
-    def get_webhook_event(self, event_id: int) -> Optional[WebhookEvent]:
-        row = self.conn.execute(
-            "SELECT * FROM webhook_events WHERE id=?", (event_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_webhook_event(row)
-
-    def list_webhook_events(
-        self, status: Optional[str] = None, source: Optional[str] = None, limit: int = 50
-    ) -> list[WebhookEvent]:
-        query = "SELECT * FROM webhook_events WHERE 1=1"
-        params: list = []
-        if status is not None:
-            query += " AND status=?"
-            params.append(status)
-        if source is not None:
-            query += " AND source=?"
-            params.append(source)
-        query += " ORDER BY received_at DESC LIMIT ?"
-        params.append(limit)
-        rows = self.conn.execute(query, params).fetchall()
-        return [self._row_to_webhook_event(r) for r in rows]
-
-    def update_webhook_event_status(self, event_id: int, status: str) -> Optional[WebhookEvent]:
-        now = datetime.now().isoformat() if status in ("processed", "failed") else None
-        self.conn.execute(
-            "UPDATE webhook_events SET status=?, processed_at=? WHERE id=?",
-            (status, now, event_id),
-        )
-        self.conn.commit()
-        return self.get_webhook_event(event_id)
-
-    def _row_to_webhook_event(self, row: sqlite3.Row) -> WebhookEvent:
-        return WebhookEvent(
-            id=row["id"],
-            source=row["source"],
-            event_type=row["event_type"],
-            payload=row["payload"],
-            status=row["status"],
-            received_at=row["received_at"],
-            processed_at=row["processed_at"],
-        )
-
-    # --- Event Rules ---
-
-    def create_event_rule(
-        self,
-        name: str,
-        event_source: str,
-        event_type_pattern: str,
-        agent_name: str,
-        description: str = "",
-        agent_input_template: str = "",
-        delivery_channel: str | None = None,
-        delivery_config: str | None = None,
-        enabled: bool = True,
-        priority: int = 100,
-    ) -> dict:
-        import json as _json
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO event_rules (name, description, event_source, event_type_pattern,
-               agent_name, agent_input_template, delivery_channel, delivery_config,
-               enabled, priority, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, description, event_source, event_type_pattern, agent_name,
-             agent_input_template, delivery_channel, delivery_config,
-             1 if enabled else 0, priority, now, now),
-        )
-        self.conn.commit()
-        row = self.conn.execute(
-            "SELECT * FROM event_rules WHERE name=?", (name,)
-        ).fetchone()
-        return self._row_to_event_rule_dict(row)
-
-    def get_event_rule(self, rule_id: int) -> dict | None:
-        row = self.conn.execute(
-            "SELECT * FROM event_rules WHERE id=?", (rule_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_event_rule_dict(row)
-
-    def list_event_rules(self, enabled_only: bool = True) -> list[dict]:
-        if enabled_only:
-            rows = self.conn.execute(
-                "SELECT * FROM event_rules WHERE enabled=1 ORDER BY priority ASC"
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM event_rules ORDER BY priority ASC"
-            ).fetchall()
-        return [self._row_to_event_rule_dict(r) for r in rows]
-
-    _EVENT_RULE_COLUMNS = frozenset({
-        "name", "description", "event_source", "event_type_pattern",
-        "agent_name", "agent_input_template", "delivery_channel",
-        "delivery_config", "enabled", "priority", "updated_at",
-    })
-
-    def update_event_rule(self, rule_id: int, **kwargs) -> dict | None:
-        kwargs["updated_at"] = datetime.now().isoformat()
-        invalid = set(kwargs) - self._EVENT_RULE_COLUMNS
-        if invalid:
-            raise ValueError(f"Invalid event_rule fields: {invalid}")
-        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
-            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
-        if "enabled" in kwargs:
-            kwargs["enabled"] = 1 if kwargs["enabled"] else 0
-        set_clause = ", ".join(f"{k}=?" for k in kwargs)
-        values = list(kwargs.values()) + [rule_id]
-        self.conn.execute(
-            f"UPDATE event_rules SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
-        return self.get_event_rule(rule_id)
-
-    def delete_event_rule(self, rule_id: int) -> dict:
-        cursor = self.conn.execute(
-            "DELETE FROM event_rules WHERE id=?", (rule_id,)
-        )
-        self.conn.commit()
-        if cursor.rowcount > 0:
-            return {"status": "deleted", "id": rule_id}
-        return {"status": "not_found", "id": rule_id}
-
-    def match_event_rules(self, source: str, event_type: str) -> list[dict]:
-        """Find all enabled event rules that match the given source and event_type.
-
-        Uses fnmatch for glob pattern matching on event_type_pattern.
-        """
-        import fnmatch
-        rules = self.list_event_rules(enabled_only=True)
-        matched = []
-        for rule in rules:
-            if rule["event_source"] != source:
-                continue
-            if fnmatch.fnmatch(event_type, rule["event_type_pattern"]):
-                matched.append(rule)
-        return matched
-
-    def _row_to_event_rule_dict(self, row: sqlite3.Row) -> dict:
-        return {
-            "id": row["id"],
-            "name": row["name"],
-            "description": row["description"],
-            "event_source": row["event_source"],
-            "event_type_pattern": row["event_type_pattern"],
-            "agent_name": row["agent_name"],
-            "agent_input_template": row["agent_input_template"],
-            "delivery_channel": row["delivery_channel"],
-            "delivery_config": row["delivery_config"],
-            "enabled": bool(row["enabled"]),
-            "priority": row["priority"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
-
-    # --- Scheduled Tasks ---
-
-    def store_scheduled_task(self, task: ScheduledTask) -> ScheduledTask:
-        import json as _json
-        now = datetime.now().isoformat()
-        delivery_config_str = _json.dumps(task.delivery_config) if task.delivery_config else None
-        cursor = self.conn.execute(
-            """INSERT INTO scheduled_tasks (name, description, schedule_type, schedule_config,
-               handler_type, handler_config, enabled, next_run_at,
-               delivery_channel, delivery_config, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(name) DO UPDATE SET
-                   description=excluded.description,
-                   schedule_type=excluded.schedule_type,
-                   schedule_config=excluded.schedule_config,
-                   handler_type=excluded.handler_type,
-                   handler_config=excluded.handler_config,
-                   enabled=excluded.enabled,
-                   next_run_at=excluded.next_run_at,
-                   delivery_channel=excluded.delivery_channel,
-                   delivery_config=excluded.delivery_config,
-                   updated_at=excluded.updated_at""",
-            (task.name, task.description, task.schedule_type, task.schedule_config,
-             task.handler_type, task.handler_config, 1 if task.enabled else 0,
-             task.next_run_at, task.delivery_channel, delivery_config_str, now, now),
-        )
-        self.conn.commit()
-        row = self.conn.execute(
-            "SELECT * FROM scheduled_tasks WHERE name=?", (task.name,)
-        ).fetchone()
-        return self._row_to_scheduled_task(row)
-
-    def get_scheduled_task(self, task_id: int) -> Optional[ScheduledTask]:
-        row = self.conn.execute(
-            "SELECT * FROM scheduled_tasks WHERE id=?", (task_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_scheduled_task(row)
-
-    def get_scheduled_task_by_name(self, name: str) -> Optional[ScheduledTask]:
-        row = self.conn.execute(
-            "SELECT * FROM scheduled_tasks WHERE name=?", (name,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_scheduled_task(row)
-
-    def list_scheduled_tasks(self, enabled_only: bool = False) -> list[ScheduledTask]:
-        if enabled_only:
-            rows = self.conn.execute(
-                "SELECT * FROM scheduled_tasks WHERE enabled=1"
-            ).fetchall()
-        else:
-            rows = self.conn.execute("SELECT * FROM scheduled_tasks").fetchall()
-        return [self._row_to_scheduled_task(r) for r in rows]
-
-    def get_due_tasks(self, now: Optional[str] = None) -> list[ScheduledTask]:
-        if now is None:
-            now = datetime.now().isoformat()
-        rows = self.conn.execute(
-            "SELECT * FROM scheduled_tasks WHERE enabled=1 AND next_run_at IS NOT NULL AND next_run_at <= ?",
-            (now,),
-        ).fetchall()
-        return [self._row_to_scheduled_task(r) for r in rows]
-
-    _SCHEDULED_TASK_COLUMNS = frozenset({
-        "name", "description", "schedule_type", "schedule_config",
-        "handler_type", "handler_config", "enabled",
-        "last_run_at", "next_run_at", "last_result",
-        "delivery_channel", "delivery_config", "updated_at",
-    })
-
-    def update_scheduled_task(self, task_id: int, **kwargs) -> Optional[ScheduledTask]:
-        import json as _json
-        kwargs["updated_at"] = datetime.now().isoformat()
-        invalid = set(kwargs) - self._SCHEDULED_TASK_COLUMNS
-        if invalid:
-            raise ValueError(f"Invalid scheduled_task fields: {invalid}")
-        if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
-            raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
-        if "enabled" in kwargs:
-            kwargs["enabled"] = 1 if kwargs["enabled"] else 0
-        if "delivery_config" in kwargs and isinstance(kwargs["delivery_config"], dict):
-            kwargs["delivery_config"] = _json.dumps(kwargs["delivery_config"])
-        set_clause = ", ".join(f"{k}=?" for k in kwargs)
-        values = list(kwargs.values()) + [task_id]
-        self.conn.execute(
-            f"UPDATE scheduled_tasks SET {set_clause} WHERE id=?", values
-        )
-        self.conn.commit()
-        return self.get_scheduled_task(task_id)
-
-    def delete_scheduled_task(self, task_id: int) -> bool:
-        cursor = self.conn.execute(
-            "DELETE FROM scheduled_tasks WHERE id=?", (task_id,)
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    def _row_to_scheduled_task(self, row: sqlite3.Row) -> ScheduledTask:
-        import json as _json
-        delivery_config_raw = row["delivery_config"]
-        delivery_config = None
-        if delivery_config_raw:
-            try:
-                delivery_config = _json.loads(delivery_config_raw)
-            except (ValueError, TypeError):
-                pass
-        return ScheduledTask(
-            id=row["id"],
-            name=row["name"],
-            description=row["description"],
-            schedule_type=row["schedule_type"],
-            schedule_config=row["schedule_config"],
-            handler_type=row["handler_type"],
-            handler_config=row["handler_config"],
-            enabled=bool(row["enabled"]),
-            last_run_at=row["last_run_at"],
-            next_run_at=row["next_run_at"],
-            last_result=row["last_result"],
-            delivery_channel=row["delivery_channel"],
-            delivery_config=delivery_config,
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-
-    # --- Skill Usage ---
-
-    def record_skill_usage(self, tool_name: str, query_pattern: str) -> SkillUsage:
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO skill_usage (tool_name, query_pattern, count, last_used, created_at)
-               VALUES (?, ?, 1, ?, ?)
-               ON CONFLICT(tool_name, query_pattern) DO UPDATE SET
-                   count = count + 1,
-                   last_used = excluded.last_used""",
-            (tool_name, query_pattern, now, now),
-        )
-        self.conn.commit()
-        row = self.conn.execute(
-            "SELECT * FROM skill_usage WHERE tool_name=? AND query_pattern=?",
-            (tool_name, query_pattern),
-        ).fetchone()
-        return self._row_to_skill_usage(row)
-
-    def get_skill_usage_patterns(self, min_count: int = 1) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT tool_name, query_pattern, count, last_used FROM skill_usage "
-            "WHERE count >= ? ORDER BY count DESC",
-            (min_count,),
-        ).fetchall()
-        return [
-            {
-                "tool_name": row["tool_name"],
-                "query_pattern": row["query_pattern"],
-                "count": row["count"],
-                "last_used": row["last_used"],
-            }
-            for row in rows
-        ]
-
-    # --- Tool Usage Log ---
-
-    def log_tool_invocation(
-        self,
-        tool_name: str,
-        query_pattern: str = "auto",
-        success: bool = True,
-        duration_ms: int | None = None,
-        session_id: str | None = None,
-    ) -> None:
-        """Log a single tool invocation to the temporal log table."""
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO tool_usage_log
-               (tool_name, query_pattern, success, duration_ms, session_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (tool_name, query_pattern, int(success), duration_ms, session_id, now),
-        )
-        self.conn.commit()
-
-    def get_tool_usage_log(
-        self,
-        tool_name: str | None = None,
-        limit: int = 100,
-    ) -> list[dict]:
-        """Retrieve invocation log entries, optionally filtered by tool name."""
-        if tool_name:
-            rows = self.conn.execute(
-                "SELECT * FROM tool_usage_log WHERE tool_name=? ORDER BY created_at DESC LIMIT ?",
-                (tool_name, limit),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM tool_usage_log ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [
-            {
-                "id": row["id"],
-                "tool_name": row["tool_name"],
-                "query_pattern": row["query_pattern"],
-                "success": bool(row["success"]),
-                "duration_ms": row["duration_ms"],
-                "session_id": row["session_id"],
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ]
-
-    def get_tool_stats_summary(self) -> list[dict]:
-        """Aggregate tool usage stats from the invocation log."""
-        rows = self.conn.execute(
-            """SELECT
-                   tool_name,
-                   COUNT(*) as total_calls,
-                   SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
-                   SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failure_count,
-                   AVG(CASE WHEN duration_ms IS NOT NULL THEN duration_ms END) as avg_duration_ms,
-                   MIN(created_at) as first_used,
-                   MAX(created_at) as last_used
-               FROM tool_usage_log
-               GROUP BY tool_name
-               ORDER BY total_calls DESC"""
-        ).fetchall()
-        return [
-            {
-                "tool_name": row["tool_name"],
-                "total_calls": row["total_calls"],
-                "success_count": row["success_count"],
-                "failure_count": row["failure_count"],
-                "avg_duration_ms": round(row["avg_duration_ms"], 2) if row["avg_duration_ms"] else None,
-                "first_used": row["first_used"],
-                "last_used": row["last_used"],
-            }
-            for row in rows
-        ]
-
-    def get_top_patterns_by_tool(self, limit_per_tool: int = 10) -> dict[str, list[dict]]:
-        """Get top query patterns grouped by tool name from the invocation log."""
-        rows = self.conn.execute(
-            """SELECT tool_name, query_pattern, COUNT(*) as count
-               FROM tool_usage_log
-               WHERE query_pattern != 'auto'
-               GROUP BY tool_name, query_pattern
-               ORDER BY tool_name, count DESC"""
-        ).fetchall()
-
-        result: dict[str, list[dict]] = {}
-        for row in rows:
-            tool = row["tool_name"]
-            if tool not in result:
-                result[tool] = []
-            if len(result[tool]) < limit_per_tool:
-                result[tool].append({"pattern": row["query_pattern"], "count": row["count"]})
-        return result
-
-    def _row_to_skill_usage(self, row: sqlite3.Row) -> SkillUsage:
-        return SkillUsage(
-            id=row["id"],
-            tool_name=row["tool_name"],
-            query_pattern=row["query_pattern"],
-            count=row["count"],
-            last_used=row["last_used"],
-            created_at=row["created_at"],
-        )
-
-    # --- Skill Suggestions ---
-
-    def store_skill_suggestion(self, suggestion: SkillSuggestion) -> SkillSuggestion:
-        cursor = self.conn.execute(
-            """INSERT INTO skill_suggestions (description, suggested_name, suggested_capabilities,
-               confidence, status)
-               VALUES (?, ?, ?, ?, ?)""",
-            (suggestion.description, suggestion.suggested_name,
-             suggestion.suggested_capabilities, suggestion.confidence,
-             suggestion.status or "pending"),
-        )
-        self.conn.commit()
-        return self.get_skill_suggestion(cursor.lastrowid)
-
-    def get_skill_suggestion(self, suggestion_id: int) -> Optional[SkillSuggestion]:
-        row = self.conn.execute(
-            "SELECT * FROM skill_suggestions WHERE id=?", (suggestion_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_skill_suggestion(row)
-
-    def list_skill_suggestions(self, status: str = "pending") -> list[SkillSuggestion]:
-        rows = self.conn.execute(
-            "SELECT * FROM skill_suggestions WHERE status=? ORDER BY confidence DESC",
-            (status,),
-        ).fetchall()
-        return [self._row_to_skill_suggestion(r) for r in rows]
-
-    def update_skill_suggestion_status(self, suggestion_id: int, status: str) -> Optional[SkillSuggestion]:
-        self.conn.execute(
-            "UPDATE skill_suggestions SET status=? WHERE id=?",
-            (status, suggestion_id),
-        )
-        self.conn.commit()
-        return self.get_skill_suggestion(suggestion_id)
-
-    def _row_to_skill_suggestion(self, row: sqlite3.Row) -> SkillSuggestion:
-        return SkillSuggestion(
-            id=row["id"],
-            description=row["description"],
-            suggested_name=row["suggested_name"],
-            suggested_capabilities=row["suggested_capabilities"],
-            confidence=row["confidence"],
-            status=row["status"],
-            created_at=row["created_at"],
-        )
-
-    # --- Agent Memory ---
-
-    def store_agent_memory(self, memory: AgentMemory) -> AgentMemory:
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
-                   value=excluded.value,
-                   confidence=excluded.confidence,
-                   updated_at=excluded.updated_at""",
-            (memory.agent_name, memory.memory_type, memory.key, memory.value,
-             memory.confidence, now, now),
-        )
-        self.conn.commit()
-        row = self.conn.execute(
-            "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? AND key=?",
-            (memory.agent_name, memory.memory_type, memory.key),
-        ).fetchone()
-        return self._row_to_agent_memory(row)
-
-    def get_agent_memories(self, agent_name: str, memory_type: str = "") -> list[AgentMemory]:
-        if memory_type:
-            rows = self.conn.execute(
-                "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? ORDER BY updated_at DESC",
-                (agent_name, memory_type),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM agent_memory WHERE agent_name=? ORDER BY updated_at DESC",
-                (agent_name,),
-            ).fetchall()
-        return [self._row_to_agent_memory(r) for r in rows]
-
-    def search_agent_memories(self, agent_name: str, query: str) -> list[AgentMemory]:
-        rows = self.conn.execute(
-            "SELECT * FROM agent_memory WHERE agent_name=? AND (key LIKE ? OR value LIKE ?) ORDER BY updated_at DESC",
-            (agent_name, f"%{query}%", f"%{query}%"),
-        ).fetchall()
-        return [self._row_to_agent_memory(r) for r in rows]
-
-    def delete_agent_memory(self, agent_name: str, key: str, memory_type: str = "") -> bool:
-        if memory_type:
-            cursor = self.conn.execute(
-                "DELETE FROM agent_memory WHERE agent_name=? AND key=? AND memory_type=?",
-                (agent_name, key, memory_type),
-            )
-        else:
-            cursor = self.conn.execute(
-                "DELETE FROM agent_memory WHERE agent_name=? AND key=?",
-                (agent_name, key),
-            )
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-    def clear_agent_memories(self, agent_name: str) -> int:
-        cursor = self.conn.execute(
-            "DELETE FROM agent_memory WHERE agent_name=?", (agent_name,)
-        )
-        self.conn.commit()
-        return cursor.rowcount
-
-    def _row_to_agent_memory(self, row: sqlite3.Row) -> AgentMemory:
-        namespace = None
-        try:
-            namespace = row["namespace"]
-        except (IndexError, KeyError):
-            pass
-        return AgentMemory(
-            id=row["id"],
-            agent_name=row["agent_name"],
-            memory_type=row["memory_type"],
-            key=row["key"],
-            value=row["value"],
-            confidence=row["confidence"],
-            namespace=namespace,
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-
-    # --- Shared Memory (namespace-based agent collaboration) ---
-
-    @staticmethod
-    def _shared_agent_name(namespace: str) -> str:
-        return f"__shared__:{namespace}"
-
-    def store_shared_memory(
-        self, namespace: str, memory_type: str, key: str, value: str, confidence: float = 1.0
-    ) -> AgentMemory:
-        agent_name = self._shared_agent_name(namespace)
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO agent_memory (agent_name, memory_type, key, value, confidence, namespace, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(agent_name, memory_type, key) DO UPDATE SET
-                   value=excluded.value,
-                   confidence=excluded.confidence,
-                   namespace=excluded.namespace,
-                   updated_at=excluded.updated_at""",
-            (agent_name, memory_type, key, value, confidence, namespace, now, now),
-        )
-        self.conn.commit()
-        row = self.conn.execute(
-            "SELECT * FROM agent_memory WHERE agent_name=? AND memory_type=? AND key=?",
-            (agent_name, memory_type, key),
-        ).fetchone()
-        return self._row_to_agent_memory(row)
-
-    def get_shared_memories(self, namespace: str, memory_type: str = "") -> list[AgentMemory]:
-        agent_name = self._shared_agent_name(namespace)
-        if memory_type:
-            rows = self.conn.execute(
-                "SELECT * FROM agent_memory WHERE agent_name=? AND namespace=? AND memory_type=? ORDER BY updated_at DESC",
-                (agent_name, namespace, memory_type),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM agent_memory WHERE agent_name=? AND namespace=? ORDER BY updated_at DESC",
-                (agent_name, namespace),
-            ).fetchall()
-        return [self._row_to_agent_memory(r) for r in rows]
-
-    def search_shared_memories(self, namespace: str, query: str) -> list[AgentMemory]:
-        agent_name = self._shared_agent_name(namespace)
-        rows = self.conn.execute(
-            "SELECT * FROM agent_memory WHERE agent_name=? AND namespace=? AND (key LIKE ? OR value LIKE ?) ORDER BY updated_at DESC",
-            (agent_name, namespace, f"%{query}%", f"%{query}%"),
-        ).fetchall()
-        return [self._row_to_agent_memory(r) for r in rows]
-
-    # --- Identities ---
-
-    def link_identity(
-        self,
-        canonical_name: str,
-        provider: str,
-        provider_id: str,
-        display_name: str = "",
-        email: str = "",
-        metadata: str = "",
-    ) -> dict:
-        """Link a provider identity to a canonical name. Upserts on (provider, provider_id)."""
-        now = datetime.now().isoformat()
-        self.conn.execute(
-            """INSERT INTO identities (canonical_name, provider, provider_id, display_name, email, metadata, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(provider, provider_id) DO UPDATE SET
-                   canonical_name=excluded.canonical_name,
-                   display_name=excluded.display_name,
-                   email=excluded.email,
-                   metadata=excluded.metadata,
-                   updated_at=excluded.updated_at""",
-            (canonical_name, provider, provider_id, display_name, email, metadata, now, now),
-        )
-        self.conn.commit()
-        row = self.conn.execute(
-            "SELECT * FROM identities WHERE provider=? AND provider_id=?",
-            (provider, provider_id),
-        ).fetchone()
-        return self._row_to_identity_dict(row)
-
-    def unlink_identity(self, provider: str, provider_id: str) -> dict:
-        """Remove an identity link. Returns status dict."""
-        cursor = self.conn.execute(
-            "DELETE FROM identities WHERE provider=? AND provider_id=?",
-            (provider, provider_id),
-        )
-        self.conn.commit()
-        if cursor.rowcount > 0:
-            return {"status": "unlinked", "provider": provider, "provider_id": provider_id}
-        return {"status": "not_found", "provider": provider, "provider_id": provider_id}
-
-    def get_identity(self, canonical_name: str) -> list[dict]:
-        """Get all linked identities for a canonical name."""
-        rows = self.conn.execute(
-            "SELECT * FROM identities WHERE canonical_name=? ORDER BY provider",
-            (canonical_name,),
-        ).fetchall()
-        return [self._row_to_identity_dict(r) for r in rows]
-
-    def search_identity(self, query: str) -> list[dict]:
-        """Search identities by canonical_name, display_name, email, or provider_id."""
-        rows = self.conn.execute(
-            """SELECT * FROM identities
-               WHERE canonical_name LIKE ? OR display_name LIKE ? OR email LIKE ? OR provider_id LIKE ?
-               ORDER BY canonical_name""",
-            (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"),
-        ).fetchall()
-        return [self._row_to_identity_dict(r) for r in rows]
-
-    def resolve_sender(self, provider: str, sender_id_or_email: str) -> Optional[str]:
-        """Resolve a sender to a canonical name. Tries provider_id first, then email."""
-        row = self.conn.execute(
-            "SELECT canonical_name FROM identities WHERE provider=? AND provider_id=?",
-            (provider, sender_id_or_email),
-        ).fetchone()
-        if row:
-            return row["canonical_name"]
-        row = self.conn.execute(
-            "SELECT canonical_name FROM identities WHERE email=?",
-            (sender_id_or_email,),
-        ).fetchone()
-        if row:
-            return row["canonical_name"]
-        return None
-
-    def resolve_handle_to_name(self, handle: str) -> dict:
-        """Resolve a phone/email handle to a canonical name via the identity store.
-
-        Tries: exact imessage provider match → exact email match → fuzzy search.
-        Returns dict with canonical_name, match_type, and all_matches.
-        """
-        handle = (handle or "").strip()
-        if not handle:
-            return {"canonical_name": None, "match_type": None, "all_matches": []}
-
-        # 1. Exact imessage provider match
-        row = self.conn.execute(
-            "SELECT canonical_name FROM identities WHERE provider='imessage' AND provider_id=?",
-            (handle,),
-        ).fetchone()
-        if row:
-            return {
-                "canonical_name": row["canonical_name"],
-                "match_type": "imessage_provider",
-                "all_matches": [row["canonical_name"]],
-            }
-
-        # 2. Exact email match
-        row = self.conn.execute(
-            "SELECT canonical_name FROM identities WHERE email=?",
-            (handle,),
-        ).fetchone()
-        if row:
-            return {
-                "canonical_name": row["canonical_name"],
-                "match_type": "email",
-                "all_matches": [row["canonical_name"]],
-            }
-
-        # 3. Fuzzy search by provider_id
-        rows = self.conn.execute(
-            "SELECT DISTINCT canonical_name FROM identities WHERE provider_id LIKE ?",
-            (f"%{handle}%",),
-        ).fetchall()
-        if rows:
-            names = [r["canonical_name"] for r in rows]
-            return {
-                "canonical_name": names[0],
-                "match_type": "fuzzy_provider_id",
-                "all_matches": names,
-            }
-
-        return {"canonical_name": None, "match_type": None, "all_matches": []}
-
-    def _row_to_identity_dict(self, row: sqlite3.Row) -> dict:
-        return {
-            "id": row["id"],
-            "canonical_name": row["canonical_name"],
-            "provider": row["provider"],
-            "provider_id": row["provider_id"],
-            "display_name": row["display_name"],
-            "email": row["email"],
-            "metadata": row["metadata"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
+    # --- Connection management ---
 
     def close(self):
         self.conn.close()
