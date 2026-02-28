@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 
+from memory.models import (
+    DecisionStatus, DelegationStatus, SkillSuggestionStatus, WebhookStatus,
+)
 from memory.store import MemoryStore
 from proactive.models import Suggestion
 
@@ -37,7 +40,7 @@ class ProactiveSuggestionEngine:
         return suggestions
 
     def _check_skill_suggestions(self) -> list[Suggestion]:
-        pending = self.memory_store.list_skill_suggestions(status="pending")
+        pending = self.memory_store.list_skill_suggestions(status=SkillSuggestionStatus.pending)
         results = []
         for s in pending:
             results.append(Suggestion(
@@ -51,7 +54,7 @@ class ProactiveSuggestionEngine:
         return results
 
     def _check_unprocessed_webhooks(self) -> list[Suggestion]:
-        pending = self.memory_store.list_webhook_events(status="pending")
+        pending = self.memory_store.list_webhook_events(status=WebhookStatus.pending)
         results = []
         for event in pending:
             results.append(Suggestion(
@@ -83,7 +86,7 @@ class ProactiveSuggestionEngine:
 
     def _check_stale_decisions(self) -> list[Suggestion]:
         cutoff = (date.today() - timedelta(days=7)).isoformat()
-        pending = self.memory_store.list_decisions_by_status("pending_execution")
+        pending = self.memory_store.list_decisions_by_status(DecisionStatus.pending_execution)
         results = []
         for d in pending:
             if d.created_at and d.created_at[:10] < cutoff:
@@ -101,7 +104,7 @@ class ProactiveSuggestionEngine:
         today = date.today()
         soon = (today + timedelta(days=3)).isoformat()
         today_str = today.isoformat()
-        active = self.memory_store.list_delegations(status="active")
+        active = self.memory_store.list_delegations(status=DelegationStatus.active)
         results = []
         for d in active:
             if d.due_date and today_str <= d.due_date <= soon:
@@ -261,7 +264,7 @@ class ProactiveSuggestionEngine:
         Returns:
             List of delivery result dicts for pushed suggestions.
         """
-        from scheduler.delivery import deliver_result
+        from delivery.service import deliver_result
 
         threshold_val = PRIORITY_ORDER.get(push_threshold, 0)
         results = []

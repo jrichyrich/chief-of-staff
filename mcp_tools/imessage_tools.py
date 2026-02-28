@@ -1,6 +1,9 @@
 """iMessage tools for MCP server."""
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def register(mcp, state):
@@ -30,8 +33,11 @@ def register(mcp, state):
                 conversation=conversation,
             )
             return json.dumps({"results": messages})
+        except (OSError, PermissionError) as e:
+            return json.dumps({"error": f"iMessage access error: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in get_imessages")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def list_imessage_threads(minutes: int = 7 * 24 * 60, limit: int = 50) -> str:
@@ -45,17 +51,14 @@ def register(mcp, state):
         try:
             threads = messages_store.list_threads(minutes=minutes, limit=limit)
             return json.dumps({"results": threads})
+        except (OSError, PermissionError) as e:
+            return json.dumps({"error": f"iMessage access error: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in list_imessage_threads")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
-    @mcp.tool()
+    # Keep as a plain alias for backward-compat test imports (not an MCP tool)
     async def get_imessage_threads(minutes: int = 7 * 24 * 60, limit: int = 50) -> str:
-        """Alias of list_imessage_threads for compatibility with prior plans/prompts.
-
-        Args:
-            minutes: Lookback window in minutes (default: 10080 / 7 days)
-            limit: Maximum number of threads to return (default: 50, max: 200)
-        """
         return await list_imessage_threads(minutes=minutes, limit=limit)
 
     @mcp.tool()
@@ -82,8 +85,11 @@ def register(mcp, state):
                 include_from_me=include_from_me,
             )
             return json.dumps({"results": messages})
+        except (OSError, PermissionError) as e:
+            return json.dumps({"error": f"iMessage access error: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in get_imessage_thread_messages")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def get_thread_context(
@@ -106,8 +112,11 @@ def register(mcp, state):
                 limit=limit,
             )
             return json.dumps(context)
+        except (OSError, PermissionError) as e:
+            return json.dumps({"error": f"iMessage access error: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in get_thread_context")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
     async def search_imessages(
@@ -132,13 +141,12 @@ def register(mcp, state):
                 limit=limit,
                 include_from_me=include_from_me,
             )
-            try:
-                state.memory_store.record_skill_usage("search_imessages", query)
-            except Exception:
-                pass
             return json.dumps({"results": messages})
+        except (OSError, PermissionError) as e:
+            return json.dumps({"error": f"iMessage access error: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in search_imessages")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     def _verify_recipient(to: str, recipient_name: str) -> dict:
         """Cross-check a recipient handle against identity store and thread profiles.
@@ -177,7 +185,7 @@ def register(mcp, state):
                             "sources_checked": sources_checked,
                         }
             except Exception:
-                pass
+                logger.debug("Failed to check identity store for recipient verification", exc_info=True)
 
         # 2. Check thread profiles
         messages_store = state.messages_store
@@ -197,7 +205,7 @@ def register(mcp, state):
                                 "sources_checked": sources_checked,
                             }
             except Exception:
-                pass
+                logger.debug("Failed to check thread profiles for recipient verification", exc_info=True)
 
         # 3. Fallback: resolve_sender
         if memory_store:
@@ -223,7 +231,7 @@ def register(mcp, state):
                             "sources_checked": sources_checked,
                         }
             except Exception:
-                pass
+                logger.debug("Failed to resolve sender for recipient verification", exc_info=True)
 
         return {
             "verified": False,
@@ -268,8 +276,11 @@ def register(mcp, state):
                 result["recipient_verification"] = verification
 
             return json.dumps(result)
+        except (OSError, PermissionError) as e:
+            return json.dumps({"error": f"iMessage access error: {e}"})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.exception("Unexpected error in send_imessage_reply")
+            return json.dumps({"error": f"Unexpected error: {e}"})
 
     # Expose tool functions at module level for testing
     import sys

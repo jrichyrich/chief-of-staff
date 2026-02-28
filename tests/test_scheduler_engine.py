@@ -19,12 +19,6 @@ from scheduler.engine import (
 )
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 # --- CronExpression Parser Tests ---
 
@@ -285,7 +279,7 @@ class TestExecuteHandler:
 
     def test_webhook_poll_calls_ingest(self):
         mock_store = MagicMock()
-        with patch("scheduler.engine.Path") as mock_path_cls:
+        with patch("scheduler.handlers.Path") as mock_path_cls:
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = True
             mock_path_cls.return_value = mock_path_instance
@@ -298,7 +292,7 @@ class TestExecuteHandler:
 
     def test_webhook_poll_inbox_missing(self):
         mock_store = MagicMock()
-        with patch("scheduler.engine.Path") as mock_path_cls:
+        with patch("scheduler.handlers.Path") as mock_path_cls:
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = False
             mock_path_cls.return_value = mock_path_instance
@@ -308,7 +302,7 @@ class TestExecuteHandler:
 
     def test_webhook_poll_error(self):
         mock_store = MagicMock()
-        with patch("scheduler.engine.Path") as mock_path_cls:
+        with patch("scheduler.handlers.Path") as mock_path_cls:
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = True
             mock_path_cls.return_value = mock_path_instance
@@ -557,7 +551,7 @@ class TestSchedulerEngineStores:
         engine = SchedulerEngine(memory_store, agent_registry=mock_registry)
         now = datetime(2026, 2, 20, 10, 0, 0)
 
-        with patch("scheduler.engine._run_skill_auto_exec_handler", return_value='{"status":"skipped"}') as mock_handler:
+        with patch("scheduler.handlers._run_skill_auto_exec_handler", return_value='{"status":"skipped"}') as mock_handler:
             engine.evaluate_due_tasks(now=now)
             mock_handler.assert_called_once_with(memory_store, mock_registry)
 

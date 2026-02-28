@@ -13,19 +13,6 @@ from proactive.engine import ProactiveSuggestionEngine
 from proactive.models import Suggestion
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
-
-@pytest.fixture
-def agent_registry(tmp_path):
-    configs_dir = tmp_path / "agent_configs"
-    configs_dir.mkdir()
-    return AgentRegistry(configs_dir)
-
 
 @pytest.fixture
 def engine(memory_store):
@@ -376,7 +363,7 @@ class TestConfigFlags:
 
 
 class TestPushViaDeliveryChannels:
-    @patch("scheduler.delivery.deliver_result")
+    @patch("delivery.service.deliver_result")
     def test_push_via_email(self, mock_deliver, memory_store):
         mock_deliver.return_value = {"status": "delivered"}
         engine = ProactiveSuggestionEngine(memory_store)
@@ -394,7 +381,7 @@ class TestPushViaDeliveryChannels:
         assert len(results) == 1
         mock_deliver.assert_called_once()
 
-    @patch("scheduler.delivery.deliver_result")
+    @patch("delivery.service.deliver_result")
     def test_push_filters_by_threshold(self, mock_deliver, memory_store):
         mock_deliver.return_value = {"status": "delivered"}
         engine = ProactiveSuggestionEngine(memory_store)
@@ -411,7 +398,7 @@ class TestPushViaDeliveryChannels:
         )
         assert len(results) == 1
 
-    @patch("scheduler.delivery.deliver_result")
+    @patch("delivery.service.deliver_result")
     def test_push_medium_threshold_includes_medium(self, mock_deliver, memory_store):
         mock_deliver.return_value = {"status": "delivered"}
         engine = ProactiveSuggestionEngine(memory_store)
@@ -430,14 +417,14 @@ class TestPushViaDeliveryChannels:
         )
         assert len(results) == 2
 
-    @patch("scheduler.delivery.deliver_result")
+    @patch("delivery.service.deliver_result")
     def test_push_empty_suggestions(self, mock_deliver, memory_store):
         engine = ProactiveSuggestionEngine(memory_store)
         results = engine.push_via_channel([], channel="email", config={})
         assert results == []
         mock_deliver.assert_not_called()
 
-    @patch("scheduler.delivery.deliver_result")
+    @patch("delivery.service.deliver_result")
     def test_push_formats_text(self, mock_deliver, memory_store):
         mock_deliver.return_value = {"status": "delivered"}
         engine = ProactiveSuggestionEngine(memory_store)

@@ -38,7 +38,8 @@ class TestIMessageToolsRegistered:
         tool_names = [t.name for t in mcp_server.mcp._tool_manager.list_tools()]
         assert "get_imessages" in tool_names
         assert "list_imessage_threads" in tool_names
-        assert "get_imessage_threads" in tool_names
+        # get_imessage_threads removed (duplicate of list_imessage_threads)
+        assert "get_imessage_threads" not in tool_names
         assert "get_imessage_thread_messages" in tool_names
         assert "get_thread_context" in tool_names
         assert "search_imessages" in tool_names

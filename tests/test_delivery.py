@@ -24,12 +24,6 @@ from scheduler.delivery import (
 from scheduler.engine import SchedulerEngine
 
 
-@pytest.fixture
-def memory_store(tmp_path):
-    store = MemoryStore(tmp_path / "test.db")
-    yield store
-    store.close()
-
 
 # --- Template Variable Tests ---
 
@@ -86,7 +80,7 @@ class TestGetDeliveryAdapter:
 
 
 class TestEmailDeliveryAdapter:
-    @patch("scheduler.delivery.EmailDeliveryAdapter.deliver")
+    @patch("delivery.service.EmailDeliveryAdapter.deliver")
     def test_deliver_calls_mail_store(self, mock_deliver):
         mock_deliver.return_value = {"status": "delivered", "channel": "email"}
         adapter = EmailDeliveryAdapter()
@@ -238,7 +232,7 @@ class TestNotificationDeliveryAdapter:
 
 
 class TestTeamsDeliveryAdapter:
-    @patch("scheduler.delivery.TeamsDeliveryAdapter._get_poster")
+    @patch("delivery.service.TeamsDeliveryAdapter._get_poster")
     def test_deliver_with_target(self, mock_poster_fn):
         mock_poster = MagicMock()
         mock_poster.prepare_message.return_value = {"status": "prepared"}
@@ -251,7 +245,7 @@ class TestTeamsDeliveryAdapter:
         assert result["channel"] == "teams"
         mock_poster.prepare_message.assert_called_once()
 
-    @patch("scheduler.delivery.TeamsDeliveryAdapter._get_poster")
+    @patch("delivery.service.TeamsDeliveryAdapter._get_poster")
     def test_deliver_no_target_returns_error(self, mock_poster_fn):
         adapter = TeamsDeliveryAdapter()
         result = adapter.deliver("Hello", {}, task_name="test")
@@ -264,7 +258,7 @@ class TestTeamsDeliveryAdapter:
         adapter = get_delivery_adapter("teams")
         assert isinstance(adapter, TeamsDeliveryAdapter)
 
-    @patch("scheduler.delivery.TeamsDeliveryAdapter._get_poster")
+    @patch("delivery.service.TeamsDeliveryAdapter._get_poster")
     def test_deliver_without_auto_send(self, mock_poster_fn):
         mock_poster = MagicMock()
         mock_poster.prepare_message.return_value = {"status": "prepared"}
@@ -292,7 +286,7 @@ class TestHumanizedDelivery:
 
     def test_adapter_receives_humanized_text(self):
         """The adapter should receive humanized text, not raw AI text."""
-        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+        with patch("delivery.service.get_delivery_adapter") as mock_get:
             mock_adapter = MagicMock()
             mock_adapter.deliver.return_value = {"status": "delivered"}
             mock_get.return_value = mock_adapter
@@ -312,7 +306,7 @@ class TestDeliverResult:
         assert "Unknown delivery channel" in result["error"]
 
     def test_adapter_exception_caught(self):
-        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+        with patch("delivery.service.get_delivery_adapter") as mock_get:
             mock_adapter = MagicMock()
             mock_adapter.deliver.side_effect = RuntimeError("boom")
             mock_get.return_value = mock_adapter
@@ -322,7 +316,7 @@ class TestDeliverResult:
             assert "boom" in result["error"]
 
     def test_successful_delivery(self):
-        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+        with patch("delivery.service.get_delivery_adapter") as mock_get:
             mock_adapter = MagicMock()
             mock_adapter.deliver.return_value = {"status": "delivered", "channel": "notification"}
             mock_get.return_value = mock_adapter
@@ -496,7 +490,7 @@ class TestSchedulerEngineDelivery:
         engine = SchedulerEngine(memory_store)
         with patch("scheduler.engine.execute_handler") as mock_exec:
             mock_exec.return_value = '{"status": "ok"}'
-            with patch("scheduler.delivery.deliver_result") as mock_deliver:
+            with patch("delivery.service.deliver_result") as mock_deliver:
                 mock_deliver.side_effect = RuntimeError("delivery exploded")
                 result = engine._execute_task(stored, datetime.now())
 
@@ -524,7 +518,7 @@ class TestSchedulerEngineDelivery:
         engine = SchedulerEngine(memory_store)
         with patch("scheduler.engine.execute_handler") as mock_exec:
             mock_exec.return_value = '{"status": "ok"}'
-            with patch("scheduler.delivery.deliver_result") as mock_deliver:
+            with patch("delivery.service.deliver_result") as mock_deliver:
                 mock_deliver.return_value = {"status": "delivered", "channel": "notification"}
                 results = engine.evaluate_due_tasks(now=now)
 
@@ -732,7 +726,7 @@ class TestFormattedDelivery:
             "calendar": [{"time": "9 AM", "event": "Standup", "status": "Teams"}],
             "action_items": [{"priority": "high", "text": "Review PR"}],
         })
-        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+        with patch("delivery.service.get_delivery_adapter") as mock_get:
             mock_adapter = MagicMock()
             mock_adapter.deliver.return_value = {"status": "delivered"}
             mock_get.return_value = mock_adapter
@@ -748,7 +742,7 @@ class TestFormattedDelivery:
 
     def test_deliver_result_passes_plain_text_through(self):
         """Non-JSON result_text passes through unchanged (after humanize)."""
-        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+        with patch("delivery.service.get_delivery_adapter") as mock_get:
             mock_adapter = MagicMock()
             mock_adapter.deliver.return_value = {"status": "delivered"}
             mock_get.return_value = mock_adapter
@@ -761,7 +755,7 @@ class TestFormattedDelivery:
     def test_deliver_result_handles_non_brief_json(self):
         """JSON without brief keys passes through as-is."""
         data = json.dumps({"status": "ok", "count": 5})
-        with patch("scheduler.delivery.get_delivery_adapter") as mock_get:
+        with patch("delivery.service.get_delivery_adapter") as mock_get:
             mock_adapter = MagicMock()
             mock_adapter.deliver.return_value = {"status": "delivered"}
             mock_get.return_value = mock_adapter

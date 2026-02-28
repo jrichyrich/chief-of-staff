@@ -53,7 +53,7 @@ class EventDispatcher:
     def _get_delivery_fn(self):
         if self._delivery_fn is not None:
             return self._delivery_fn
-        from scheduler.delivery import deliver_result
+        from delivery.service import deliver_result
         return deliver_result
 
     async def dispatch(self, webhook_event) -> list[dict]:
@@ -172,14 +172,17 @@ class EventDispatcher:
             except Exception:
                 effective_config = agent_config
 
-            # Execute the agent
+            # Execute the agent with timeout to prevent hanging
             from agents.base import BaseExpertAgent
             agent = BaseExpertAgent(
                 config=effective_config,
                 memory_store=self.memory_store,
                 document_store=self.document_store,
             )
-            result_text = await agent.execute(agent_input)
+            try:
+                result_text = await asyncio.wait_for(agent.execute(agent_input), timeout=120)
+            except asyncio.TimeoutError:
+                result_text = json.dumps({"status": "timeout", "error": f"Agent {agent_name} timed out after 120s"})
 
             duration = round(time.monotonic() - start, 3)
 
@@ -206,15 +209,20 @@ class EventDispatcher:
                     logger.error("Delivery failed for rule '%s': %s", rule_name, e)
                     delivery_status = {"status": "error", "error": str(e)}
 
+            # Reflect delivery failure in overall status
+            overall_status = "success"
+            if delivery_status and delivery_status.get("status") == "error":
+                overall_status = "delivery_failed"
+
             logger.info(
-                "Dispatched rule='%s' agent='%s' status=success duration=%.3fs",
-                rule_name, agent_name, duration,
+                "Dispatched rule='%s' agent='%s' status=%s duration=%.3fs",
+                rule_name, agent_name, overall_status, duration,
             )
 
             return {
                 "rule_name": rule_name,
                 "agent_name": agent_name,
-                "status": "success",
+                "status": overall_status,
                 "result_text": result_text,
                 "duration_seconds": duration,
                 "delivery_status": delivery_status,

@@ -73,7 +73,7 @@ class TestJarvisDaemonTick:
         mock_task.delivery_channel = None
         store.get_due_tasks.return_value = [mock_task]
         daemon = JarvisDaemon(memory_store=store)
-        with patch("scheduler.engine._run_alert_eval_handler", return_value='{"status":"ok"}'):
+        with patch("scheduler.handlers._run_alert_eval_handler", return_value='{"status":"ok"}'):
             results = await daemon._tick()
         assert len(results) == 1
         assert results[0]["name"] == "test_task"
