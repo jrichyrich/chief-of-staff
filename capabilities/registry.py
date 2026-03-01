@@ -705,6 +705,73 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["suggestion_id"],
         },
     },
+    # --- Web browser tools (agent-browser) ---
+    "web_open": {
+        "name": "web_open",
+        "description": "Open a URL in the agent-browser for navigation and interaction.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to navigate to"},
+            },
+            "required": ["url"],
+        },
+    },
+    "web_snapshot": {
+        "name": "web_snapshot",
+        "description": "Get an accessibility tree snapshot of the current page with element reference IDs.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    "web_click": {
+        "name": "web_click",
+        "description": "Click an element by its reference ID from a snapshot.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "Element reference ID (e.g. '@e1')"},
+            },
+            "required": ["ref"],
+        },
+    },
+    "web_fill": {
+        "name": "web_fill",
+        "description": "Fill an input field identified by its reference ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "Element reference ID (e.g. '@e3')"},
+                "value": {"type": "string", "description": "Text to type into the input"},
+            },
+            "required": ["ref", "value"],
+        },
+    },
+    "web_get_text": {
+        "name": "web_get_text",
+        "description": "Extract text content from an element by its reference ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "Element reference ID (e.g. '@e5')"},
+            },
+            "required": ["ref"],
+        },
+    },
+    "web_screenshot": {
+        "name": "web_screenshot",
+        "description": "Capture a screenshot of the current page as base64 image data.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    "web_execute_js": {
+        "name": "web_execute_js",
+        "description": "Execute JavaScript in the current page context.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "JavaScript code to evaluate"},
+            },
+            "required": ["code"],
+        },
+    },
 }
 
 
@@ -851,6 +918,16 @@ CAPABILITY_DEFINITIONS: dict[str, CapabilityDefinition] = {
         name="skill_write",
         description="Record tool usage, analyze patterns, and auto-create skills",
         tool_names=("record_tool_usage", "analyze_skill_patterns", "auto_create_skill"),
+    ),
+    "web_browse": CapabilityDefinition(
+        name="web_browse",
+        description="Browse web pages and extract content via agent-browser",
+        tool_names=("web_open", "web_snapshot", "web_get_text", "web_screenshot"),
+    ),
+    "web_browse_write": CapabilityDefinition(
+        name="web_browse_write",
+        description="Interact with web pages: click elements, fill forms, execute JavaScript",
+        tool_names=("web_click", "web_fill", "web_execute_js"),
     ),
     # Accepted legacy/non-runtime capabilities kept for compatibility.
     "web_search": CapabilityDefinition(

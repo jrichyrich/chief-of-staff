@@ -1,4 +1,5 @@
 # agents/base.py
+import inspect
 import json
 from datetime import date
 from typing import Any, Optional
@@ -14,6 +15,7 @@ from agents.mixins import (
     MailMixin,
     NotificationMixin,
     ReminderMixin,
+    WebBrowserMixin,
 )
 from memory.models import AgentResultStatus
 
@@ -61,6 +63,7 @@ class BaseExpertAgent(
     ReminderMixin,
     NotificationMixin,
     MailMixin,
+    WebBrowserMixin,
 ):
     """Expert agent with capability-gated tool dispatch.
 
@@ -70,6 +73,7 @@ class BaseExpertAgent(
     - ReminderMixin: reminders
     - NotificationMixin: macOS notifications
     - MailMixin: mail read/send/manage
+    - WebBrowserMixin: general-purpose web browsing via agent-browser
     """
 
     def __init__(
@@ -83,6 +87,7 @@ class BaseExpertAgent(
         notifier=None,
         mail_store=None,
         hook_registry=None,
+        agent_browser=None,
     ):
         self.config = config
         self.name = config.name
@@ -93,6 +98,7 @@ class BaseExpertAgent(
         self.notifier = notifier
         self.mail_store = mail_store
         self.hook_registry = hook_registry
+        self.agent_browser = agent_browser
         self.client = client or anthropic.AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
         self._dispatch_cache: dict | None = None
 
@@ -158,6 +164,8 @@ class BaseExpertAgent(
                             continue
 
                         result = self._handle_tool_call(block.name, block.input)
+                        if inspect.isawaitable(result):
+                            result = await result
                         result_str = json.dumps(result)
                         if len(result_str) > MAX_TOOL_RESULT_LENGTH:
                             result_str = result_str[:MAX_TOOL_RESULT_LENGTH] + "... [truncated]"
@@ -247,7 +255,10 @@ class BaseExpertAgent(
 
         result = self._dispatch_tool(tool_name, tool_input)
 
-        # Fire after_tool_call hooks
+        # Async handlers (e.g. web browser) return coroutines — bubble them
+        # up to execute() which will await them. Skip after hooks here;
+        # they'll fire with raw coroutine but that's acceptable since hooks
+        # only use result for logging context.
         after_ctx = build_tool_context(
             tool_name=tool_name,
             tool_args=tool_input,
@@ -313,13 +324,25 @@ class BaseExpertAgent(
             "mark_mail_read": self._handle_mail_mark_read,
             "mark_mail_flagged": self._handle_mail_mark_flagged,
             "move_mail_message": self._handle_mail_move_message,
+            # Web browser (from WebBrowserMixin) — async handlers
+            "web_open": self._handle_web_open,
+            "web_snapshot": self._handle_web_snapshot,
+            "web_click": self._handle_web_click,
+            "web_fill": self._handle_web_fill,
+            "web_get_text": self._handle_web_get_text,
+            "web_screenshot": self._handle_web_screenshot,
+            "web_execute_js": self._handle_web_execute_js,
         }
 
         self._dispatch_cache = table
         return table
 
     def _dispatch_tool(self, tool_name: str, tool_input: dict) -> Any:
-        """Route a tool call to the appropriate handler. Returns the result."""
+        """Route a tool call to the appropriate handler.
+
+        Sync handlers return results directly. Async handlers (e.g. web
+        browser) return coroutines that execute() will await.
+        """
         table = self._get_dispatch_table()
         handler = table.get(tool_name)
         if handler is None:

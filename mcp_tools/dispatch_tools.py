@@ -131,6 +131,7 @@ def register(mcp, state):
                     reminder_store=getattr(state, "reminder_store", None),
                     mail_store=getattr(state, "mail_store", None),
                     hook_registry=getattr(state, "hook_registry", None),
+                    agent_browser=getattr(state, "agent_browser", None),
                 )
                 result_text = await agent.execute(task)
                 duration = round(time.monotonic() - start, 3)

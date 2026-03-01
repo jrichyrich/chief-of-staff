@@ -225,6 +225,7 @@ from mcp_tools import (
     resources,
     enrichment,
     teams_browser_tools,
+    web_browser_tools,
     brain_tools,
     routing_tools,
     playbook_tools,
@@ -254,6 +255,7 @@ session_tools.register(mcp, _state)
 resources.register(mcp, _state)
 enrichment.register(mcp, _state)
 teams_browser_tools.register(mcp, _state)
+web_browser_tools.register(mcp, _state)
 brain_tools.register(mcp, _state)
 routing_tools.register(mcp, _state)
 playbook_tools.register(mcp, _state)

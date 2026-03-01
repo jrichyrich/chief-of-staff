@@ -75,6 +75,7 @@ class ServerState:
     session_health: SessionHealth = field(default_factory=SessionHealth)
     session_manager: Optional[SessionManager] = None
     session_brain: Optional[SessionBrain] = None
+    agent_browser: Optional[Any] = None  # browser.agent_browser.AgentBrowser
 
     @staticmethod
     @cache
@@ -106,6 +107,7 @@ class ServerState:
         self.session_health = SessionHealth()
         self.session_manager = None
         self.session_brain = None
+        self.agent_browser = None
 
     def __setitem__(self, key: str, value: Any) -> None:
         """Dict-style assignment (for backward compatibility with tests)."""

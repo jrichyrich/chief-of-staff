@@ -312,3 +312,83 @@ class MailMixin:
             target_mailbox=tool_input["target_mailbox"],
             target_account=tool_input.get("target_account", ""),
         )
+
+
+# ---------------------------------------------------------------------------
+# Web Browser (agent-browser CLI)
+# ---------------------------------------------------------------------------
+
+class WebBrowserMixin:
+    """Async handlers for general-purpose web browsing via agent-browser."""
+
+    agent_browser: Any  # provided by BaseExpertAgent.__init__
+
+    async def _handle_web_open(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.open(tool_input["url"])
+            return {"status": "ok", "url": tool_input["url"], **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_snapshot(self, tool_input: dict = None) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.snapshot()
+            return {"status": "ok", **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_click(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.click(tool_input["ref"])
+            return {"status": "ok", "clicked": tool_input["ref"], **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_fill(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.fill(tool_input["ref"], tool_input["value"])
+            return {"status": "ok", "filled": tool_input["ref"], **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_get_text(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.get_text(tool_input["ref"])
+            return {"status": "ok", "ref": tool_input["ref"], **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_screenshot(self, tool_input: dict = None) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.screenshot()
+            return {"status": "ok", **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_execute_js(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.execute_js(tool_input["code"])
+            return {"status": "ok", **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}

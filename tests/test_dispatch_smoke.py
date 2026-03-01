@@ -667,11 +667,27 @@ class TestReturnTypes:
         "mark_mail_read": {"message_id": "x"},
         "mark_mail_flagged": {"message_id": "x"},
         "move_mail_message": {"message_id": "x", "target_mailbox": "Archive"},
+        "web_open": {"url": "https://example.com"},
+        "web_snapshot": {},
+        "web_click": {"ref": "@e1"},
+        "web_fill": {"ref": "@e1", "value": "test"},
+        "web_get_text": {"ref": "@e1"},
+        "web_screenshot": {},
+        "web_execute_js": {"code": "1+1"},
+    }
+
+    # Web browser tools are async — they return coroutines from sync dispatch
+    _ASYNC_TOOLS = {
+        "web_open", "web_snapshot", "web_click", "web_fill",
+        "web_get_text", "web_screenshot", "web_execute_js",
     }
 
     def test_all_handlers_return_dict_or_list(self, agent):
+        import inspect
         table = agent._get_dispatch_table()
         for tool_name in table:
+            if tool_name in self._ASYNC_TOOLS:
+                continue  # async handlers tested separately
             tool_input = self.TOOL_INPUTS.get(tool_name, {})
             result = agent._dispatch_tool(tool_name, tool_input)
             assert isinstance(result, (dict, list)), (

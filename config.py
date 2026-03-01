@@ -103,3 +103,8 @@ try:
     M365_BRIDGE_DETECT_TIMEOUT_SECONDS = int(os.environ.get("M365_BRIDGE_DETECT_TIMEOUT_SECONDS", "5"))
 except ValueError:
     M365_BRIDGE_DETECT_TIMEOUT_SECONDS = 5
+
+# Agent-browser settings
+AGENT_BROWSER_BIN = os.environ.get("AGENT_BROWSER_BIN", "agent-browser")
+AGENT_BROWSER_DATA_DIR = DATA_DIR / "agent-browser"
+AGENT_BROWSER_TIMEOUT = int(os.environ.get("AGENT_BROWSER_TIMEOUT", "30"))

@@ -780,6 +780,8 @@ EXPECTED_DISPATCH_TOOLS = {
     "get_mail_messages", "get_mail_message", "search_mail",
     "get_unread_count", "send_email",
     "mark_mail_read", "mark_mail_flagged", "move_mail_message",
+    "web_open", "web_snapshot", "web_click", "web_fill",
+    "web_get_text", "web_screenshot", "web_execute_js",
 }
 
 
