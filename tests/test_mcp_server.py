@@ -1514,3 +1514,142 @@ class TestNewToolsRegistered:
         for name in expected:
             assert name in tool_names, f"Tool '{name}' not registered"
 
+
+class TestListFacts:
+    @pytest.mark.asyncio
+    async def test_list_all(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import list_facts
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="isp_team_identity", value="IAM team")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="isp_team_secops", value="SecOps team")
+        )
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_facts()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["count"] == 2
+        assert len(data["facts"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_by_prefix(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import list_facts
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="isp_team_identity", value="IAM team")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="okr_investment_001", value="Investment")
+        )
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_facts(prefix="isp_")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["count"] == 1
+        assert data["facts"][0]["key"] == "isp_team_identity"
+
+    @pytest.mark.asyncio
+    async def test_list_by_category(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import list_facts
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="team_a", value="A")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="personal", key="name", value="Jason")
+        )
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_facts(category="work")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["count"] == 1
+        assert data["facts"][0]["category"] == "work"
+
+    @pytest.mark.asyncio
+    async def test_list_empty(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import list_facts
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_facts()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["count"] == 0
+        assert data["facts"] == []
+
+
+class TestListFactKeys:
+    @pytest.mark.asyncio
+    async def test_list_all_keys(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import list_fact_keys
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="isp_team_identity", value="IAM")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="isp_team_secops", value="SecOps")
+        )
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_fact_keys()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["count"] == 2
+        assert "isp_team_identity" in data["keys"]
+
+    @pytest.mark.asyncio
+    async def test_list_keys_by_prefix(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import list_fact_keys
+
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="isp_team_identity", value="IAM")
+        )
+        shared_state["memory_store"].store_fact(
+            Fact(category="work", key="okr_001", value="OKR")
+        )
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_fact_keys(prefix="isp_")
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["count"] == 1
+        assert data["keys"] == ["isp_team_identity"]
+
+    @pytest.mark.asyncio
+    async def test_list_keys_empty(self, shared_state):
+        import mcp_server
+        from mcp_tools.memory_tools import list_fact_keys
+
+        mcp_server._state.update(shared_state)
+        try:
+            result = await list_fact_keys()
+        finally:
+            mcp_server._state.clear()
+
+        data = json.loads(result)
+        assert data["count"] == 0
+        assert data["keys"] == []
+

@@ -246,6 +246,60 @@ def register(mcp, state):
             ),
         })
 
+    @mcp.tool()
+    @tool_errors("Database error", expected=_EXPECTED)
+    async def list_facts(prefix: str = "", category: str = "", limit: int = 100) -> str:
+        """List facts by key prefix and/or category — deterministic, no ranking.
+
+        Unlike query_memory (semantic search), this returns exact matches
+        using SQL prefix filtering. Use this when you know the key naming
+        pattern (e.g. prefix="isp_" returns all ISP org facts).
+
+        Args:
+            prefix: Key prefix filter (e.g. "isp_team_", "okr_investment_"). Empty = all keys.
+            category: Filter by category (personal, preference, work, relationship). Empty = all.
+            limit: Max facts to return (default 100).
+        """
+        memory_store = state.memory_store
+        facts = memory_store.list_facts(
+            prefix=prefix or None,
+            category=category or None,
+            limit=limit,
+        )
+        return json.dumps({
+            "count": len(facts),
+            "facts": [
+                {
+                    "category": f.category,
+                    "key": f.key,
+                    "value": f.value,
+                    "confidence": f.confidence,
+                    "pinned": f.pinned,
+                    "updated_at": f.updated_at,
+                }
+                for f in facts
+            ],
+        })
+
+    @mcp.tool()
+    @tool_errors("Database error", expected=_EXPECTED)
+    async def list_fact_keys(prefix: str = "", category: str = "") -> str:
+        """List all fact keys, optionally filtered by prefix and/or category.
+
+        Returns just the key names — useful for discovering what's stored
+        before fetching full facts with list_facts.
+
+        Args:
+            prefix: Key prefix filter (e.g. "isp_", "okr_"). Empty = all keys.
+            category: Filter by category. Empty = all.
+        """
+        memory_store = state.memory_store
+        keys = memory_store.list_fact_keys(
+            prefix=prefix or None,
+            category=category or None,
+        )
+        return json.dumps({"count": len(keys), "keys": keys})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
@@ -256,3 +310,5 @@ def register(mcp, state):
     module.list_locations = list_locations
     module.checkpoint_session = checkpoint_session
     module.get_session_health = get_session_health
+    module.list_facts = list_facts
+    module.list_fact_keys = list_fact_keys

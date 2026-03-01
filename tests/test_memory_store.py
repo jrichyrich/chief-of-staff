@@ -517,3 +517,73 @@ class TestConfigurableHalfLife:
         scored_long = memory_store.search_facts_ranked("project", half_life_days=365.0)
         if scored_short and scored_long:
             assert scored_short[0][1] < scored_long[0][1]
+
+
+class TestListFacts:
+    def test_list_all_facts(self, memory_store):
+        memory_store.store_fact(Fact(category="work", key="isp_team_identity", value="IAM team"))
+        memory_store.store_fact(Fact(category="work", key="isp_team_secops", value="SecOps team"))
+        memory_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        result = memory_store.list_facts()
+        assert len(result) == 3
+
+    def test_list_facts_by_prefix(self, memory_store):
+        memory_store.store_fact(Fact(category="work", key="isp_team_identity", value="IAM team"))
+        memory_store.store_fact(Fact(category="work", key="isp_team_secops", value="SecOps team"))
+        memory_store.store_fact(Fact(category="work", key="okr_investment_001", value="Investment"))
+        result = memory_store.list_facts(prefix="isp_team_")
+        assert len(result) == 2
+        assert all(f.key.startswith("isp_team_") for f in result)
+
+    def test_list_facts_by_category(self, memory_store):
+        memory_store.store_fact(Fact(category="work", key="isp_team_identity", value="IAM team"))
+        memory_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        result = memory_store.list_facts(category="work")
+        assert len(result) == 1
+        assert result[0].category == "work"
+
+    def test_list_facts_by_prefix_and_category(self, memory_store):
+        memory_store.store_fact(Fact(category="work", key="isp_team_identity", value="IAM team"))
+        memory_store.store_fact(Fact(category="personal", key="isp_note", value="note"))
+        result = memory_store.list_facts(prefix="isp_", category="work")
+        assert len(result) == 1
+        assert result[0].key == "isp_team_identity"
+
+    def test_list_facts_with_limit(self, memory_store):
+        for i in range(5):
+            memory_store.store_fact(Fact(category="work", key=f"item_{i}", value=f"val {i}"))
+        result = memory_store.list_facts(limit=3)
+        assert len(result) == 3
+
+    def test_list_facts_empty(self, memory_store):
+        result = memory_store.list_facts()
+        assert result == []
+
+
+class TestListFactKeys:
+    def test_list_all_keys(self, memory_store):
+        memory_store.store_fact(Fact(category="work", key="isp_team_identity", value="IAM"))
+        memory_store.store_fact(Fact(category="work", key="isp_team_secops", value="SecOps"))
+        memory_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        result = memory_store.list_fact_keys()
+        assert len(result) == 3
+        assert "isp_team_identity" in result
+        assert "name" in result
+
+    def test_list_keys_by_prefix(self, memory_store):
+        memory_store.store_fact(Fact(category="work", key="isp_team_identity", value="IAM"))
+        memory_store.store_fact(Fact(category="work", key="isp_team_secops", value="SecOps"))
+        memory_store.store_fact(Fact(category="work", key="okr_investment_001", value="Inv"))
+        result = memory_store.list_fact_keys(prefix="isp_")
+        assert len(result) == 2
+        assert all(k.startswith("isp_") for k in result)
+
+    def test_list_keys_by_category(self, memory_store):
+        memory_store.store_fact(Fact(category="work", key="isp_team_identity", value="IAM"))
+        memory_store.store_fact(Fact(category="personal", key="name", value="Jason"))
+        result = memory_store.list_fact_keys(category="work")
+        assert result == ["isp_team_identity"]
+
+    def test_list_keys_empty(self, memory_store):
+        result = memory_store.list_fact_keys()
+        assert result == []

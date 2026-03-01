@@ -66,6 +66,8 @@ class MemoryStore:
         self.search_facts_hybrid = self._fact_store.search_facts_hybrid
         self.delete_fact = self._fact_store.delete_fact
         self.repair_vector_index = self._fact_store.repair_vector_index
+        self.list_facts = self._fact_store.list_facts
+        self.list_fact_keys = self._fact_store.list_fact_keys
         self.store_location = self._fact_store.store_location
         self.get_location = self._fact_store.get_location
         self.list_locations = self._fact_store.list_locations

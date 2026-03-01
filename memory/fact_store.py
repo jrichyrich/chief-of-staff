@@ -277,6 +277,51 @@ class FactStore:
             self.conn.commit()
         return cursor.rowcount > 0
 
+    def list_facts(
+        self,
+        prefix: str | None = None,
+        category: str | None = None,
+        limit: int = 100,
+    ) -> list[Fact]:
+        """Return facts filtered by key prefix and/or category.
+
+        Deterministic SQL query — no ranking, no semantic search.
+        """
+        clauses: list[str] = []
+        params: list[str | int] = []
+        if prefix:
+            clauses.append("key LIKE ?")
+            params.append(f"{prefix}%")
+        if category:
+            clauses.append("category = ?")
+            params.append(category)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        rows = self.conn.execute(
+            f"SELECT * FROM facts{where} ORDER BY key LIMIT ?", params
+        ).fetchall()
+        return [self._row_to_fact(r) for r in rows]
+
+    def list_fact_keys(
+        self,
+        prefix: str | None = None,
+        category: str | None = None,
+    ) -> list[str]:
+        """Return distinct fact keys, optionally filtered by prefix and/or category."""
+        clauses: list[str] = []
+        params: list[str] = []
+        if prefix:
+            clauses.append("key LIKE ?")
+            params.append(f"{prefix}%")
+        if category:
+            clauses.append("category = ?")
+            params.append(category)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self.conn.execute(
+            f"SELECT DISTINCT key FROM facts{where} ORDER BY key", params
+        ).fetchall()
+        return [row["key"] for row in rows]
+
     def repair_vector_index(self) -> int:
         """Rebuild ChromaDB vector index from all SQLite facts.
 
