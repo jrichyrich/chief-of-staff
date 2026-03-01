@@ -597,6 +597,318 @@ class CalendarPermsStep(SetupStep):
 
 
 # ---------------------------------------------------------------------------
+# JarvisAppStep — auto (creates /Applications/Jarvis.app)
+# ---------------------------------------------------------------------------
+
+_LAUNCH_SH_ITERM2 = r"""#!/bin/bash
+# Launch iTerm2 with Claude Code in chief_of_staff project
+# Uses "Jarvis" profile (frosted glass Material theme)
+
+osascript <<'APPLESCRIPT'
+tell application "iTerm2"
+    activate
+
+    -- Create window with the Jarvis profile
+    set newWindow to (create window with profile "Jarvis")
+
+    tell current session of newWindow
+        set name to "Jarvis — Chief of Staff"
+        write text "cd {project_dir} && clear && {banner_path} && sleep 2 && {claude_bin} --dangerously-skip-permissions --teammate-mode tmux"
+    end tell
+end tell
+APPLESCRIPT
+"""
+
+_LAUNCH_SH_TERMINAL = r"""#!/bin/bash
+# Launch Terminal.app with Claude Code in chief_of_staff project
+
+osascript <<'APPLESCRIPT'
+tell application "Terminal"
+    activate
+    set jarvisCmd to "cd {project_dir} && clear && {banner_path} && sleep 2 && {claude_bin} --dangerously-skip-permissions --teammate-mode tmux"
+    do script jarvisCmd
+    -- Set the window title
+    set custom title of front window to "Jarvis — Chief of Staff"
+end tell
+APPLESCRIPT
+"""
+
+_INFO_PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>launch.sh</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.jarvis.chiefofstaff</string>
+    <key>CFBundleName</key>
+    <string>Jarvis</string>
+    <key>CFBundleDisplayName</key>
+    <string>Jarvis</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>LSBackgroundOnly</key>
+    <false/>
+</dict>
+</plist>
+"""
+
+
+def _detect_terminal() -> str:
+    """Detect the user's preferred terminal emulator.
+
+    Returns 'iterm2' if iTerm.app exists, otherwise 'terminal'.
+    """
+    iterm_paths = [
+        Path("/Applications/iTerm.app"),
+        Path.home() / "Applications" / "iTerm.app",
+    ]
+    for p in iterm_paths:
+        if p.exists():
+            return "iterm2"
+    return "terminal"
+
+
+@dataclass
+class JarvisAppStep(SetupStep):
+    """Create /Applications/Jarvis.app with icon, terminal profile, and banner.
+
+    Builds a macOS .app bundle that launches Claude Code in the project
+    directory via the user's terminal (iTerm2 if installed, Terminal.app
+    otherwise). Includes a custom icon, Material-theme iTerm2 profile
+    (when applicable), and ASCII art splash screen.
+    """
+
+    project_dir: Path = field(default_factory=lambda: PROJECT_DIR)
+    app_path: Path = field(default_factory=lambda: Path("/Applications/Jarvis.app"))
+
+    name: str = field(default="Jarvis.app launcher", init=False)
+    key: str = field(default="jarvis_app", init=False)
+    profiles: set[str] = field(default_factory=lambda: set(_ALL_PROFILES), init=False)
+
+    @property
+    def is_auto(self) -> bool:
+        return True
+
+    def check(self) -> Status:
+        """OK if Jarvis.app exists with its key files."""
+        launch_sh = self.app_path / "Contents" / "MacOS" / "launch.sh"
+        icon = self.app_path / "Contents" / "Resources" / "AppIcon.icns"
+        if launch_sh.exists() and icon.exists():
+            return Status.OK
+        return Status.MISSING
+
+    def install(self) -> bool:
+        """Build the app bundle, icon, terminal profile, and banner."""
+        try:
+            terminal = _detect_terminal()
+            print(f"  Detected terminal: {terminal}")
+            self._create_app_bundle(terminal)
+            self._convert_icon()
+            self._install_banner(terminal)
+            if terminal == "iterm2":
+                self._install_iterm2_profile()
+                self._generate_background_image()
+            self._register_app()
+            return True
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"  Error: {exc}")
+            return False
+
+    def _create_app_bundle(self, terminal: str) -> None:
+        """Create the .app directory structure, Info.plist, and launch.sh."""
+        macos_dir = self.app_path / "Contents" / "MacOS"
+        macos_dir.mkdir(parents=True, exist_ok=True)
+
+        # Info.plist
+        plist_path = self.app_path / "Contents" / "Info.plist"
+        plist_path.write_text(_INFO_PLIST_TEMPLATE)
+
+        # Find claude binary
+        claude_bin = shutil.which("claude") or "/opt/homebrew/bin/claude"
+        # Resolve to actual binary (not shell function)
+        try:
+            result = subprocess.run(
+                ["which", "claude"], capture_output=True, text=True, check=True,
+            )
+            resolved = result.stdout.strip()
+            if resolved:
+                claude_bin = resolved
+        except (subprocess.CalledProcessError, OSError):
+            pass
+
+        # Banner path — stored alongside other jarvis config
+        config_dir = Path.home() / ".config" / "jarvis"
+        banner_path = config_dir / "jarvis-banner.sh"
+
+        # Select the right launch template
+        template = _LAUNCH_SH_ITERM2 if terminal == "iterm2" else _LAUNCH_SH_TERMINAL
+
+        # launch.sh (templated with actual paths)
+        launch_sh_path = macos_dir / "launch.sh"
+        launch_sh_path.write_text(
+            template.format(
+                project_dir=self.project_dir,
+                banner_path=banner_path,
+                claude_bin=claude_bin,
+            )
+        )
+        launch_sh_path.chmod(0o755)
+
+    def _convert_icon(self) -> None:
+        """Convert assets/jarvis-icon.png to .icns and install it."""
+        src_png = self.project_dir / "assets" / "jarvis-icon.png"
+        if not src_png.exists():
+            print(f"  Warning: {src_png} not found, skipping icon")
+            return
+
+        resources_dir = self.app_path / "Contents" / "Resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+
+        iconset = Path("/tmp/JarvisAppIcon.iconset")
+        iconset.mkdir(parents=True, exist_ok=True)
+
+        sizes = [
+            (16, "icon_16x16.png"),
+            (32, "icon_16x16@2x.png"),
+            (32, "icon_32x32.png"),
+            (64, "icon_32x32@2x.png"),
+            (128, "icon_128x128.png"),
+            (256, "icon_128x128@2x.png"),
+            (256, "icon_256x256.png"),
+            (512, "icon_256x256@2x.png"),
+            (512, "icon_512x512.png"),
+            (1024, "icon_512x512@2x.png"),
+        ]
+
+        for size, filename in sizes:
+            subprocess.run(
+                ["sips", "-z", str(size), str(size), str(src_png),
+                 "--out", str(iconset / filename)],
+                capture_output=True, check=True,
+            )
+
+        subprocess.run(
+            ["iconutil", "-c", "icns", str(iconset),
+             "-o", str(resources_dir / "AppIcon.icns")],
+            capture_output=True, check=True,
+        )
+
+        # Cleanup
+        shutil.rmtree(iconset, ignore_errors=True)
+
+    def _install_iterm2_profile(self) -> None:
+        """Copy the iTerm2 dynamic profile, injecting the background image path."""
+        src = self.project_dir / "assets" / "iterm2-profile.json"
+        if not src.exists():
+            print(f"  Warning: {src} not found, skipping iTerm2 profile")
+            return
+
+        dest_dir = Path.home() / "Library" / "Application Support" / "iTerm2" / "DynamicProfiles"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        bg_image_path = Path.home() / ".config" / "jarvis" / "jarvis-bg.png"
+
+        profile_text = src.read_text()
+        # Inject background image path into the profile
+        # Insert after the "Blend" line
+        inject = f'      "Background Image Location": "{bg_image_path}",\n'
+        profile_text = profile_text.replace(
+            '      "Background Image Is Tiled": false,',
+            inject + '      "Background Image Is Tiled": false,',
+        )
+
+        (dest_dir / "Jarvis.json").write_text(profile_text)
+
+    def _install_banner(self, terminal: str) -> None:
+        """Copy the banner script to ~/.config/jarvis/."""
+        src = self.project_dir / "assets" / "jarvis-banner.sh"
+        if not src.exists():
+            print(f"  Warning: {src} not found, skipping banner")
+            return
+
+        config_dir = Path.home() / ".config" / "jarvis"
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        dest = config_dir / "jarvis-banner.sh"
+        shutil.copy2(src, dest)
+        dest.chmod(0o755)
+
+        # Also install to legacy iterm2 path if iTerm2 is the terminal
+        if terminal == "iterm2":
+            legacy_dir = Path.home() / ".config" / "iterm2"
+            legacy_dir.mkdir(parents=True, exist_ok=True)
+            legacy_dest = legacy_dir / "jarvis-banner.sh"
+            shutil.copy2(src, legacy_dest)
+            legacy_dest.chmod(0o755)
+
+    def _generate_background_image(self) -> None:
+        """Generate the dark teal gradient background image for iTerm2."""
+        config_dir = Path.home() / ".config" / "jarvis"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        bg_path = config_dir / "jarvis-bg.png"
+
+        if bg_path.exists():
+            return  # Don't regenerate if already present
+
+        try:
+            from PIL import Image, ImageDraw
+
+            width, height = 2560, 1600
+            img = Image.new("RGB", (width, height))
+            draw = ImageDraw.Draw(img)
+            for y in range(height):
+                ratio = y / height
+                r = int(26 + (15 - 26) * ratio)
+                g = int(43 + (30 - 43) * ratio)
+                b = int(52 + (38 - 52) * ratio)
+                draw.line([(0, y), (width, y)], fill=(r, g, b))
+            img.save(str(bg_path))
+        except ImportError:
+            # Fallback: create a 1x1 dark teal PNG via sips
+            subprocess.run(
+                ["sips", "-z", "1600", "2560", "-s", "format", "png",
+                 "--out", str(bg_path)],
+                capture_output=True,
+            )
+            print("  Warning: Pillow not installed, background image may be missing")
+
+    def _register_app(self) -> None:
+        """Register the app with Launch Services for Spotlight indexing."""
+        lsregister = (
+            "/System/Library/Frameworks/CoreServices.framework/"
+            "Frameworks/LaunchServices.framework/Support/lsregister"
+        )
+        subprocess.run(
+            [lsregister, "-f", str(self.app_path)],
+            capture_output=True,
+        )
+        # Touch the app to invalidate Finder icon cache
+        self.app_path.touch()
+
+    def guide(self) -> str:
+        terminal = _detect_terminal()
+        lines = ["python scripts/setup_jarvis.py  # will create /Applications/Jarvis.app"]
+        if terminal == "terminal":
+            lines.append(
+                "  Note: iTerm2 not found — will use Terminal.app. "
+                "For the full experience (custom theme, transparency, blur), "
+                "install iTerm2: brew install --cask iterm2"
+            )
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # M365BridgeStep — guided (Claude Desktop M365 connector)
 # ---------------------------------------------------------------------------
 
@@ -939,6 +1251,7 @@ def build_steps(
         SystemDepsStep(),
         EnvConfigStep(project_dir=project_dir, _profile=profile, interactive=interactive),
         DataDirsStep(project_dir=project_dir),
+        JarvisAppStep(project_dir=project_dir),
         PlaywrightStep(),
         LaunchAgentsStep(project_dir=project_dir),
         IMessagePermsStep(),

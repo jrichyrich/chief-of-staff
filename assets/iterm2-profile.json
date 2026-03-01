@@ -1,0 +1,211 @@
+{
+  "Profiles": [
+    {
+      "Name": "Jarvis",
+      "Guid": "jarvis-chief-of-staff-profile",
+
+      "Background Color": {
+        "Red Component": 0.149,
+        "Green Component": 0.196,
+        "Blue Component": 0.220,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Foreground Color": {
+        "Red Component": 0.78,
+        "Green Component": 0.84,
+        "Blue Component": 0.87,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Cursor Color": {
+        "Red Component": 0.537,
+        "Green Component": 0.867,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Cursor Text Color": {
+        "Red Component": 0.149,
+        "Green Component": 0.196,
+        "Blue Component": 0.220,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Selection Color": {
+        "Red Component": 0.329,
+        "Green Component": 0.431,
+        "Blue Component": 0.478,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Selected Text Color": {
+        "Red Component": 0.933,
+        "Green Component": 1.0,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Bold Color": {
+        "Red Component": 0.537,
+        "Green Component": 0.867,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Use Bold Font": true,
+      "Use Bright Bold": true,
+      "Link Color": {
+        "Red Component": 0.510,
+        "Green Component": 0.667,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Badge Color": {
+        "Red Component": 0.780,
+        "Green Component": 0.573,
+        "Blue Component": 0.918,
+        "Alpha Component": 0.5,
+        "Color Space": "sRGB"
+      },
+
+      "Ansi 0 Color": {
+        "Red Component": 0.329,
+        "Green Component": 0.431,
+        "Blue Component": 0.478,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 1 Color": {
+        "Red Component": 1.0,
+        "Green Component": 0.325,
+        "Blue Component": 0.439,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 2 Color": {
+        "Red Component": 0.765,
+        "Green Component": 0.910,
+        "Blue Component": 0.553,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 3 Color": {
+        "Red Component": 1.0,
+        "Green Component": 0.796,
+        "Blue Component": 0.420,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 4 Color": {
+        "Red Component": 0.510,
+        "Green Component": 0.667,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 5 Color": {
+        "Red Component": 0.780,
+        "Green Component": 0.573,
+        "Blue Component": 0.918,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 6 Color": {
+        "Red Component": 0.537,
+        "Green Component": 0.867,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 7 Color": {
+        "Red Component": 0.933,
+        "Green Component": 1.0,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 8 Color": {
+        "Red Component": 0.50,
+        "Green Component": 0.62,
+        "Blue Component": 0.67,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 9 Color": {
+        "Red Component": 1.0,
+        "Green Component": 0.44,
+        "Blue Component": 0.54,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 10 Color": {
+        "Red Component": 0.84,
+        "Green Component": 0.95,
+        "Blue Component": 0.66,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 11 Color": {
+        "Red Component": 1.0,
+        "Green Component": 0.87,
+        "Blue Component": 0.53,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 12 Color": {
+        "Red Component": 0.60,
+        "Green Component": 0.75,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 13 Color": {
+        "Red Component": 0.86,
+        "Green Component": 0.67,
+        "Blue Component": 0.97,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 14 Color": {
+        "Red Component": 0.62,
+        "Green Component": 0.93,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+      "Ansi 15 Color": {
+        "Red Component": 1.0,
+        "Green Component": 1.0,
+        "Blue Component": 1.0,
+        "Alpha Component": 1,
+        "Color Space": "sRGB"
+      },
+
+      "Transparency": 0.12,
+      "Blur": true,
+      "Blur Radius": 30,
+
+      "Background Image Is Tiled": false,
+      "Background Image Mode": 2,
+      "Blend": 0.85,
+
+      "Normal Font": "MesloLGS-NF-Regular 13",
+      "Use Non-ASCII Font": false,
+
+      "Scrollback Lines": 10000,
+      "Unlimited Scrollback": false,
+      "Hide Scrollbar": true,
+
+      "Columns": 140,
+      "Rows": 40,
+
+      "Allow Title Setting": false,
+      "Custom Window Title": "Jarvis \u2014 Chief of Staff",
+      "Use Custom Window Title": true,
+      "Use Separate Status Bars Per Pane": true,
+      "Show Mark Indicators": false
+    }
+  ]
+}
