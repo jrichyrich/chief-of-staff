@@ -1,10 +1,14 @@
 """Session management tools for the Chief of Staff MCP server."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime
 
 logger = logging.getLogger("jarvis-mcp")
+
+# Minimum seconds between refresh_session_context calls
+_REFRESH_COOLDOWN_SECONDS = 30
 
 
 def register(mcp, state):
@@ -29,6 +33,26 @@ def register(mcp, state):
         mins = health.minutes_since_checkpoint()
         minutes_since_checkpoint = None if mins == float('inf') else round(mins, 1)
 
+        # Include cached session context if available
+        context_bundle = None
+        if state.session_context is not None:
+            ctx = state.session_context
+            context_bundle = {
+                "loaded_at": ctx.loaded_at,
+                "is_stale": ctx.is_stale,
+                "calendar_event_count": len(ctx.calendar_events),
+                "calendar_events": ctx.calendar_events[:10],
+                "unread_mail_count": ctx.unread_mail_count,
+                "overdue_delegation_count": len(ctx.overdue_delegations),
+                "overdue_delegations": ctx.overdue_delegations,
+                "pending_decision_count": len(ctx.pending_decisions),
+                "pending_decisions": ctx.pending_decisions,
+                "due_reminder_count": len(ctx.due_reminders),
+                "due_reminders": ctx.due_reminders,
+                "brain_summary": ctx.session_brain_summary,
+                "errors": ctx.errors,
+            }
+
         return json.dumps({
             "session_id": session_manager.session_id,
             "token_estimate": tokens,
@@ -41,6 +65,7 @@ def register(mcp, state):
                 "general": len(extracted["general"]),
             },
             "context_window_usage": round(tokens / 150000, 3) if tokens > 0 else 0.0,
+            "context_bundle": context_bundle,
         })
 
     @mcp.tool()
@@ -97,9 +122,62 @@ def register(mcp, state):
             logger.exception("Error restoring session")
             return json.dumps({"error": f"Restore failed: {e}"})
 
+    @mcp.tool()
+    async def refresh_session_context() -> str:
+        """Re-fetch and cache the session context bundle.
+
+        Useful when cached data is stale or after making changes
+        (e.g., completing a delegation, creating a reminder).
+        Returns the refreshed context summary.  Rate-limited to one
+        call per 30 seconds to avoid hammering backends.
+        """
+        from session.context_loader import load_session_context
+        from session.context_config import ContextLoaderConfig
+        import config as app_config
+
+        # Rate limiting — reject if last load was too recent
+        if state.session_context is not None and state.session_context.loaded_at:
+            try:
+                loaded = datetime.fromisoformat(state.session_context.loaded_at)
+                elapsed = (datetime.now() - loaded).total_seconds()
+                if elapsed < _REFRESH_COOLDOWN_SECONDS:
+                    return json.dumps({
+                        "status": "rate_limited",
+                        "message": f"Last refresh was {elapsed:.0f}s ago. Wait {_REFRESH_COOLDOWN_SECONDS - elapsed:.0f}s.",
+                        "loaded_at": state.session_context.loaded_at,
+                    })
+            except (ValueError, TypeError):
+                pass
+
+        loader_config = ContextLoaderConfig(
+            enabled=True,
+            per_source_timeout_seconds=app_config.SESSION_CONTEXT_TIMEOUT,
+            ttl_minutes=app_config.SESSION_CONTEXT_TTL,
+            sources={s: True for s in app_config.SESSION_CONTEXT_SOURCES},
+        )
+        try:
+            state.session_context = await asyncio.to_thread(
+                load_session_context, state, loader_config
+            )
+            ctx = state.session_context
+            return json.dumps({
+                "status": "refreshed",
+                "loaded_at": ctx.loaded_at,
+                "calendar_event_count": len(ctx.calendar_events),
+                "unread_mail_count": ctx.unread_mail_count,
+                "overdue_delegation_count": len(ctx.overdue_delegations),
+                "pending_decision_count": len(ctx.pending_decisions),
+                "due_reminder_count": len(ctx.due_reminders),
+                "errors": ctx.errors,
+            })
+        except Exception as e:
+            logger.exception("Error refreshing session context")
+            return json.dumps({"error": f"Refresh failed: {e}"})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
     module.get_session_status = get_session_status
     module.flush_session_memory = flush_session_memory
     module.restore_session = restore_session
+    module.refresh_session_context = refresh_session_context

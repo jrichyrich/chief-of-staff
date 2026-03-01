@@ -10,15 +10,19 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
+
+import config as app_config
+from utils.subprocess import run_with_cleanup
 
 logger = logging.getLogger(__name__)
 
 # Defaults — overridable via handler_config
-_DEFAULT_CLAUDE_BIN = "/opt/homebrew/bin/claude"
-_DEFAULT_MODEL = "sonnet"
-_DEFAULT_TIMEOUT = 180  # 3 minutes — brief needs many MCP calls
+_DEFAULT_CLAUDE_BIN = app_config.CLAUDE_BIN
+_DEFAULT_MODEL = app_config.MORNING_BRIEF_DEFAULT_MODEL
+_DEFAULT_TIMEOUT = app_config.MORNING_BRIEF_DEFAULT_TIMEOUT
 _DEFAULT_PROJECT_DIR = str(Path(__file__).parent.parent)
 
 _BRIEF_PROMPT = """\
@@ -83,7 +87,16 @@ def run_morning_brief(handler_config: str = "") -> str:
     if prompt_extra:
         prompt += f"\n\nAdditional instructions:\n{prompt_extra}"
 
-    mcp_config = str(Path(project_dir) / ".mcp.json")
+    mcp_config = config.get("mcp_config_override", "") or str(Path(project_dir) / ".mcp.json")
+
+    # Pre-check: verify MCP config exists before spawning CLI
+    if not Path(mcp_config).exists():
+        logger.error("MCP config not found: %s", mcp_config)
+        return json.dumps({
+            "status": "error",
+            "handler": "morning_brief",
+            "error": f"MCP config not found: {mcp_config}",
+        })
 
     args = [
         claude_bin,
@@ -97,7 +110,6 @@ def run_morning_brief(handler_config: str = "") -> str:
 
     # Build a clean env — strip CLAUDECODE to allow spawning from inside
     # a Claude Code session (MCP server runs as a Claude Code child process).
-    import os
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     env.setdefault("HOME", os.path.expanduser("~"))
     env.setdefault("PATH", "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin")
@@ -105,12 +117,12 @@ def run_morning_brief(handler_config: str = "") -> str:
     logger.info("Spawning Claude CLI for morning brief (model=%s, timeout=%ds)", model, timeout)
 
     try:
-        proc = subprocess.run(
+        proc = run_with_cleanup(
             args,
-            capture_output=True,
-            text=True,
             timeout=timeout,
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
             env=env,
         )
     except subprocess.TimeoutExpired:

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from memory.store import MemoryStore
     from okr.store import OKRStore
     from session.brain import SessionBrain
+    from session.context_loader import SessionContext
     from session.manager import SessionManager
 
 
@@ -76,6 +77,7 @@ class ServerState:
     session_manager: Optional[SessionManager] = None
     session_brain: Optional[SessionBrain] = None
     agent_browser: Optional[Any] = None  # browser.agent_browser.AgentBrowser
+    session_context: Optional[SessionContext] = None
 
     @staticmethod
     @cache
@@ -108,6 +110,7 @@ class ServerState:
         self.session_manager = None
         self.session_brain = None
         self.agent_browser = None
+        self.session_context = None
 
     def __setitem__(self, key: str, value: Any) -> None:
         """Dict-style assignment (for backward compatibility with tests)."""

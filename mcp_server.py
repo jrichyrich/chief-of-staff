@@ -166,6 +166,31 @@ async def app_lifespan(server: FastMCP):
             memory_store.store_scheduled_task(default_task)
             logger.info("Seeded default scheduled task: %s", default_task.name)
 
+    # Load proactive session context
+    from session.context_loader import load_session_context
+    from session.context_config import ContextLoaderConfig
+
+    context_config = ContextLoaderConfig(
+        enabled=app_config.SESSION_CONTEXT_ENABLED,
+        per_source_timeout_seconds=app_config.SESSION_CONTEXT_TIMEOUT,
+        ttl_minutes=app_config.SESSION_CONTEXT_TTL,
+        sources={s: True for s in app_config.SESSION_CONTEXT_SOURCES},
+    )
+    if context_config.enabled:
+        try:
+            _state.session_context = load_session_context(_state, context_config)
+            logger.info(
+                "Session context loaded: %d events, %d unread, %d overdue, %d pending, %d reminders, errors: %s",
+                len(_state.session_context.calendar_events),
+                _state.session_context.unread_mail_count,
+                len(_state.session_context.overdue_delegations),
+                len(_state.session_context.pending_decisions),
+                len(_state.session_context.due_reminders),
+                list(_state.session_context.errors.keys()) or "none",
+            )
+        except Exception:
+            logger.exception("Failed to load session context (non-fatal)")
+
     logger.info("Jarvis MCP server initialized")
 
     # Fire session_start hooks
@@ -193,6 +218,7 @@ async def app_lifespan(server: FastMCP):
         _state.allowed_ingest_roots = None
         _state.session_manager = None
         _state.session_brain = None
+        _state.session_context = None
         memory_store.close()
         logger.info("Jarvis MCP server shut down")
 

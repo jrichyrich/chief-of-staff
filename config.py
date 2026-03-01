@@ -122,6 +122,29 @@ try:
 except ValueError:
     M365_BRIDGE_DETECT_TIMEOUT_SECONDS = 5
 
+# Morning brief handler defaults
+try:
+    MORNING_BRIEF_DEFAULT_TIMEOUT = int(os.environ.get("MORNING_BRIEF_TIMEOUT", "180"))
+except ValueError:
+    MORNING_BRIEF_DEFAULT_TIMEOUT = 180
+MORNING_BRIEF_DEFAULT_MODEL = os.environ.get("MORNING_BRIEF_MODEL", "sonnet")
+
+# Session context loading settings
+SESSION_CONTEXT_ENABLED = os.environ.get(
+    "SESSION_CONTEXT_ENABLED", "true"
+).strip().lower() not in {"0", "false", "no"}
+try:
+    SESSION_CONTEXT_TIMEOUT = int(os.environ.get("SESSION_CONTEXT_TIMEOUT", "10"))
+except ValueError:
+    SESSION_CONTEXT_TIMEOUT = 10
+try:
+    SESSION_CONTEXT_TTL = int(os.environ.get("SESSION_CONTEXT_TTL", "15"))
+except ValueError:
+    SESSION_CONTEXT_TTL = 15
+SESSION_CONTEXT_SOURCES = frozenset(
+    os.environ.get("SESSION_CONTEXT_SOURCES", "calendar,mail,delegations,decisions,reminders,brain").split(",")
+)
+
 # Agent-browser settings
 AGENT_BROWSER_BIN = os.environ.get("AGENT_BROWSER_BIN", "agent-browser")
 AGENT_BROWSER_DATA_DIR = DATA_DIR / "agent-browser"
