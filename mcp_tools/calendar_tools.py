@@ -24,6 +24,23 @@ def register(mcp, state):
             # Handle date-only format
             return datetime.strptime(date_str, "%Y-%m-%d")
 
+    def _parse_alerts(alerts_json: str) -> list[int] | str:
+        """Parse and validate alerts JSON string.
+
+        Returns list[int] of minutes on success, or a JSON error string on failure.
+        """
+        if not alerts_json:
+            return []
+        alarms = json.loads(alerts_json)
+        if not isinstance(alarms, list):
+            return json.dumps({"error": "alerts must be a JSON list of integers"})
+        if len(alarms) > 10:
+            return json.dumps({"error": "Maximum 10 alerts allowed"})
+        for v in alarms:
+            if not isinstance(v, (int, float)) or v < 0 or v > 40320:
+                return json.dumps({"error": "Each alert must be 0-40320 minutes (up to 4 weeks)"})
+        return [int(v) for v in alarms]
+
     @mcp.tool()
     @tool_errors("Calendar error", expected=_EXPECTED)
     async def list_calendars(provider_preference: str = "auto", source_filter: str = "") -> str:
@@ -82,6 +99,7 @@ def register(mcp, state):
         location: str = "",
         notes: str = "",
         is_all_day: bool = False,
+        alerts: str = "",
         target_provider: str = "",
         provider_preference: str = "auto",
     ) -> str:
@@ -95,12 +113,19 @@ def register(mcp, state):
             location: Event location
             notes: Event notes/description
             is_all_day: Whether this is an all-day event (default: False)
+            alerts: JSON list of alert times in minutes before event (e.g. "[15, 30]")
             target_provider: Optional explicit provider override (apple or microsoft_365)
             provider_preference: Optional provider hint (default: auto)
         """
         calendar_store = state.calendar_store
         start_dt = _parse_date(start_date)
         end_dt = _parse_date(end_date)
+        alarms = None
+        if alerts:
+            parsed = _parse_alerts(alerts)
+            if isinstance(parsed, str):
+                return parsed
+            alarms = parsed or None
         kwargs = {}
         if target_provider:
             kwargs["target_provider"] = target_provider
@@ -115,6 +140,7 @@ def register(mcp, state):
             location=location or None,
             notes=notes or None,
             is_all_day=is_all_day,
+            alarms=alarms,
             **kwargs,
         )
         return json.dumps({"status": "created", "event": result})
@@ -129,6 +155,7 @@ def register(mcp, state):
         end_date: str = "",
         location: str = "",
         notes: str = "",
+        alerts: str = "",
         target_provider: str = "",
         provider_preference: str = "auto",
     ) -> str:
@@ -142,6 +169,7 @@ def register(mcp, state):
             end_date: New end date in ISO format
             location: New event location
             notes: New event notes
+            alerts: JSON list of alert times in minutes before event (e.g. "[15, 30]")
             target_provider: Optional explicit provider override (apple or microsoft_365)
             provider_preference: Optional provider hint (default: auto)
         """
@@ -157,6 +185,12 @@ def register(mcp, state):
             kwargs["location"] = location
         if notes:
             kwargs["notes"] = notes
+        if alerts:
+            parsed = _parse_alerts(alerts)
+            if isinstance(parsed, str):
+                return parsed
+            if parsed:
+                kwargs["alarms"] = parsed
         if target_provider:
             kwargs["target_provider"] = target_provider
         if provider_preference and provider_preference != "auto":

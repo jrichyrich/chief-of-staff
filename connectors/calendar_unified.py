@@ -373,6 +373,7 @@ class UnifiedCalendarService:
         is_all_day: bool = False,
         target_provider: str = "",
         provider_preference: str = "auto",
+        alarms: Optional[list[int]] = None,
     ) -> dict:
         providers, preferred, _, _ = self._resolve_write_provider(
             target_provider=target_provider,
@@ -395,6 +396,7 @@ class UnifiedCalendarService:
                 location=location,
                 notes=notes,
                 is_all_day=is_all_day,
+                alarms=alarms,
             )
             if result.get("error"):
                 errors.append(f"{provider_name}: {result['error']}")

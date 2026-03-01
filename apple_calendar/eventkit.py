@@ -42,6 +42,12 @@ def _event_to_dict(event, calendar_name: str) -> dict:
                 "status": int(a.participantStatus()),
             })
 
+    alarms = []
+    if event.alarms():
+        for alarm in event.alarms():
+            offset_seconds = alarm.relativeOffset()
+            alarms.append(int(abs(offset_seconds) / 60))  # Convert negative seconds to positive minutes
+
     start = event.startDate()
     end = event.endDate()
 
@@ -55,6 +61,7 @@ def _event_to_dict(event, calendar_name: str) -> dict:
         "attendees": attendees,
         "calendar": calendar_name,
         "is_all_day": bool(event.isAllDay()),
+        "alarms": alarms,
     }
 
 
@@ -258,6 +265,7 @@ class CalendarStore:
         location: Optional[str] = None,
         notes: Optional[str] = None,
         is_all_day: bool = False,
+        alarms: Optional[list[int]] = None,
     ) -> dict:
         """Create a calendar event and return its dict representation."""
         err = self._ensure_store()
@@ -279,6 +287,15 @@ class CalendarStore:
             if notes:
                 event.setNotes_(notes)
 
+            if alarms is not None:
+                if len(alarms) > 10:
+                    return {"error": "Maximum 10 alarms allowed"}
+                for minutes in alarms:
+                    if not isinstance(minutes, int) or minutes < 0 or minutes > 40320:
+                        return {"error": f"Invalid alarm value: {minutes}"}
+                    alarm = EventKit.EKAlarm.alarmWithRelativeOffset_(-minutes * 60)
+                    event.addAlarm_(alarm)
+
             if calendar_name:
                 cal = self._get_calendar_by_name(calendar_name)
                 if cal:
@@ -299,7 +316,7 @@ class CalendarStore:
 
     def update_event(self, event_uid: str, calendar_name: Optional[str] = None, **kwargs) -> dict:
         """Update an existing event by UID. Supported kwargs: title, start_dt,
-        end_dt, location, notes, is_all_day."""
+        end_dt, location, notes, is_all_day, alarms."""
         err = self._ensure_store()
         if err:
             return err
@@ -324,6 +341,21 @@ class CalendarStore:
                 event.setNotes_(kwargs["notes"])
             if "is_all_day" in kwargs:
                 event.setAllDay_(kwargs["is_all_day"])
+            if "alarms" in kwargs:
+                # Remove all existing alarms
+                existing = event.alarms()
+                if existing:
+                    for alarm in list(existing):
+                        event.removeAlarm_(alarm)
+                # Add new alarms
+                if kwargs["alarms"] is not None:
+                    if len(kwargs["alarms"]) > 10:
+                        return {"error": "Maximum 10 alarms allowed"}
+                    for minutes in kwargs["alarms"]:
+                        if not isinstance(minutes, int) or minutes < 0 or minutes > 40320:
+                            return {"error": f"Invalid alarm value: {minutes}"}
+                        alarm = EventKit.EKAlarm.alarmWithRelativeOffset_(-minutes * 60)
+                        event.addAlarm_(alarm)
 
             success, error = self._store.saveEvent_span_error_(event, 0, None)
             if not success:

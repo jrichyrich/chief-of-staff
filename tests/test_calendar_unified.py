@@ -42,6 +42,7 @@ class _FakeProvider:
         location=None,
         notes=None,
         is_all_day=False,
+        alarms=None,
     ) -> dict:
         if self.create_should_fail:
             return {"error": f"{self.provider_name} unavailable"}
@@ -55,6 +56,8 @@ class _FakeProvider:
             "native_id": f"{self.provider_name}-new",
             "unified_uid": f"{self.provider_name}:{self.provider_name}-new",
         }
+        if alarms is not None:
+            event["alarms"] = alarms
         self.created.append(event)
         return event
 
@@ -168,3 +171,39 @@ def test_dual_read_policy_errors_when_one_provider_fails(tmp_path: Path):
     assert "error" in rows[0]
     assert rows[0]["providers_required"] == ["microsoft_365", "apple"]
     assert "apple" in rows[0]["providers_succeeded"]
+
+
+def test_create_event_passes_alarms_to_provider(tmp_path: Path):
+    """Alarms parameter is threaded through to the provider's create_event."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    service = _service(tmp_path, apple=apple, m365=m365)
+    result = service.create_event(
+        title="Alert Meeting",
+        start_dt=datetime(2026, 3, 1, 10, 0),
+        end_dt=datetime(2026, 3, 1, 11, 0),
+        calendar_name="Work",
+        alarms=[15, 30],
+    )
+    assert "error" not in result
+    assert result["title"] == "Alert Meeting"
+    # Work calendar routes to m365 first
+    assert len(m365.created) == 1
+    assert m365.created[0].get("alarms") == [15, 30]
+
+
+def test_create_event_no_alarms_by_default(tmp_path: Path):
+    """When alarms not passed, provider doesn't get alarms key."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    service = _service(tmp_path, apple=apple, m365=m365)
+    result = service.create_event(
+        title="No Alarm",
+        start_dt=datetime(2026, 3, 1, 10, 0),
+        end_dt=datetime(2026, 3, 1, 11, 0),
+        calendar_name="Work",
+    )
+    assert "error" not in result
+    # Work calendar routes to m365 first
+    assert len(m365.created) == 1
+    assert "alarms" not in m365.created[0]

@@ -50,6 +50,7 @@ class AppleCalendarProvider(CalendarProvider):
         location: Optional[str] = None,
         notes: Optional[str] = None,
         is_all_day: bool = False,
+        alarms: Optional[list[int]] = None,
     ) -> dict:
         result = self.store.create_event(
             title=title,
@@ -59,6 +60,7 @@ class AppleCalendarProvider(CalendarProvider):
             location=location,
             notes=notes,
             is_all_day=is_all_day,
+            alarms=alarms,
         )
         if result.get("error"):
             return result

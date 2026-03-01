@@ -279,6 +279,119 @@ class TestCreateCalendarEventTool:
         # The tool wraps the result; the error comes from the CalendarStore
         assert "event" in data or "error" in data
 
+    @pytest.mark.asyncio
+    async def test_create_calendar_event_with_alerts(self, calendar_state):
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        calendar_state.create_event.return_value = {
+            "uid": "NEW-A1",
+            "title": "Alert Event",
+            "alarms": [15, 30],
+        }
+
+        result = await create_calendar_event(
+            title="Alert Event",
+            start_date="2024-03-01T10:00:00",
+            end_date="2024-03-01T11:00:00",
+            alerts='[15, 30]',
+        )
+        data = json.loads(result)
+
+        assert data["status"] == "created"
+        # Verify alarms was passed as list[int] to the store
+        call_kwargs = calendar_state.create_event.call_args[1]
+        assert call_kwargs["alarms"] == [15, 30]
+
+    @pytest.mark.asyncio
+    async def test_create_calendar_event_alerts_empty_string(self, calendar_state):
+        """Empty alerts string means no alarms passed."""
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        calendar_state.create_event.return_value = {"uid": "NEW-A2", "title": "No Alerts"}
+
+        await create_calendar_event(
+            title="No Alerts",
+            start_date="2024-03-01T10:00:00",
+            end_date="2024-03-01T11:00:00",
+            alerts="",
+        )
+        call_kwargs = calendar_state.create_event.call_args[1]
+        assert call_kwargs["alarms"] is None
+
+    @pytest.mark.asyncio
+    async def test_create_calendar_event_alerts_not_list(self, calendar_state):
+        """Non-list JSON returns an error."""
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        result = await create_calendar_event(
+            title="Bad",
+            start_date="2024-03-01",
+            end_date="2024-03-02",
+            alerts="42",
+        )
+        data = json.loads(result)
+        assert "error" in data
+        assert "JSON list" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_calendar_event_alerts_too_many(self, calendar_state):
+        """More than 10 alerts returns an error."""
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        result = await create_calendar_event(
+            title="Bad",
+            start_date="2024-03-01",
+            end_date="2024-03-02",
+            alerts=json.dumps(list(range(11))),
+        )
+        data = json.loads(result)
+        assert "error" in data
+        assert "Maximum 10" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_calendar_event_alerts_negative(self, calendar_state):
+        """Negative alert value returns an error."""
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        result = await create_calendar_event(
+            title="Bad",
+            start_date="2024-03-01",
+            end_date="2024-03-02",
+            alerts="[-5]",
+        )
+        data = json.loads(result)
+        assert "error" in data
+        assert "0-40320" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_calendar_event_alerts_too_large(self, calendar_state):
+        """Alert value above 40320 (4 weeks) returns an error."""
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        result = await create_calendar_event(
+            title="Bad",
+            start_date="2024-03-01",
+            end_date="2024-03-02",
+            alerts="[50000]",
+        )
+        data = json.loads(result)
+        assert "error" in data
+        assert "0-40320" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_calendar_event_alerts_non_numeric(self, calendar_state):
+        """Non-numeric alert value returns an error."""
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        result = await create_calendar_event(
+            title="Bad",
+            start_date="2024-03-01",
+            end_date="2024-03-02",
+            alerts='["abc"]',
+        )
+        data = json.loads(result)
+        assert "error" in data
+
 
 # ---------------------------------------------------------------------------
 # update_calendar_event
@@ -333,6 +446,101 @@ class TestUpdateCalendarEventTool:
         call_kwargs = calendar_state.update_event.call_args[1]
         assert isinstance(call_kwargs["start_dt"], datetime)
         assert isinstance(call_kwargs["end_dt"], datetime)
+
+    @pytest.mark.asyncio
+    async def test_update_calendar_event_with_alerts(self, calendar_state):
+        from mcp_tools.calendar_tools import update_calendar_event
+
+        calendar_state.update_event.return_value = {"uid": "UPD-3", "title": "Updated Alerts"}
+
+        result = await update_calendar_event(
+            event_uid="UPD-3",
+            alerts='[10, 60]',
+        )
+        data = json.loads(result)
+
+        assert data["status"] == "updated"
+        call_kwargs = calendar_state.update_event.call_args[1]
+        assert call_kwargs["alarms"] == [10, 60]
+
+    @pytest.mark.asyncio
+    async def test_update_calendar_event_alerts_validation(self, calendar_state):
+        """Invalid alerts in update returns an error."""
+        from mcp_tools.calendar_tools import update_calendar_event
+
+        result = await update_calendar_event(
+            event_uid="UPD-4",
+            alerts='"not a list"',
+        )
+        data = json.loads(result)
+        assert "error" in data
+        assert "JSON list" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_calendar_event_alerts_too_many(self, calendar_state):
+        from mcp_tools.calendar_tools import update_calendar_event
+
+        result = await update_calendar_event(
+            event_uid="UPD-5",
+            alerts=json.dumps(list(range(11))),
+        )
+        data = json.loads(result)
+        assert "error" in data
+        assert "Maximum 10" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_calendar_event_alerts_out_of_range(self, calendar_state):
+        from mcp_tools.calendar_tools import update_calendar_event
+
+        result = await update_calendar_event(
+            event_uid="UPD-6",
+            alerts="[50000]",
+        )
+        data = json.loads(result)
+        assert "error" in data
+        assert "0-40320" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_calendar_event_no_alerts(self, calendar_state):
+        """When alerts param is not provided, alarms should not appear in kwargs."""
+        from mcp_tools.calendar_tools import update_calendar_event
+
+        calendar_state.update_event.return_value = {"uid": "UPD-7", "title": "No Alerts"}
+
+        await update_calendar_event(
+            event_uid="UPD-7",
+            title="No Alerts",
+        )
+        call_kwargs = calendar_state.update_event.call_args[1]
+        assert "alarms" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_event_response_includes_alarms(self, calendar_state):
+        """The JSON response from create_calendar_event includes the alarms field."""
+        from mcp_tools.calendar_tools import create_calendar_event
+
+        calendar_state.create_event.return_value = {
+            "uid": "RESP-1",
+            "title": "With Alarms",
+            "start": "2024-03-01T10:00:00",
+            "end": "2024-03-01T11:00:00",
+            "calendar": "Work",
+            "location": None,
+            "notes": None,
+            "attendees": [],
+            "is_all_day": False,
+            "alarms": [15],
+        }
+
+        result = await create_calendar_event(
+            title="With Alarms",
+            start_date="2024-03-01T10:00:00",
+            end_date="2024-03-01T11:00:00",
+            alerts="[15]",
+        )
+        data = json.loads(result)
+
+        assert data["event"]["alarms"] == [15]
 
 
 # ---------------------------------------------------------------------------

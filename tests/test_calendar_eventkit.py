@@ -36,6 +36,13 @@ def _make_mock_calendar(name="Work", cal_type=1, source_name="iCloud", color_hex
     return cal
 
 
+def _make_mock_alarm(offset_minutes):
+    """Build a mock EKAlarm with a relative offset in minutes (stored as negative seconds)."""
+    alarm = MagicMock()
+    alarm.relativeOffset.return_value = -offset_minutes * 60
+    return alarm
+
+
 def _make_mock_event(
     uid="ABC-123",
     title="Team Standup",
@@ -46,6 +53,7 @@ def _make_mock_event(
     all_day=False,
     attendees=None,
     calendar_title="Work",
+    alarms=None,
 ):
     """Build a mock EKEvent."""
     ev = MagicMock()
@@ -79,6 +87,11 @@ def _make_mock_event(
         ev.attendees.return_value = mock_attendees
     else:
         ev.attendees.return_value = None
+
+    if alarms is not None:
+        ev.alarms.return_value = [_make_mock_alarm(m) for m in alarms]
+    else:
+        ev.alarms.return_value = None
 
     cal = MagicMock()
     cal.title.return_value = calendar_title
@@ -532,3 +545,198 @@ class TestCalendarAliases:
         assert "error" not in result
         # Verify setCalendar_ was called with the Exchange calendar, not iCloud
         mock_event.setCalendar_.assert_called_once_with(exchange_cal)
+
+
+# ---------------------------------------------------------------------------
+# Tests: alarms / alerts
+# ---------------------------------------------------------------------------
+
+
+class TestEventToDict_Alarms:
+    """Tests for alarm extraction in _event_to_dict."""
+
+    def test_event_with_alarms(self, calendar_store):
+        """Events with alarms return alarm minutes in the dict."""
+        ev = _make_mock_event(uid="AL-1", title="Reminder Event", alarms=[15, 30])
+
+        from apple_calendar.eventkit import _event_to_dict
+
+        result = _event_to_dict(ev, "Work")
+
+        assert "alarms" in result
+        assert result["alarms"] == [15, 30]
+
+    def test_event_without_alarms(self, calendar_store):
+        """Events with no alarms return an empty list."""
+        ev = _make_mock_event(uid="AL-2", title="No Alarms")
+
+        from apple_calendar.eventkit import _event_to_dict
+
+        result = _event_to_dict(ev, "Work")
+
+        assert "alarms" in result
+        assert result["alarms"] == []
+
+    def test_event_single_alarm(self, calendar_store):
+        """Single alarm is correctly extracted."""
+        ev = _make_mock_event(uid="AL-3", title="One Alarm", alarms=[5])
+
+        from apple_calendar.eventkit import _event_to_dict
+
+        result = _event_to_dict(ev, "Work")
+
+        assert result["alarms"] == [5]
+
+
+class TestCreateEventAlarms:
+    """Tests for alarm creation in CalendarStore.create_event."""
+
+    def test_create_event_with_alarms(self, calendar_store):
+        mock_ev = _make_mock_event(uid="CA-1", title="With Alarms", alarms=[15, 30])
+
+        with patch("apple_calendar.eventkit.EventKit") as mock_ek:
+            mock_alarm_15 = MagicMock()
+            mock_alarm_30 = MagicMock()
+            mock_ek.EKAlarm.alarmWithRelativeOffset_.side_effect = [mock_alarm_15, mock_alarm_30]
+            mock_ek.EKEvent.eventWithEventStore_.return_value = mock_ev
+            calendar_store._store.defaultCalendarForNewEvents.return_value = MagicMock()
+            calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+            result = calendar_store.create_event(
+                title="With Alarms",
+                start_dt=datetime(2024, 3, 1, 9, 0),
+                end_dt=datetime(2024, 3, 1, 10, 0),
+                alarms=[15, 30],
+            )
+
+        assert result["uid"] == "CA-1"
+        # Verify alarmWithRelativeOffset_ called with negative seconds
+        calls = mock_ek.EKAlarm.alarmWithRelativeOffset_.call_args_list
+        assert calls[0][0][0] == -900   # -15 * 60
+        assert calls[1][0][0] == -1800  # -30 * 60
+        # Verify addAlarm_ called twice
+        assert mock_ev.addAlarm_.call_count == 2
+
+    def test_create_event_without_alarms(self, calendar_store):
+        """When alarms is None (default), no alarms are added."""
+        mock_ev = _make_mock_event(uid="CA-2", title="No Alarms")
+
+        with patch("apple_calendar.eventkit.EventKit") as mock_ek:
+            mock_ek.EKEvent.eventWithEventStore_.return_value = mock_ev
+            calendar_store._store.defaultCalendarForNewEvents.return_value = MagicMock()
+            calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+            result = calendar_store.create_event(
+                title="No Alarms",
+                start_dt=datetime(2024, 3, 1, 9, 0),
+                end_dt=datetime(2024, 3, 1, 10, 0),
+            )
+
+        assert result["uid"] == "CA-2"
+        mock_ev.addAlarm_.assert_not_called()
+
+    def test_create_event_empty_alarms_list(self, calendar_store):
+        """Empty alarms list adds no alarms but is a valid input."""
+        mock_ev = _make_mock_event(uid="CA-3", title="Empty Alarms")
+
+        with patch("apple_calendar.eventkit.EventKit") as mock_ek:
+            mock_ek.EKEvent.eventWithEventStore_.return_value = mock_ev
+            calendar_store._store.defaultCalendarForNewEvents.return_value = MagicMock()
+            calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+            result = calendar_store.create_event(
+                title="Empty Alarms",
+                start_dt=datetime(2024, 3, 1, 9, 0),
+                end_dt=datetime(2024, 3, 1, 10, 0),
+                alarms=[],
+            )
+
+        assert result["uid"] == "CA-3"
+        mock_ev.addAlarm_.assert_not_called()
+
+
+class TestUpdateEventAlarms:
+    """Tests for alarm updates in CalendarStore.update_event."""
+
+    def test_update_event_replaces_alarms(self, calendar_store):
+        """Updating alarms removes existing and adds new ones."""
+        existing_alarm = MagicMock()
+        mock_ev = _make_mock_event(uid="UA-1", title="Event")
+        mock_ev.alarms.return_value = [existing_alarm]
+        calendar_store._find_event_by_uid = MagicMock(return_value=mock_ev)
+        calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+        with patch("apple_calendar.eventkit.EventKit") as mock_ek:
+            new_alarm = MagicMock()
+            mock_ek.EKAlarm.alarmWithRelativeOffset_.return_value = new_alarm
+
+            result = calendar_store.update_event("UA-1", alarms=[10])
+
+        assert result["uid"] == "UA-1"
+        mock_ev.removeAlarm_.assert_called_once_with(existing_alarm)
+        mock_ev.addAlarm_.assert_called_once_with(new_alarm)
+        mock_ek.EKAlarm.alarmWithRelativeOffset_.assert_called_once_with(-600)  # -10 * 60
+
+    def test_update_event_removes_all_alarms(self, calendar_store):
+        """Setting alarms=None removes all existing alarms without adding new ones."""
+        existing_alarm = MagicMock()
+        mock_ev = _make_mock_event(uid="UA-2", title="Event")
+        mock_ev.alarms.return_value = [existing_alarm]
+        calendar_store._find_event_by_uid = MagicMock(return_value=mock_ev)
+        calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+        result = calendar_store.update_event("UA-2", alarms=None)
+
+        assert result["uid"] == "UA-2"
+        mock_ev.removeAlarm_.assert_called_once_with(existing_alarm)
+        mock_ev.addAlarm_.assert_not_called()
+
+    def test_update_event_adds_alarms_when_none_existed(self, calendar_store):
+        """Adding alarms to an event that had none."""
+        mock_ev = _make_mock_event(uid="UA-3", title="Event")
+        mock_ev.alarms.return_value = None
+        calendar_store._find_event_by_uid = MagicMock(return_value=mock_ev)
+        calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+        with patch("apple_calendar.eventkit.EventKit") as mock_ek:
+            new_alarm = MagicMock()
+            mock_ek.EKAlarm.alarmWithRelativeOffset_.return_value = new_alarm
+
+            result = calendar_store.update_event("UA-3", alarms=[5, 60])
+
+        assert result["uid"] == "UA-3"
+        mock_ev.removeAlarm_.assert_not_called()
+        assert mock_ev.addAlarm_.call_count == 2
+
+    def test_update_event_alarms_empty_list(self, calendar_store):
+        """Setting alarms=[] removes all existing alarms without adding new ones."""
+        existing_a = MagicMock()
+        existing_b = MagicMock()
+        mock_ev = _make_mock_event(uid="UA-4", title="Event")
+        mock_ev.alarms.return_value = [existing_a, existing_b]
+        calendar_store._find_event_by_uid = MagicMock(return_value=mock_ev)
+        calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+        with patch("apple_calendar.eventkit.EventKit"):
+            result = calendar_store.update_event("UA-4", alarms=[])
+
+        assert result["uid"] == "UA-4"
+        # Both existing alarms should have been removed
+        assert mock_ev.removeAlarm_.call_count == 2
+        mock_ev.removeAlarm_.assert_any_call(existing_a)
+        mock_ev.removeAlarm_.assert_any_call(existing_b)
+        # No new alarms added
+        mock_ev.addAlarm_.assert_not_called()
+
+    def test_update_event_without_alarms_kwarg(self, calendar_store):
+        """When alarms is not passed at all, existing alarms are not touched."""
+        mock_ev = _make_mock_event(uid="UA-5", title="Event", alarms=[15])
+        calendar_store._find_event_by_uid = MagicMock(return_value=mock_ev)
+        calendar_store._store.saveEvent_span_error_.return_value = (True, None)
+
+        result = calendar_store.update_event("UA-5", title="New Title")
+
+        assert result["uid"] == "UA-5"
+        # Alarms should not be touched at all
+        mock_ev.removeAlarm_.assert_not_called()
+        mock_ev.addAlarm_.assert_not_called()
