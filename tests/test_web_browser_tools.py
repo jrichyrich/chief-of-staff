@@ -13,10 +13,14 @@ from mcp_tools.web_browser_tools import (
     web_click,
     web_execute_js,
     web_fill,
+    web_find,
     web_get_text,
     web_open,
     web_screenshot,
+    web_scroll,
     web_snapshot,
+    web_state_load,
+    web_state_save,
 )
 
 
@@ -181,6 +185,152 @@ class TestWebExecuteJs:
 
         assert result["status"] == "error"
         assert "eval failed" in result["error"]
+
+        mcp_server._state.agent_browser = None
+
+
+@pytest.mark.asyncio
+class TestWebScroll:
+    async def test_scroll_success(self):
+        mock = _mock_browser(scroll={"scrolled": True})
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_scroll(direction="down", pixels=500)
+        result = json.loads(raw)
+
+        assert result["status"] == "ok"
+        assert result["direction"] == "down"
+        mock.scroll.assert_awaited_once_with("down", 500)
+
+        mcp_server._state.agent_browser = None
+
+    async def test_scroll_no_pixels(self):
+        mock = _mock_browser(scroll={"scrolled": True})
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_scroll(direction="up")
+        result = json.loads(raw)
+
+        assert result["status"] == "ok"
+        mock.scroll.assert_awaited_once_with("up", None)
+
+        mcp_server._state.agent_browser = None
+
+    async def test_scroll_error(self):
+        from browser.agent_browser import AgentBrowserError
+
+        mock = AsyncMock()
+        mock.scroll = AsyncMock(side_effect=AgentBrowserError("no page"))
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_scroll(direction="down")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+
+        mcp_server._state.agent_browser = None
+
+
+@pytest.mark.asyncio
+class TestWebStateSave:
+    async def test_state_save_success(self):
+        mock = _mock_browser(state_save={"saved": True})
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_state_save(name="mysite-auth")
+        result = json.loads(raw)
+
+        assert result["status"] == "ok"
+        assert result["name"] == "mysite-auth"
+        assert "path" in result
+        mock.state_save.assert_awaited_once()
+
+        mcp_server._state.agent_browser = None
+
+    async def test_state_save_error(self):
+        from browser.agent_browser import AgentBrowserError
+
+        mock = AsyncMock()
+        mock.state_save = AsyncMock(side_effect=AgentBrowserError("no browser"))
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_state_save(name="test")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+
+        mcp_server._state.agent_browser = None
+
+
+@pytest.mark.asyncio
+class TestWebStateLoad:
+    async def test_state_load_success(self):
+        mock = _mock_browser(state_load={"loaded": True})
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_state_load(name="mysite-auth")
+        result = json.loads(raw)
+
+        assert result["status"] == "ok"
+        assert result["name"] == "mysite-auth"
+        mock.state_load.assert_awaited_once()
+
+        mcp_server._state.agent_browser = None
+
+    async def test_state_load_missing(self):
+        from browser.agent_browser import AgentBrowserError
+
+        mock = AsyncMock()
+        mock.state_load = AsyncMock(side_effect=AgentBrowserError("file not found"))
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_state_load(name="nonexistent")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "not found" in result["error"]
+
+        mcp_server._state.agent_browser = None
+
+
+@pytest.mark.asyncio
+class TestWebFind:
+    async def test_find_by_role(self):
+        mock = _mock_browser(find={"ref": "@e7", "found": True})
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_find(locator="role", value="button", text="Submit")
+        result = json.loads(raw)
+
+        assert result["status"] == "ok"
+        assert result["ref"] == "@e7"
+        mock.find.assert_awaited_once_with("role", "button", "Submit")
+
+        mcp_server._state.agent_browser = None
+
+    async def test_find_by_text_no_filter(self):
+        mock = _mock_browser(find={"ref": "@e9"})
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_find(locator="text", value="Welcome")
+        result = json.loads(raw)
+
+        assert result["status"] == "ok"
+        mock.find.assert_awaited_once_with("text", "Welcome", None)
+
+        mcp_server._state.agent_browser = None
+
+    async def test_find_error(self):
+        from browser.agent_browser import AgentBrowserError
+
+        mock = AsyncMock()
+        mock.find = AsyncMock(side_effect=AgentBrowserError("not found"))
+        mcp_server._state.agent_browser = mock
+
+        raw = await web_find(locator="role", value="button")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
 
         mcp_server._state.agent_browser = None
 

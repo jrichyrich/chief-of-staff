@@ -772,6 +772,53 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["code"],
         },
     },
+    "web_scroll": {
+        "name": "web_scroll",
+        "description": "Scroll the page in a given direction (up/down/left/right).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "direction": {"type": "string", "description": "Scroll direction: up, down, left, or right"},
+                "pixels": {"type": "integer", "description": "Pixels to scroll (omit for default)"},
+            },
+            "required": ["direction"],
+        },
+    },
+    "web_state_save": {
+        "name": "web_state_save",
+        "description": "Save browser auth/cookie state for later restoration.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Name for the saved state (e.g. 'github-auth')"},
+            },
+            "required": ["name"],
+        },
+    },
+    "web_state_load": {
+        "name": "web_state_load",
+        "description": "Load a previously saved browser state to restore login sessions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Name of the saved state to load"},
+            },
+            "required": ["name"],
+        },
+    },
+    "web_find": {
+        "name": "web_find",
+        "description": "Find an element semantically by role, text, label, placeholder, or alt text.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "locator": {"type": "string", "description": "Locator type: role, text, label, placeholder, or alt"},
+                "value": {"type": "string", "description": "The locator value to search for"},
+                "text": {"type": "string", "description": "Optional visible text filter"},
+            },
+            "required": ["locator", "value"],
+        },
+    },
 }
 
 
@@ -922,12 +969,17 @@ CAPABILITY_DEFINITIONS: dict[str, CapabilityDefinition] = {
     "web_browse": CapabilityDefinition(
         name="web_browse",
         description="Browse web pages and extract content via agent-browser",
-        tool_names=("web_open", "web_snapshot", "web_get_text", "web_screenshot"),
+        tool_names=("web_open", "web_snapshot", "web_get_text", "web_screenshot", "web_scroll", "web_find"),
     ),
     "web_browse_write": CapabilityDefinition(
         name="web_browse_write",
         description="Interact with web pages: click elements, fill forms, execute JavaScript",
         tool_names=("web_click", "web_fill", "web_execute_js"),
+    ),
+    "web_state": CapabilityDefinition(
+        name="web_state",
+        description="Save and restore browser authentication state across sessions",
+        tool_names=("web_state_save", "web_state_load"),
     ),
     # Accepted legacy/non-runtime capabilities kept for compatibility.
     "web_search": CapabilityDefinition(

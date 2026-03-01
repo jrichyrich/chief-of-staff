@@ -110,6 +110,31 @@ class AgentBrowser:
         """Execute JavaScript in the page context."""
         return await self._run("evaluate", code)
 
+    async def scroll(self, direction: str, pixels: int | None = None) -> dict[str, Any]:
+        """Scroll the page in *direction* (up/down/left/right) by *pixels*."""
+        args = ["scroll", direction]
+        if pixels is not None:
+            args.append(str(pixels))
+        return await self._run(*args)
+
+    async def state_save(self, path: str) -> dict[str, Any]:
+        """Save browser auth/cookie state to *path*."""
+        return await self._run("state", "save", path)
+
+    async def state_load(self, path: str) -> dict[str, Any]:
+        """Load browser auth/cookie state from *path*."""
+        return await self._run("state", "load", path)
+
+    async def find(self, locator: str, value: str, text: str | None = None) -> dict[str, Any]:
+        """Find an element by *locator* (role/text/label/placeholder/alt) and *value*.
+
+        Optionally filter by visible *text* (e.g. find role "button" with text "Submit").
+        """
+        args = ["find", locator, value]
+        if text is not None:
+            args.append(text)
+        return await self._run(*args)
+
     async def close(self) -> dict[str, Any]:
         """Close the browser and clean up."""
         try:

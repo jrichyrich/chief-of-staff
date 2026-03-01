@@ -1,6 +1,6 @@
 """General-purpose web browsing tools powered by agent-browser.
 
-Seven tools for navigating, interacting with, and extracting data from
+Eleven tools for navigating, interacting with, and extracting data from
 web pages via the agent-browser CLI's accessibility-tree snapshot system.
 """
 
@@ -150,6 +150,93 @@ def register(mcp, state):
         except AgentBrowserError as exc:
             return json.dumps({"status": "error", "error": str(exc)})
 
+    @mcp.tool()
+    async def web_scroll(direction: str, pixels: int | None = None) -> str:
+        """Scroll the page in a given direction.
+
+        Useful for pages with lazy-loaded content or elements below the fold.
+        Call web_snapshot after scrolling to see newly visible content.
+
+        Args:
+            direction: Scroll direction — "up", "down", "left", or "right".
+            pixels: Number of pixels to scroll. Omit for default (~300px).
+        """
+        from browser.agent_browser import AgentBrowserError
+
+        browser = state.agent_browser or _get_browser()
+        try:
+            result = await browser.scroll(direction, pixels)
+            return json.dumps({"status": "ok", "direction": direction, **result})
+        except AgentBrowserError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
+
+    @mcp.tool()
+    async def web_state_save(name: str) -> str:
+        """Save the browser's authentication and cookie state.
+
+        Persists cookies, localStorage, and session data to a named file
+        so you can restore it later with web_state_load. Useful for
+        preserving login sessions across browser restarts.
+
+        Args:
+            name: A name for this saved state (e.g. "github-auth", "dashboard-login").
+        """
+        from browser.agent_browser import AgentBrowserError
+
+        state_dir = app_config.AGENT_BROWSER_DATA_DIR / "states"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        path = str(state_dir / f"{name}.json")
+
+        browser = state.agent_browser or _get_browser()
+        try:
+            result = await browser.state_save(path)
+            return json.dumps({"status": "ok", "name": name, "path": path, **result})
+        except AgentBrowserError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
+
+    @mcp.tool()
+    async def web_state_load(name: str) -> str:
+        """Load a previously saved browser state by name.
+
+        Restores cookies, localStorage, and session data saved with
+        web_state_save. Call this before web_open to restore a login session.
+
+        Args:
+            name: The name used when saving (e.g. "github-auth").
+        """
+        from browser.agent_browser import AgentBrowserError
+
+        state_dir = app_config.AGENT_BROWSER_DATA_DIR / "states"
+        path = str(state_dir / f"{name}.json")
+
+        browser = state.agent_browser or _get_browser()
+        try:
+            result = await browser.state_load(path)
+            return json.dumps({"status": "ok", "name": name, "path": path, **result})
+        except AgentBrowserError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
+
+    @mcp.tool()
+    async def web_find(locator: str, value: str, text: str | None = None) -> str:
+        """Find an element semantically without needing a snapshot ref ID.
+
+        More resilient than ref IDs which change on every snapshot.
+        Returns the element's ref ID for use with web_click, web_fill, etc.
+
+        Args:
+            locator: How to find the element — "role", "text", "label", "placeholder", or "alt".
+            value: The locator value (e.g. "button" for role, "Submit" for text).
+            text: Optional visible text filter (e.g. find role "button" with text "Submit").
+        """
+        from browser.agent_browser import AgentBrowserError
+
+        browser = state.agent_browser or _get_browser()
+        try:
+            result = await browser.find(locator, value, text)
+            return json.dumps({"status": "ok", **result})
+        except AgentBrowserError as exc:
+            return json.dumps({"status": "error", "error": str(exc)})
+
     # Expose at module level for test imports
     mod = sys.modules[__name__]
     mod.web_open = web_open
@@ -159,3 +246,7 @@ def register(mcp, state):
     mod.web_get_text = web_get_text
     mod.web_screenshot = web_screenshot
     mod.web_execute_js = web_execute_js
+    mod.web_scroll = web_scroll
+    mod.web_state_save = web_state_save
+    mod.web_state_load = web_state_load
+    mod.web_find = web_find

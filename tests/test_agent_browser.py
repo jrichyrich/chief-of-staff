@@ -172,6 +172,82 @@ class TestAgentBrowserMethods:
         assert "evaluate" in args
         assert "document.title" in args
 
+    async def test_scroll_down(self):
+        proc = _make_process(stdout=b'{"scrolled": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.scroll("down", 500)
+
+        assert result == {"scrolled": True}
+        args = mock_exec.call_args[0]
+        assert "scroll" in args
+        assert "down" in args
+        assert "500" in args
+
+    async def test_scroll_default_pixels(self):
+        proc = _make_process(stdout=b'{"scrolled": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.scroll("up")
+
+        args = mock_exec.call_args[0]
+        assert "scroll" in args
+        assert "up" in args
+
+    async def test_state_save(self):
+        proc = _make_process(stdout=b'{"saved": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.state_save("/tmp/auth-state.json")
+
+        assert result == {"saved": True}
+        args = mock_exec.call_args[0]
+        assert "state" in args
+        assert "save" in args
+        assert "/tmp/auth-state.json" in args
+
+    async def test_state_load(self):
+        proc = _make_process(stdout=b'{"loaded": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.state_load("/tmp/auth-state.json")
+
+        assert result == {"loaded": True}
+        args = mock_exec.call_args[0]
+        assert "state" in args
+        assert "load" in args
+        assert "/tmp/auth-state.json" in args
+
+    async def test_find_by_role(self):
+        proc = _make_process(stdout=b'{"ref": "@e7", "found": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.find("role", "button", "Submit")
+
+        assert result == {"ref": "@e7", "found": True}
+        args = mock_exec.call_args[0]
+        assert "find" in args
+        assert "role" in args
+        assert "button" in args
+        assert "Submit" in args
+
+    async def test_find_by_text(self):
+        proc = _make_process(stdout=b'{"ref": "@e9"}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.find("text", "Welcome")
+
+        args = mock_exec.call_args[0]
+        assert "find" in args
+        assert "text" in args
+        assert "Welcome" in args
+
     async def test_close_success(self):
         proc = _make_process(stdout=b'{"closed": true}')
 
