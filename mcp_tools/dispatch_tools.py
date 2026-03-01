@@ -18,6 +18,7 @@ def register(mcp, state):
         capability_match: str = "",
         max_concurrent: int = 0,
         use_triage: bool = True,
+        synthesize: bool = False,
     ) -> str:
         """Dispatch multiple expert agents in parallel on a task and return consolidated results.
 
@@ -34,6 +35,9 @@ def register(mcp, state):
             max_concurrent: Max concurrent agent executions (0 = use config default).
             use_triage: If True, classify task complexity per agent and potentially
                        downgrade model tier for simple tasks (default True).
+            synthesize: If True and DISPATCH_SYNTHESIS_ENABLED config is set, run a
+                       Haiku merge pass to synthesize multi-agent results into a
+                       coherent summary (default False).
         """
         import config as app_config
         from agents.registry import AgentConfig
@@ -224,14 +228,31 @@ def register(mcp, state):
         success_count = sum(1 for d in dispatches if d["status"] == "success")
         error_count = sum(1 for d in dispatches if d["status"] == "error")
 
-        return json.dumps({
+        # --- Optional synthesis ---
+        synthesized = None
+        if synthesize and getattr(app_config, "DISPATCH_SYNTHESIS_ENABLED", False):
+            if success_count >= 1:
+                try:
+                    from orchestration.synthesis import synthesize_results
+                    synthesized = await synthesize_results(
+                        task=task,
+                        dispatches=dispatches,
+                    )
+                except Exception as e:
+                    logger.warning("dispatch_agents: synthesis failed: %s", e)
+
+        result_dict = {
             "task": task[:200],
             "agents_dispatched": dispatched_names,
             "agents_skipped": skipped,
             "dispatches": dispatches,
             "total_duration_seconds": total_duration,
             "summary": f"Dispatched {len(dispatches)} agents: {success_count} succeeded, {error_count} failed.",
-        })
+        }
+        if synthesized is not None:
+            result_dict["synthesized_summary"] = synthesized
+
+        return json.dumps(result_dict)
 
     # Expose at module level for testing
     import sys

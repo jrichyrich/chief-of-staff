@@ -105,6 +105,9 @@ Each module exports a `register(mcp, state)` function. Tools are defined inside 
 | `channels/routing.py` | Safety tier determination and channel selection for outbound messages |
 | `session/brain.py` | Session Brain: markdown-based persistent context document |
 | `playbooks/loader.py` | YAML playbook loader with input substitution and condition evaluation |
+| `orchestration/synthesis.py` | Haiku merge pass for multi-agent result synthesis |
+| `orchestration/playbook_executor.py` | Parallel workstream dispatch and synthesis for YAML playbooks |
+| `proactive/action_executor.py` | Rule-based autonomous action on proactive suggestions |
 | `config.py` | All paths, model names, constants, and environment variable settings |
 
 ### Apple Platform Integrations (macOS only)
@@ -150,6 +153,23 @@ Agent YAML configs declare capabilities (e.g. `calendar_read`, `mail_write`, `me
 - **Tool-use loop**: BaseExpertAgent loops on `response.stop_reason == "tool_use"`, executing tools and feeding results back until Claude produces a text response. Capped at `MAX_TOOL_ROUNDS` (25).
 - **Dependency injection**: Agents receive store instances via constructors. Tests use `tmp_path` fixtures for isolation.
 - **Retry logic**: `_retry_on_transient` in `mcp_tools/state.py` retries on `sqlite3.OperationalError` and `OSError` with exponential backoff. `retry_api_call` in `utils/` handles Anthropic API retries.
+
+### Hybrid Orchestration
+
+Jarvis includes three internal orchestration capabilities that run LLM calls inside the MCP server:
+
+| Feature | Module | Model | Purpose |
+|---------|--------|-------|---------|
+| **Result Synthesis** | `orchestration/synthesis.py` | Haiku | Merges multi-agent dispatch results into coherent summary |
+| **Playbook Executor** | `orchestration/playbook_executor.py` | Haiku (via synthesis) | Executes YAML playbook workstreams in parallel, then synthesizes |
+| **Proactive Actions** | `proactive/action_executor.py` | None (rule-based) | Daemon auto-acts on high-confidence suggestions |
+
+**Config flags** (all disabled by default, enable via env vars):
+- `DISPATCH_SYNTHESIS_ENABLED=true` — Enable Haiku synthesis in `dispatch_agents`
+- `PROACTIVE_ACTION_ENABLED=true` — Enable daemon proactive action execution
+- `PROACTIVE_ACTION_CATEGORIES=checkpoint,delegation,decision,webhook` — Categories eligible for auto-action
+
+**Playbook execution**: Call `execute_playbook(name, inputs, context, delivery)` MCP tool. Loads YAML from `playbooks/`, dispatches workstreams in parallel, synthesizes results, and optionally delivers via email/iMessage.
 
 ## Configuration
 

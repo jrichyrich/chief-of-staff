@@ -52,19 +52,40 @@ class JarvisDaemon:
 
     async def _tick(self) -> list[dict]:
         """Run one evaluation cycle with async timeout support. Never raises."""
+        results = []
         try:
-            results = await self.engine.evaluate_due_tasks_async()
-            if results:
+            scheduler_results = await self.engine.evaluate_due_tasks_async()
+            results.extend(scheduler_results)
+            if scheduler_results:
                 logger.info(
                     "Tick complete: %d tasks evaluated (%d errors, %d timeouts)",
-                    len(results),
-                    sum(1 for r in results if r.get("status") == "error"),
-                    sum(1 for r in results if r.get("status") == "timeout"),
+                    len(scheduler_results),
+                    sum(1 for r in scheduler_results if r.get("status") == "error"),
+                    sum(1 for r in scheduler_results if r.get("status") == "timeout"),
                 )
-            return results
         except Exception as e:
             logger.error("Tick failed: %s", e)
-            return []
+
+        # Proactive action pass — act on high-priority suggestions autonomously
+        try:
+            import config as app_config
+            if getattr(app_config, "PROACTIVE_ACTION_ENABLED", False):
+                from proactive.engine import ProactiveSuggestionEngine
+                from proactive.action_executor import execute_suggestion_action
+
+                engine = ProactiveSuggestionEngine(self.engine.memory_store)
+                suggestions = engine.generate_suggestions()
+                for s in suggestions:
+                    if s.priority == "high":
+                        action_result = execute_suggestion_action(
+                            s, memory_store=self.engine.memory_store,
+                        )
+                        if action_result.get("executed"):
+                            logger.info("Proactive action executed: %s -> %s", s.action, action_result)
+        except Exception as e:
+            logger.error("Proactive action pass failed: %s", e)
+
+        return results
 
     async def run(self):
         """Main daemon loop. Runs ticks until shutdown is requested."""

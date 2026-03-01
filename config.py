@@ -65,6 +65,15 @@ SKILL_AUTO_EXECUTE_ENABLED = os.environ.get("SKILL_AUTO_EXECUTE_ENABLED", "false
 PROACTIVE_PUSH_ENABLED = os.environ.get("PROACTIVE_PUSH_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 PROACTIVE_PUSH_THRESHOLD = os.environ.get("PROACTIVE_PUSH_THRESHOLD", "high").strip().lower()
 
+# Proactive action execution (daemon acts on high-confidence suggestions)
+PROACTIVE_ACTION_ENABLED = os.environ.get(
+    "PROACTIVE_ACTION_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes"}
+# Categories eligible for autonomous action (safe, reversible operations only)
+PROACTIVE_ACTION_CATEGORIES = frozenset(
+    os.environ.get("PROACTIVE_ACTION_CATEGORIES", "checkpoint,delegation,decision,webhook").split(",")
+)
+
 # Webhook auto-dispatch settings
 WEBHOOK_AUTO_DISPATCH_ENABLED = os.environ.get(
     "WEBHOOK_AUTO_DISPATCH_ENABLED", "false"
@@ -74,6 +83,15 @@ WEBHOOK_AUTO_DISPATCH_ENABLED = os.environ.get(
 DISPATCH_AGENTS_MAX_AGENTS = 10  # Hard cap on agents per dispatch
 DISPATCH_AGENTS_MAX_RESULT_LENGTH = 5000  # Truncate per-agent result text
 DISPATCH_AGENTS_WALL_CLOCK_TIMEOUT = 300  # Total dispatch timeout in seconds
+
+# Dispatch result synthesis (optional Haiku merge pass)
+DISPATCH_SYNTHESIS_ENABLED = os.environ.get(
+    "DISPATCH_SYNTHESIS_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes"}
+DISPATCH_SYNTHESIS_MODEL = os.environ.get(
+    "DISPATCH_SYNTHESIS_MODEL", MODEL_TIERS["haiku"]
+)
+DISPATCH_SYNTHESIS_MAX_TOKENS = int(os.environ.get("DISPATCH_SYNTHESIS_MAX_TOKENS", "1024"))
 
 # Calendar aliases: friendly names → {name, source} for disambiguation
 # Lookup is case-insensitive. Resolves in _get_calendar_by_name().

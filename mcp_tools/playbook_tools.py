@@ -63,6 +63,79 @@ def register(mcp, state):
             "delivery_options": pb.delivery_options,
         })
 
+    @mcp.tool()
+    async def execute_playbook(
+        name: str,
+        inputs: str = "{}",
+        context: str = "{}",
+        delivery: str = "",
+    ) -> str:
+        """Execute a playbook: dispatch workstreams in parallel, synthesize results.
+
+        Loads the named playbook, substitutes input variables, runs all active
+        workstreams concurrently via expert agents, then synthesizes results
+        using a Haiku merge pass.
+
+        Args:
+            name: Playbook name (e.g. "daily_briefing", "meeting_prep")
+            inputs: JSON string of input values (e.g. '{"topic": "Q4 review"}')
+            context: JSON string of context for condition evaluation (e.g. '{"depth": "thorough"}')
+            delivery: Override delivery channel ("email", "inline", etc.). Empty = playbook default.
+        """
+        from playbooks.loader import PlaybookLoader
+        from orchestration.playbook_executor import execute_playbook as _execute
+
+        loader = PlaybookLoader(_get_loader_dir())
+        pb = loader.get_playbook(name)
+        if pb is None:
+            return json.dumps({"error": f"Playbook '{name}' not found"})
+
+        # Parse inputs and context
+        try:
+            input_values = json.loads(inputs) if isinstance(inputs, str) else inputs
+        except json.JSONDecodeError:
+            return json.dumps({"error": f"Invalid inputs JSON: {inputs}"})
+
+        try:
+            ctx = json.loads(context) if isinstance(context, str) else context
+        except json.JSONDecodeError:
+            ctx = {}
+
+        # Check for missing required inputs (warn but proceed)
+        missing = [i for i in pb.inputs if i not in input_values]
+
+        # Resolve input variables
+        resolved = pb.resolve_inputs(input_values)
+
+        # Execute
+        result = await _execute(
+            playbook=resolved,
+            agent_registry=state.agent_registry,
+            state=state,
+            context=ctx if ctx else None,
+        )
+
+        if missing:
+            result["warning"] = f"Missing inputs (used as literals): {', '.join(missing)}"
+
+        # Delivery override
+        channel = delivery or resolved.delivery_default
+        if channel and channel != "inline" and result.get("synthesized_summary"):
+            try:
+                from delivery.service import deliver_result
+                delivery_result = deliver_result(
+                    channel=channel,
+                    config={},
+                    result_text=result["synthesized_summary"],
+                    task_name=f"playbook_{name}",
+                )
+                result["delivery"] = delivery_result
+            except Exception as e:
+                result["delivery"] = {"status": "error", "error": str(e)}
+
+        return json.dumps(result)
+
     module = sys.modules[__name__]
     module.list_playbooks = list_playbooks
     module.get_playbook = get_playbook
+    module.execute_playbook = execute_playbook
