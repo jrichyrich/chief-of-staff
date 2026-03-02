@@ -124,10 +124,10 @@ except ValueError:
 
 # Morning brief handler defaults
 try:
-    MORNING_BRIEF_DEFAULT_TIMEOUT = int(os.environ.get("MORNING_BRIEF_TIMEOUT", "180"))
+    MORNING_BRIEF_DEFAULT_TIMEOUT = int(os.environ.get("MORNING_BRIEF_TIMEOUT", "360"))
 except ValueError:
-    MORNING_BRIEF_DEFAULT_TIMEOUT = 180
-MORNING_BRIEF_DEFAULT_MODEL = os.environ.get("MORNING_BRIEF_MODEL", "sonnet")
+    MORNING_BRIEF_DEFAULT_TIMEOUT = 360
+MORNING_BRIEF_DEFAULT_MODEL = os.environ.get("MORNING_BRIEF_MODEL", "haiku")
 
 # Session context loading settings
 SESSION_CONTEXT_ENABLED = os.environ.get(
