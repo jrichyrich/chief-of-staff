@@ -91,15 +91,11 @@ class ABTeamsPoster:
 
             await self._ab.fill(self._compose_ref, self._pending_message)
 
-            # Try clicking Send button first, fall back to Enter
-            try:
-                result = await self._ab.find("role", "button", "Send")
-                ref = ABNavigator._extract_ref(result)
-                if ref:
-                    await self._ab.click(ref)
-                else:
-                    await self._ab.press("Enter")
-            except AgentBrowserError:
+            # Try clicking Send button via snapshot, fall back to Enter
+            send_ref = await self._navigator._find_ref_in_snapshot("button", "send")
+            if send_ref:
+                await self._ab.click(send_ref)
+            else:
                 await self._ab.press("Enter")
 
             msg = self._pending_message

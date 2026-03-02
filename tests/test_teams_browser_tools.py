@@ -21,14 +21,17 @@ from mcp_tools.teams_browser_tools import (
 
 
 @pytest.mark.asyncio
-class TestOpenTeamsBrowser:
+class TestOpenTeamsBrowserPlaywright:
+    """Tests for open_teams_browser with the playwright backend."""
+
     async def test_open_launches_browser(self):
         mock_mgr = MagicMock()
         mock_mgr.launch.return_value = {"status": "launched", "pid": 123, "cdp_port": 9222}
 
-        with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
-            with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
-                raw = await open_teams_browser()
+        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+            with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
+                with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
+                    raw = await open_teams_browser()
 
         result = json.loads(raw)
         assert result["status"] == "running"
@@ -38,9 +41,10 @@ class TestOpenTeamsBrowser:
         mock_mgr = MagicMock()
         mock_mgr.launch.return_value = {"status": "already_running", "pid": 123}
 
-        with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
-            with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
-                raw = await open_teams_browser()
+        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+            with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
+                with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
+                    raw = await open_teams_browser()
 
         result = json.loads(raw)
         assert result["status"] == "running"
@@ -49,8 +53,9 @@ class TestOpenTeamsBrowser:
         mock_mgr = MagicMock()
         mock_mgr.launch.return_value = {"status": "error", "error": "Chromium not found"}
 
-        with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
-            raw = await open_teams_browser()
+        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+            with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
+                raw = await open_teams_browser()
 
         result = json.loads(raw)
         assert result["status"] == "error"
@@ -58,17 +63,112 @@ class TestOpenTeamsBrowser:
 
 
 @pytest.mark.asyncio
-class TestCloseTeamsBrowser:
+class TestOpenTeamsBrowserAgentBrowser:
+    """Tests for open_teams_browser with the agent-browser backend."""
+
+    async def test_open_via_agent_browser(self):
+        mock_ab = AsyncMock()
+        mock_ab.open.return_value = {"ok": True}
+
+        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+            with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
+                raw = await open_teams_browser()
+
+        result = json.loads(raw)
+        assert result["status"] == "running"
+        assert result["backend"] == "agent-browser"
+        mock_ab.open.assert_awaited_once_with("https://teams.microsoft.com")
+
+    async def test_open_agent_browser_error(self):
+        mock_ab = AsyncMock()
+        mock_ab.open.side_effect = Exception("binary not found")
+
+        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+            with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
+                raw = await open_teams_browser()
+
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "not found" in result["error"]
+
+
+@pytest.mark.asyncio
+class TestCloseTeamsBrowserPlaywright:
+    """Tests for close_teams_browser with the playwright backend."""
+
     async def test_close_stops_browser(self):
         mock_mgr = MagicMock()
         mock_mgr.close.return_value = {"status": "closed"}
 
-        with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
-            raw = await close_teams_browser()
+        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+            with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
+                raw = await close_teams_browser()
 
         result = json.loads(raw)
         assert result["status"] == "closed"
         mock_mgr.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+class TestCloseTeamsBrowserAgentBrowser:
+    """Tests for close_teams_browser with the agent-browser backend."""
+
+    async def test_close_via_agent_browser(self):
+        mock_ab = AsyncMock()
+        mock_ab.close.return_value = {"ok": True}
+
+        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+            with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
+                raw = await close_teams_browser()
+
+        result = json.loads(raw)
+        assert result["status"] == "closed"
+        assert result["backend"] == "agent-browser"
+        mock_ab.close.assert_awaited_once()
+
+    async def test_close_agent_browser_error_still_returns_closed(self):
+        mock_ab = AsyncMock()
+        mock_ab.close.side_effect = Exception("already closed")
+
+        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+            with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
+                raw = await close_teams_browser()
+
+        result = json.loads(raw)
+        assert result["status"] == "closed"
+
+
+@pytest.mark.asyncio
+class TestBackendSelection:
+    """Tests for _get_poster backend routing."""
+
+    async def test_get_poster_selects_ab_poster(self):
+        """When backend=agent-browser, _get_poster returns ABTeamsPoster."""
+        teams_browser_tools._poster = None  # reset singleton
+        mock_ab = MagicMock()
+
+        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+            with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
+                with patch("browser.ab_poster.ABTeamsPoster") as MockAB:
+                    MockAB.return_value = MagicMock()
+                    poster = teams_browser_tools._get_poster()
+                    MockAB.assert_called_once_with(ab=mock_ab)
+
+        teams_browser_tools._poster = None  # cleanup
+
+    async def test_get_poster_selects_playwright(self):
+        """When backend=playwright, _get_poster returns PlaywrightTeamsPoster."""
+        teams_browser_tools._poster = None  # reset singleton
+        mock_mgr = MagicMock()
+
+        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+            with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
+                with patch("browser.teams_poster.PlaywrightTeamsPoster") as MockPW:
+                    MockPW.return_value = MagicMock()
+                    poster = teams_browser_tools._get_poster()
+                    MockPW.assert_called_once_with(manager=mock_mgr)
+
+        teams_browser_tools._poster = None  # cleanup
 
 
 @pytest.mark.asyncio

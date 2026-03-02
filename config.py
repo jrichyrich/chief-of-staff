@@ -149,3 +149,7 @@ SESSION_CONTEXT_SOURCES = frozenset(
 AGENT_BROWSER_BIN = os.environ.get("AGENT_BROWSER_BIN", "agent-browser")
 AGENT_BROWSER_DATA_DIR = DATA_DIR / "agent-browser"
 AGENT_BROWSER_TIMEOUT = int(os.environ.get("AGENT_BROWSER_TIMEOUT", "30"))
+AGENT_BROWSER_HEADED = os.environ.get("AGENT_BROWSER_HEADED", "").lower() in ("1", "true", "yes")
+
+# Teams poster backend: "agent-browser" (default, accessibility-tree-based) or "playwright" (CSS-selector-based)
+TEAMS_POSTER_BACKEND = os.environ.get("TEAMS_POSTER_BACKEND", "agent-browser")

@@ -1,11 +1,15 @@
 """Teams browser automation tools for MCP server.
 
 Five tools:
-1. ``open_teams_browser`` — launch persistent Chromium, navigate to Teams
+1. ``open_teams_browser`` — launch persistent browser, navigate to Teams
 2. ``post_teams_message`` — search for target by name, return confirmation
 3. ``confirm_teams_post`` — send the prepared message
 4. ``cancel_teams_post`` — cancel without sending
-5. ``close_teams_browser`` — kill the browser process
+5. ``close_teams_browser`` — close the browser
+
+Supports two backends controlled by ``TEAMS_POSTER_BACKEND`` in config:
+- ``"agent-browser"`` (default): Uses accessibility-tree snapshots via agent-browser CLI
+- ``"playwright"``: Uses CSS selectors via Playwright CDP
 """
 
 import json
@@ -16,9 +20,31 @@ logger = logging.getLogger(__name__)
 
 _manager = None
 _poster = None
+_ab = None
+
+
+def _get_backend() -> str:
+    from config import TEAMS_POSTER_BACKEND
+    return TEAMS_POSTER_BACKEND
+
+
+def _get_ab():
+    """Return the singleton AgentBrowser instance (agent-browser backend)."""
+    global _ab
+    if _ab is None:
+        from browser.agent_browser import AgentBrowser
+        from config import AGENT_BROWSER_BIN, AGENT_BROWSER_DATA_DIR, AGENT_BROWSER_TIMEOUT, AGENT_BROWSER_HEADED
+        _ab = AgentBrowser(
+            bin_path=AGENT_BROWSER_BIN,
+            profile_dir=AGENT_BROWSER_DATA_DIR,
+            timeout=AGENT_BROWSER_TIMEOUT,
+            headed=AGENT_BROWSER_HEADED,
+        )
+    return _ab
 
 
 def _get_manager():
+    """Return the singleton TeamsBrowserManager (playwright backend)."""
     global _manager
     if _manager is None:
         from browser.manager import TeamsBrowserManager
@@ -29,8 +55,13 @@ def _get_manager():
 def _get_poster():
     global _poster
     if _poster is None:
-        from browser.teams_poster import PlaywrightTeamsPoster
-        _poster = PlaywrightTeamsPoster(manager=_get_manager())
+        backend = _get_backend()
+        if backend == "agent-browser":
+            from browser.ab_poster import ABTeamsPoster
+            _poster = ABTeamsPoster(ab=_get_ab())
+        else:
+            from browser.teams_poster import PlaywrightTeamsPoster
+            _poster = PlaywrightTeamsPoster(manager=_get_manager())
     return _poster
 
 
@@ -74,7 +105,7 @@ def register(mcp, state):
 
     @mcp.tool()
     async def open_teams_browser() -> str:
-        """Launch a persistent Chromium browser and navigate to Teams.
+        """Launch a persistent browser and navigate to Teams.
 
         The browser stays open in the background. If the Teams session
         has expired, authenticate manually in the browser window — the
@@ -83,18 +114,29 @@ def register(mcp, state):
         Call this before using post_teams_message. Idempotent — returns
         current status if the browser is already running.
         """
-        mgr = _get_manager()
-        result = mgr.launch()
+        backend = _get_backend()
 
-        if result["status"] in ("launched", "already_running"):
-            nav = await _wait_for_teams(mgr)
-            if nav["ok"]:
-                result["status"] = "running"
-            else:
-                result["status"] = "awaiting_action"
-                result["detail"] = nav.get("detail", "Teams navigation incomplete")
+        if backend == "agent-browser":
+            ab = _get_ab()
+            try:
+                await ab.open("https://teams.microsoft.com")
+                return json.dumps({"status": "running", "backend": "agent-browser"})
+            except Exception as exc:
+                logger.exception("Failed to open Teams via agent-browser")
+                return json.dumps({"status": "error", "error": str(exc)})
+        else:
+            mgr = _get_manager()
+            result = mgr.launch()
 
-        return json.dumps(result)
+            if result["status"] in ("launched", "already_running"):
+                nav = await _wait_for_teams(mgr)
+                if nav["ok"]:
+                    result["status"] = "running"
+                else:
+                    result["status"] = "awaiting_action"
+                    result["detail"] = nav.get("detail", "Teams navigation incomplete")
+
+            return json.dumps(result)
 
     @mcp.tool()
     async def post_teams_message(target: str, message: str, auto_send: bool = False) -> str:
@@ -156,12 +198,22 @@ def register(mcp, state):
     async def close_teams_browser() -> str:
         """Close the persistent Teams browser.
 
-        Sends SIGTERM to the Chromium process. Call ``open_teams_browser``
-        to restart.
+        Call ``open_teams_browser`` to restart.
         """
-        mgr = _get_manager()
-        result = mgr.close()
-        return json.dumps(result)
+        backend = _get_backend()
+
+        if backend == "agent-browser":
+            ab = _get_ab()
+            try:
+                await ab.close()
+                return json.dumps({"status": "closed", "backend": "agent-browser"})
+            except Exception as exc:
+                logger.warning("Failed to close agent-browser: %s", exc)
+                return json.dumps({"status": "closed", "detail": str(exc)})
+        else:
+            mgr = _get_manager()
+            result = mgr.close()
+            return json.dumps(result)
 
     # Expose at module level for test imports
     mod = sys.modules[__name__]

@@ -29,16 +29,20 @@ class AgentBrowser:
         bin_path: str = "agent-browser",
         profile_dir: str | Path | None = None,
         timeout: int = 30,
+        headed: bool = False,
     ) -> None:
         self.bin_path = bin_path
         self.profile_dir = str(profile_dir) if profile_dir else None
         self.timeout = timeout
+        self.headed = headed
 
     async def _run(self, *args: str) -> dict[str, Any]:
         """Execute an agent-browser subcommand and return parsed JSON output."""
         cmd = [self.bin_path]
         if self.profile_dir:
             cmd.extend(["--profile", self.profile_dir])
+        if self.headed:
+            cmd.append("--headed")
         cmd.extend(args)
 
         logger.debug("agent-browser exec: %s", " ".join(cmd))
@@ -125,14 +129,18 @@ class AgentBrowser:
         """Load browser auth/cookie state from *path*."""
         return await self._run("state", "load", path)
 
-    async def find(self, locator: str, value: str, text: str | None = None) -> dict[str, Any]:
+    async def find(self, locator: str, value: str, text: str | None = None,
+                   action: str = "click") -> dict[str, Any]:
         """Find an element by *locator* (role/text/label/placeholder/alt) and *value*.
 
-        Optionally filter by visible *text* (e.g. find role "button" with text "Submit").
+        Optionally filter by accessible name *text* via ``--name``
+        (e.g. find role "button" with name "Submit").
+
+        *action* defaults to ``"click"``; pass explicitly when using ``--name``.
         """
-        args = ["find", locator, value]
+        args = ["find", locator, value, action]
         if text is not None:
-            args.append(text)
+            args.extend(["--name", text])
         return await self._run(*args)
 
     async def wait(self, condition: str, value: str, timeout_ms: int = 10000) -> dict[str, Any]:
