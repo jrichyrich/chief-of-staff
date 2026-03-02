@@ -304,11 +304,11 @@ class TestFindExistingChat:
 
 
 class TestPosterFindOrCreateRouting:
-    """Test that poster tries find_existing_chat before create_group_chat."""
+    """Test that poster always creates new group chat for list targets."""
 
     @pytest.mark.asyncio
-    async def test_list_target_tries_find_first(self):
-        """When target is a list, should try find_existing_chat first."""
+    async def test_list_target_creates_directly(self):
+        """When target is a list, should create group chat directly (never search existing)."""
         from browser.teams_poster import PlaywrightTeamsPoster
 
         manager = MagicMock()
@@ -321,39 +321,7 @@ class TestPosterFindOrCreateRouting:
         manager.connect.return_value[1].contexts = [mock_ctx]
 
         navigator = MagicMock()
-        navigator.find_existing_chat = AsyncMock(return_value={
-            "status": "navigated",
-            "detected_channel": "Alice, +1",
-        })
-        navigator.create_group_chat = AsyncMock()
-
-        poster = PlaywrightTeamsPoster(manager=manager, navigator=navigator)
-
-        with patch.object(poster, "_find_compose_box", new_callable=AsyncMock, return_value=AsyncMock()):
-            result = await poster.prepare_message(["Alice", "Bob"], "Hello!")
-
-        assert result["status"] == "confirm_required"
-        navigator.find_existing_chat.assert_called_once_with(mock_page, ["Alice", "Bob"])
-        navigator.create_group_chat.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_falls_back_to_create_when_not_found(self):
-        """When find_existing_chat returns not_found, should fall back to create_group_chat."""
-        from browser.teams_poster import PlaywrightTeamsPoster
-
-        manager = MagicMock()
-        manager.is_alive.return_value = True
-        manager.connect = AsyncMock(return_value=(AsyncMock(), MagicMock()))
-
-        mock_page = AsyncMock()
-        mock_ctx = MagicMock()
-        mock_ctx.pages = [mock_page]
-        manager.connect.return_value[1].contexts = [mock_ctx]
-
-        navigator = MagicMock()
-        navigator.find_existing_chat = AsyncMock(return_value={
-            "status": "not_found",
-        })
+        navigator.find_existing_chat = AsyncMock()
         navigator.create_group_chat = AsyncMock(return_value={
             "status": "navigated",
             "detected_channel": "Alice, +1",
@@ -365,7 +333,7 @@ class TestPosterFindOrCreateRouting:
             result = await poster.prepare_message(["Alice", "Bob"], "Hello!")
 
         assert result["status"] == "confirm_required"
-        navigator.find_existing_chat.assert_called_once()
+        navigator.find_existing_chat.assert_not_called()
         navigator.create_group_chat.assert_called_once_with(mock_page, ["Alice", "Bob"])
 
     @pytest.mark.asyncio

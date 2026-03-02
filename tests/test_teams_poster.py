@@ -203,6 +203,51 @@ class TestPrepareMessage:
         # pw.stop should have been called for the first connection
         mock_pw.stop.assert_awaited()
 
+    async def test_list_target_always_creates_new_chat(self, poster):
+        """List targets should always create new group chat, never search existing."""
+        mock_page = _make_mock_page()
+        compose_loc = _make_compose_locator()
+
+        mock_browser = AsyncMock()
+        mock_ctx = MagicMock()
+        mock_ctx.pages = [mock_page]
+        mock_browser.contexts = [mock_ctx]
+        mock_pw = AsyncMock()
+
+        mock_mgr = MagicMock()
+        mock_mgr.is_alive.return_value = True
+        mock_mgr.connect = AsyncMock(return_value=(mock_pw, mock_browser))
+
+        mock_nav = AsyncMock()
+        mock_nav.find_existing_chat = AsyncMock()
+        mock_nav.create_group_chat = AsyncMock(return_value={
+            "status": "navigated",
+            "detected_channel": "Michael, Heather",
+        })
+
+        poster._manager = mock_mgr
+        poster._navigator = mock_nav
+
+        from browser.constants import COMPOSE_SELECTORS
+        empty_loc = _make_compose_locator(count=0)
+        def locator_side_effect(sel):
+            if sel in COMPOSE_SELECTORS:
+                return compose_loc
+            return empty_loc
+        mock_page.locator = MagicMock(side_effect=locator_side_effect)
+
+        result = await poster.prepare_message(
+            ["Michael Larsen", "Heather Allen"], "Hello!"
+        )
+
+        assert result["status"] == "confirm_required"
+        # Should NOT have tried to find existing chat
+        mock_nav.find_existing_chat.assert_not_called()
+        # Should have created new group chat directly
+        mock_nav.create_group_chat.assert_called_once_with(
+            mock_page, ["Michael Larsen", "Heather Allen"]
+        )
+
     async def test_prepare_creates_new_page_if_none(self, poster):
         """Creates a new page when the browser context has no pages."""
         mock_page = _make_mock_page()
