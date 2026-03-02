@@ -30,3 +30,6 @@ docs/plans/
 
 # IDE / local config
 .mcp.json
+
+# Claude Code worktrees
+.claude/worktrees/
