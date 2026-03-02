@@ -24,7 +24,7 @@ def _get_browser():
         app_config.AGENT_BROWSER_DATA_DIR.mkdir(parents=True, exist_ok=True)
         _browser = AgentBrowser(
             bin_path=app_config.AGENT_BROWSER_BIN,
-            data_dir=app_config.AGENT_BROWSER_DATA_DIR,
+            profile_dir=app_config.AGENT_BROWSER_DATA_DIR,
             timeout=app_config.AGENT_BROWSER_TIMEOUT,
         )
     return _browser

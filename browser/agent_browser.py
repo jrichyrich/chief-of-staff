@@ -27,18 +27,18 @@ class AgentBrowser:
     def __init__(
         self,
         bin_path: str = "agent-browser",
-        data_dir: str | Path | None = None,
+        profile_dir: str | Path | None = None,
         timeout: int = 30,
     ) -> None:
         self.bin_path = bin_path
-        self.data_dir = str(data_dir) if data_dir else None
+        self.profile_dir = str(profile_dir) if profile_dir else None
         self.timeout = timeout
 
     async def _run(self, *args: str) -> dict[str, Any]:
         """Execute an agent-browser subcommand and return parsed JSON output."""
         cmd = [self.bin_path]
-        if self.data_dir:
-            cmd.extend(["--data-dir", self.data_dir])
+        if self.profile_dir:
+            cmd.extend(["--profile", self.profile_dir])
         cmd.extend(args)
 
         logger.debug("agent-browser exec: %s", " ".join(cmd))
@@ -134,6 +134,18 @@ class AgentBrowser:
         if text is not None:
             args.append(text)
         return await self._run(*args)
+
+    async def wait(self, condition: str, value: str, timeout_ms: int = 10000) -> dict[str, Any]:
+        """Wait for a condition (url, text, selector, visible, hidden, stable, network)."""
+        return await self._run("wait", "--" + condition, value, "--timeout", str(timeout_ms))
+
+    async def type_text(self, ref: str, text: str, delay: int = 50) -> dict[str, Any]:
+        """Type text character-by-character into element (vs fill which replaces)."""
+        return await self._run("type", ref, text, "--delay", str(delay))
+
+    async def press(self, key: str) -> dict[str, Any]:
+        """Press a keyboard key (Enter, Tab, Escape, etc.)."""
+        return await self._run("press", key)
 
     async def close(self) -> dict[str, Any]:
         """Close the browser and clean up."""

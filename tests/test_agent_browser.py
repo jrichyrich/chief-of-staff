@@ -79,17 +79,27 @@ class TestAgentBrowserRun:
             with pytest.raises(AgentBrowserError, match="not found"):
                 await browser._run("open", "https://example.com")
 
-    async def test_data_dir_passed_as_arg(self):
+    async def test_profile_dir_passed_as_arg(self):
         proc = _make_process(stdout=b'{"ok": true}')
         mock_exec = AsyncMock(return_value=proc)
 
         with patch("asyncio.create_subprocess_exec", mock_exec):
-            browser = AgentBrowser(bin_path="ab", data_dir="/tmp/ab-data")
+            browser = AgentBrowser(bin_path="ab", profile_dir="/tmp/ab-profile")
             await browser._run("snapshot")
 
         call_args = mock_exec.call_args[0]
-        assert "--data-dir" in call_args
-        assert "/tmp/ab-data" in call_args
+        assert "--profile" in call_args
+        assert "/tmp/ab-profile" in call_args
+        assert "--data-dir" not in call_args
+
+    async def test_profile_flag_used_instead_of_data_dir(self):
+        """AgentBrowser should pass --profile, not --data-dir."""
+        ab = AgentBrowser(bin_path="echo", profile_dir="/tmp/test-profile")
+        cmd = [ab.bin_path]
+        if ab.profile_dir:
+            cmd.extend(["--profile", str(ab.profile_dir)])
+        assert "--profile" in cmd
+        assert "--data-dir" not in cmd
 
 
 @pytest.mark.asyncio
@@ -268,3 +278,45 @@ class TestAgentBrowserMethods:
 
         assert result["ok"] is True
         assert "already closed" in result.get("detail", "")
+
+    async def test_wait(self):
+        proc = _make_process(stdout=b'{"ok": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.wait("text", "Welcome", timeout_ms=5000)
+
+        assert result == {"ok": True}
+        args = mock_exec.call_args[0]
+        assert "wait" in args
+        assert "--text" in args
+        assert "Welcome" in args
+        assert "--timeout" in args
+        assert "5000" in args
+
+    async def test_type_text(self):
+        proc = _make_process(stdout=b'{"ok": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.type_text("@e3", "hello", delay=100)
+
+        assert result == {"ok": True}
+        args = mock_exec.call_args[0]
+        assert "type" in args
+        assert "@e3" in args
+        assert "hello" in args
+        assert "--delay" in args
+        assert "100" in args
+
+    async def test_press(self):
+        proc = _make_process(stdout=b'{"ok": true}')
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)) as mock_exec:
+            browser = AgentBrowser()
+            result = await browser.press("Enter")
+
+        assert result == {"ok": True}
+        args = mock_exec.call_args[0]
+        assert "press" in args
+        assert "Enter" in args
