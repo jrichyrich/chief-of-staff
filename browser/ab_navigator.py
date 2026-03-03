@@ -262,18 +262,56 @@ class ABNavigator:
             snap_text = snap.get("text", "")
             target_lower = target.lower()
 
+            # Teams search results have two kinds of "option" elements:
+            # - Filter pills at the top (e.g. "Phil C." [checked], "Messages", "Files")
+            # - Actual results in groups like "Top hits" prefixed with
+            #   "Person", "Group chat", "Channel", "Message from", etc.
+            # We must skip the filter pills and click actual results.
+            _RESULT_PREFIXES = ("person ", "group chat ", "channel ", "message from ")
+            _FILTER_NAMES = {"messages", "files", "images", "group chats", "meetings"}
+
             best_ref = None
+
+            # Pass 1: prefer actual result entries (Person/Group chat/Channel)
             for sref, desc in self._extract_refs_with_text(snap_text):
-                if "option" in desc.lower():
-                    if target_lower in desc.lower():
+                desc_lower = desc.lower()
+                if "option" not in desc_lower:
+                    continue
+                if not any(p in desc_lower for p in _RESULT_PREFIXES):
+                    continue
+                if target_lower in desc_lower:
+                    best_ref = sref
+                    break
+
+            # Pass 2: any matching option, but skip filter pills
+            if best_ref is None:
+                for sref, desc in self._extract_refs_with_text(snap_text):
+                    desc_lower = desc.lower()
+                    if "option" not in desc_lower:
+                        continue
+                    if "[checked]" in desc_lower:
+                        continue
+                    # Skip generic filter option names
+                    name_match = re.search(r'"([^"]+)"', desc)
+                    if name_match and name_match.group(1).lower() in _FILTER_NAMES:
+                        continue
+                    if target_lower in desc_lower:
                         best_ref = sref
                         break
 
+            # Pass 3: first non-filter option as last resort
             if best_ref is None:
                 for sref, desc in self._extract_refs_with_text(snap_text):
-                    if "option" in desc.lower():
-                        best_ref = sref
-                        break
+                    desc_lower = desc.lower()
+                    if "option" not in desc_lower:
+                        continue
+                    if "[checked]" in desc_lower:
+                        continue
+                    name_match = re.search(r'"([^"]+)"', desc)
+                    if name_match and name_match.group(1).lower() in _FILTER_NAMES:
+                        continue
+                    best_ref = sref
+                    break
 
             if best_ref is None:
                 await self._ab.press("Escape")
