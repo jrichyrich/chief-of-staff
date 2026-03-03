@@ -206,16 +206,18 @@ def register(mcp, state):
 
     @mcp.tool()
     @tool_errors("Lifecycle error", expected=_EXPECTED)
-    async def update_delegation(delegation_id: int, status: str = "", notes: str = "") -> str:
-        """Update a delegation's status or add notes.
+    async def update_delegation(delegation_id: int, status: str = "", notes: str = "", priority: str = "", due_date: str = "") -> str:
+        """Update a delegation's status, priority, due date, or add notes.
 
         Args:
             delegation_id: The ID of the delegation to update
             status: New status value (active, completed, cancelled)
             notes: Additional notes
+            priority: New priority (low, medium, high, critical)
+            due_date: New due date in ISO format (YYYY-MM-DD)
         """
         memory_store = state.memory_store
-        return json.dumps(lifecycle_tools.update_delegation(memory_store, delegation_id=delegation_id, status=status, notes=notes))
+        return json.dumps(lifecycle_tools.update_delegation(memory_store, delegation_id=delegation_id, status=status, notes=notes, priority=priority, due_date=due_date))
 
     @mcp.tool()
     @tool_errors("Lifecycle error", expected=_EXPECTED)

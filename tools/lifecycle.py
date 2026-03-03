@@ -159,7 +159,7 @@ def list_delegations(memory_store, *, status: str = "", delegated_to: str = "") 
     return {"results": results}
 
 
-def update_delegation(memory_store, *, delegation_id: int, status: str = "", notes: str = "") -> dict[str, Any]:
+def update_delegation(memory_store, *, delegation_id: int, status: str = "", notes: str = "", priority: str = "", due_date: str = "") -> dict[str, Any]:
     existing = memory_store.get_delegation(delegation_id)
     if not existing:
         return {"error": f"Delegation {delegation_id} not found."}
@@ -170,9 +170,13 @@ def update_delegation(memory_store, *, delegation_id: int, status: str = "", not
     if notes:
         updated_notes = f"{existing.notes}\n{notes}".strip()
         kwargs["notes"] = updated_notes
+    if priority:
+        kwargs["priority"] = priority
+    if due_date:
+        kwargs["due_date"] = due_date
 
     if not kwargs:
-        return {"error": "No fields to update. Provide status or notes."}
+        return {"error": "No fields to update. Provide status, notes, priority, or due_date."}
 
     updated = memory_store.update_delegation(delegation_id, **kwargs)
     return {
