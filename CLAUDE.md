@@ -232,11 +232,23 @@ The `format_brief`, `format_table`, `format_card`, and `format_dashboard` MCP to
 
 When a task involves 3+ independent subtasks that can run in parallel (e.g., multi-source research, OKR analysis, meeting prep, daily briefs, code analysis across multiple files), **proactively create a team of agents**. Do not wait for explicit user instruction to parallelize — default to spinning up teams whenever there is a clear parallelization opportunity.
 
-## Agent Playbook Routing
+## Agent Architecture: Two Paths
 
-When a task matches an agent's domain in an interactive Claude Code session, load the agent config as a **playbook** via `get_agent_as_playbook(name)` instead of calling `dispatch_agents`. This gives you the agent's structured process (system prompt, source attribution rules, output format) while using ALL available MCP tools — including M365, Atlassian, and security-metrics-vacuum connectors that agents cannot access via their internal tool-use loop.
+### Native Subagents (`.claude/agents/*.md`) — Interactive Sessions
 
-**Rule**: In interactive Claude Code sessions, prefer `get_agent_as_playbook` over `dispatch_agents`. The daemon/autonomous paths (iMessage commands, scheduled tasks, event rules) continue using `dispatch_agents` → `BaseExpertAgent`.
+The `.claude/agents/` files are **self-contained subagents**. Each file's markdown body IS its system prompt — instructions are embedded directly, not loaded at runtime. When Claude Code spawns a subagent (via the Agent tool), it uses the `.md` file as the full specification.
+
+**Subagents do NOT call `get_agent_as_playbook` or `dispatch_agents`.** They execute directly with all MCP tools available in the Claude Code session.
+
+### Daemon/Autonomous Path — Headless Execution
+
+`agent_configs/*.yaml` + `BaseExpertAgent` + `dispatch_agents` — used by iMessage command channel, scheduled tasks, event rules, and proactive actions. These run headless without Claude Code.
+
+### Agent Playbook Routing — Main Conversation Only
+
+In the **main Claude Code conversation** (not inside a subagent), `get_agent_as_playbook(name)` is still useful as a routing shortcut — it loads the agent's system prompt from the YAML config when you want to follow a structured process without spawning a subagent. This is optional and not required when spawning `.claude/agents/` subagents.
+
+**Rule**: Spawn `.claude/agents/` subagents for parallel or delegated work. Use `get_agent_as_playbook` in the main conversation for single-session routing. The daemon/autonomous paths continue using `dispatch_agents` → `BaseExpertAgent`.
 
 ### Task Pattern → Agent Routing
 
@@ -253,7 +265,11 @@ When a task matches an agent's domain in an interactive Claude Code session, loa
 | "code review", "review this code" | `code_quality_reviewer` | Codebase (Claude Code native), Jarvis memory + docs |
 | "review project", "project health" | `project_review_board` | Codebase, Jarvis memory + docs |
 
-### How to Use
+### How to Spawn a Subagent
+
+Use the Agent tool with `subagent_type` matching the agent's role. The `.claude/agents/*.md` file provides all instructions — no additional setup needed.
+
+### How to Use Playbook Mode (Main Conversation)
 
 1. Call `get_agent_as_playbook(name)` — returns system prompt, tool guidance with MCP alternatives, agent memory, and output settings
 2. Read the `instructions` field — this is your process guide (the agent's system prompt)
@@ -263,9 +279,9 @@ When a task matches an agent's domain in an interactive Claude Code session, loa
 
 ### When NOT to Use Playbook Mode
 
+- **Spawning subagents**: The `.claude/agents/*.md` files are self-contained — subagents do not need to call `get_agent_as_playbook`
 - **Daemon/autonomous paths**: iMessage command channel, scheduled tasks, event rules, proactive actions — these use `dispatch_agents` → `BaseExpertAgent` since they run headless without Claude Code
 - **Simple MCP tool calls**: If the task only needs 1-2 tool calls, just call the tools directly — no need to load a full playbook
-- **Agent teams**: When spinning up Claude Code agent teams for parallel work, each team member can load its own playbook independently
 
 ## Package Naming Warning
 
