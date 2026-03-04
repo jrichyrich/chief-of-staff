@@ -158,7 +158,12 @@ def register(mcp, state):
         """Get usage statistics for Jarvis MCP tools.
 
         Returns aggregated stats from the invocation log: call counts,
-        success/failure rates, average duration, and top query patterns.
+        success/failure rates, average duration, response size metrics,
+        and top query patterns.
+
+        Response size (bytes) tracks the serialized output of each tool call,
+        showing which tools produce the largest payloads (and thus consume
+        the most tokens when fed back to the LLM).
 
         Args:
             tool_name: Optional — filter to a specific tool for detailed breakdown.

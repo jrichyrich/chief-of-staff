@@ -40,6 +40,7 @@ class MemoryStore:
         self._migrate_facts_pinned()
         self._migrate_agent_memory_namespace()
         self._migrate_scheduled_tasks_delivery()
+        self._migrate_tool_usage_log_response_size()
 
         # --- Thread safety: shared lock for all write operations ---
         self._lock = threading.RLock()
@@ -431,6 +432,14 @@ class MemoryStore:
                 self.conn.commit()
             except sqlite3.OperationalError:
                 pass
+
+    def _migrate_tool_usage_log_response_size(self):
+        """Add response_size_bytes column to tool_usage_log if it doesn't exist."""
+        try:
+            self.conn.execute("ALTER TABLE tool_usage_log ADD COLUMN response_size_bytes INTEGER")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     # --- Connection management ---
 

@@ -70,15 +70,16 @@ class SkillStore:
         success: bool = True,
         duration_ms: int | None = None,
         session_id: str | None = None,
+        response_size_bytes: int | None = None,
     ) -> None:
         """Log a single tool invocation to the temporal log table."""
         now = datetime.now().isoformat()
         with self._lock:
             self.conn.execute(
                 """INSERT INTO tool_usage_log
-                   (tool_name, query_pattern, success, duration_ms, session_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (tool_name, query_pattern, int(success), duration_ms, session_id, now),
+                   (tool_name, query_pattern, success, duration_ms, session_id, response_size_bytes, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (tool_name, query_pattern, int(success), duration_ms, session_id, response_size_bytes, now),
             )
             self.conn.commit()
 
@@ -106,6 +107,7 @@ class SkillStore:
                 "success": bool(row["success"]),
                 "duration_ms": row["duration_ms"],
                 "session_id": row["session_id"],
+                "response_size_bytes": row["response_size_bytes"],
                 "created_at": row["created_at"],
             }
             for row in rows
@@ -120,6 +122,9 @@ class SkillStore:
                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failure_count,
                    AVG(CASE WHEN duration_ms IS NOT NULL THEN duration_ms END) as avg_duration_ms,
+                   AVG(CASE WHEN response_size_bytes IS NOT NULL THEN response_size_bytes END) as avg_response_size_bytes,
+                   MAX(response_size_bytes) as max_response_size_bytes,
+                   SUM(CASE WHEN response_size_bytes IS NOT NULL THEN response_size_bytes ELSE 0 END) as total_response_bytes,
                    MIN(created_at) as first_used,
                    MAX(created_at) as last_used
                FROM tool_usage_log
@@ -133,6 +138,9 @@ class SkillStore:
                 "success_count": row["success_count"],
                 "failure_count": row["failure_count"],
                 "avg_duration_ms": round(row["avg_duration_ms"], 2) if row["avg_duration_ms"] else None,
+                "avg_response_size_bytes": round(row["avg_response_size_bytes"], 1) if row["avg_response_size_bytes"] else None,
+                "max_response_size_bytes": row["max_response_size_bytes"],
+                "total_response_bytes": row["total_response_bytes"],
                 "first_used": row["first_used"],
                 "last_used": row["last_used"],
             }

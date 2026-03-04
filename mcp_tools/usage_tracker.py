@@ -101,8 +101,13 @@ def install_usage_tracker(mcp, state):
             # Execute tool and log individual invocation
             start = time.monotonic()
             success = True
+            response_size_bytes = None
             try:
                 result = await original_call_tool(name, arguments, **kwargs)
+                try:
+                    response_size_bytes = len(str(result).encode("utf-8"))
+                except Exception:
+                    pass
                 return result
             except Exception:
                 success = False
@@ -117,6 +122,7 @@ def install_usage_tracker(mcp, state):
                             query_pattern=pattern,
                             success=success,
                             duration_ms=duration_ms,
+                            response_size_bytes=response_size_bytes,
                         )
                 except Exception:
                     logger.debug("Failed to log invocation for %s", name, exc_info=True)

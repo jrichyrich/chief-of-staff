@@ -174,6 +174,56 @@ class TestUsageTracker:
         assert len(log) == 1
         assert log[0]["success"] is False
 
+    @pytest.mark.asyncio
+    async def test_invocation_log_captures_response_size(self, tracked_mcp, memory_store):
+        """Invocation log should include response_size_bytes."""
+        await tracked_mcp.call_tool("list_locations", {})
+
+        log = memory_store.get_tool_usage_log(tool_name="list_locations")
+        assert len(log) == 1
+        assert log[0]["response_size_bytes"] is not None
+        assert log[0]["response_size_bytes"] > 0
+
+    @pytest.mark.asyncio
+    async def test_response_size_varies_by_tool(self, tracked_mcp, memory_store):
+        """Different tools should produce different response sizes."""
+        await tracked_mcp.call_tool("list_locations", {})
+        await tracked_mcp.call_tool("query_memory", {"query": "test"})
+
+        log_loc = memory_store.get_tool_usage_log(tool_name="list_locations")
+        log_qm = memory_store.get_tool_usage_log(tool_name="query_memory")
+
+        assert log_loc[0]["response_size_bytes"] is not None
+        assert log_qm[0]["response_size_bytes"] is not None
+        # Both should have reasonable sizes (> 0 bytes)
+        assert log_loc[0]["response_size_bytes"] > 0
+        assert log_qm[0]["response_size_bytes"] > 0
+
+    @pytest.mark.asyncio
+    async def test_failed_tool_has_no_response_size(self, tracked_mcp, memory_store):
+        """Failed tool calls should have None for response_size_bytes."""
+        try:
+            await tracked_mcp.call_tool("nonexistent_tool", {})
+        except Exception:
+            pass
+
+        log = memory_store.get_tool_usage_log(tool_name="nonexistent_tool")
+        assert len(log) == 1
+        assert log[0]["response_size_bytes"] is None
+
+    @pytest.mark.asyncio
+    async def test_stats_summary_with_response_size_end_to_end(self, tracked_mcp, memory_store):
+        """Stats summary should aggregate response sizes from live tool calls."""
+        await tracked_mcp.call_tool("list_locations", {})
+        await tracked_mcp.call_tool("list_locations", {})
+
+        stats = memory_store.get_tool_stats_summary()
+        loc = next(s for s in stats if s["tool_name"] == "list_locations")
+        assert loc["avg_response_size_bytes"] is not None
+        assert loc["avg_response_size_bytes"] > 0
+        assert loc["max_response_size_bytes"] > 0
+        assert loc["total_response_bytes"] > 0
+
     def test_install_is_idempotent(self):
         """Calling install_usage_tracker twice should not double-wrap."""
         import mcp_server
@@ -294,6 +344,40 @@ class TestToolUsageLog:
         assert qm["failure_count"] == 1
         assert qm["avg_duration_ms"] == pytest.approx(11.67, abs=0.1)
 
+    def test_log_invocation_with_response_size(self, memory_store):
+        memory_store.log_tool_invocation(
+            tool_name="query_memory",
+            query_pattern="backlog",
+            success=True,
+            duration_ms=42,
+            response_size_bytes=1234,
+        )
+        rows = memory_store.get_tool_usage_log(tool_name="query_memory")
+        assert len(rows) == 1
+        assert rows[0]["response_size_bytes"] == 1234
+
+    def test_get_tool_stats_summary_includes_response_size(self, memory_store):
+        memory_store.log_tool_invocation("query_memory", success=True, duration_ms=10, response_size_bytes=500)
+        memory_store.log_tool_invocation("query_memory", success=True, duration_ms=20, response_size_bytes=1500)
+        memory_store.log_tool_invocation("query_memory", success=True, duration_ms=15, response_size_bytes=1000)
+
+        stats = memory_store.get_tool_stats_summary()
+        qm = next(s for s in stats if s["tool_name"] == "query_memory")
+        assert qm["avg_response_size_bytes"] == pytest.approx(1000.0, abs=0.1)
+        assert qm["max_response_size_bytes"] == 1500
+        assert qm["total_response_bytes"] == 3000
+
+    def test_stats_summary_handles_null_response_size(self, memory_store):
+        # Old entries without response_size_bytes should not break aggregation
+        memory_store.log_tool_invocation("search_mail", success=True, duration_ms=30)
+        memory_store.log_tool_invocation("search_mail", success=True, duration_ms=40, response_size_bytes=800)
+
+        stats = memory_store.get_tool_stats_summary()
+        sm = next(s for s in stats if s["tool_name"] == "search_mail")
+        assert sm["avg_response_size_bytes"] == 800.0  # Only 1 non-null value
+        assert sm["max_response_size_bytes"] == 800
+        assert sm["total_response_bytes"] == 800
+
     def test_get_top_patterns_by_tool(self, memory_store):
         memory_store.log_tool_invocation("query_memory", "backlog")
         memory_store.log_tool_invocation("query_memory", "backlog")
@@ -357,6 +441,21 @@ class TestGetToolStatistics:
         # "backlog" used twice should be first
         assert patterns[0]["query_pattern"] == "backlog"
         assert patterns[0]["count"] == 2
+
+
+    @pytest.mark.asyncio
+    async def test_includes_response_size_in_stats(self, setup_state, memory_store):
+        from mcp_tools.skill_tools import get_tool_statistics
+
+        memory_store.log_tool_invocation("query_memory", "backlog", True, 10, response_size_bytes=500)
+        memory_store.log_tool_invocation("query_memory", "OKR", True, 20, response_size_bytes=1500)
+
+        result = json.loads(await get_tool_statistics())
+        qm = next(t for t in result["tools"] if t["tool_name"] == "query_memory")
+        assert "avg_response_size_bytes" in qm
+        assert qm["avg_response_size_bytes"] == 1000.0
+        assert qm["max_response_size_bytes"] == 1500
+        assert qm["total_response_bytes"] == 2000
 
 
 class TestPatternDetectorWithLog:
