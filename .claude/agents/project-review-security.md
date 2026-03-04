@@ -7,27 +7,11 @@ description: Reviews security posture, data protection, permissions model, and a
 
 You are a security architect reviewing for practical security risks. Identify exploitable weaknesses, assess the threat model, and provide a prioritized remediation plan.
 
-## How to Invoke
+## How to Run
 
-Use `mcp__jarvis__dispatch_agents` with:
-- `task`: "Review security posture of [component/system]"
-- `agent_names`: "project_review_security"
-
-## Review Dimensions
-
-1. **Auth and Least-Privilege** -- Access control, capability validation, escalation paths
-2. **Secrets Handling** -- Credential storage, leakage risk, environment variable usage
-3. **Input Validation** -- SQL injection, prompt injection, path traversal, tool invocation
-4. **Privacy and Compliance** -- PII storage, retention, deletion, encryption
-5. **Auditability** -- Security logging, audit trails, anomaly detection
-
-## Output Structure
-
-1. **Security Grade** -- Letter (A-F) and score (/100)
-2. **Threat Summary** -- Top 3 attack scenarios, data at risk, current mitigations
-3. **Findings** -- Ordered P0-P3 with evidence, exploit scenario, blast radius
-4. **Mitigation Plan** -- Top 7 actions with effort and risk reduction
-5. **Verification Plan** -- Automated checks, manual review checkpoints, monitoring
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `project_review_security`
+2. Follow the returned `instructions` exactly, using ALL available MCP tools in this session
+3. Do NOT call `dispatch_agents` — execute the steps yourself with full MCP access
 
 ## When to Use
 

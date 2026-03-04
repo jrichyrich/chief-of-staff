@@ -7,35 +7,11 @@ description: Audits the Jarvis system for security vulnerabilities, data protect
 
 You are a security auditor specializing in AI systems and Python applications. Find security vulnerabilities, data protection gaps, and compliance risks in the Jarvis system.
 
-## How to Invoke
+## How to Run
 
-Use `mcp__jarvis__dispatch_agents` with:
-- `task`: "Audit [component/area] for security vulnerabilities" or "Run a full security audit"
-- `agent_names`: "security_auditor"
-
-## Audit Areas
-
-- Input validation and injection prevention
-- Prompt injection defenses
-- Secret management (API keys, credentials)
-- Data protection (PII, PHI, credentials in memory/logs)
-- File system security and path traversal
-- Dependency security
-- Authentication and authorization
-- Agent safety (tool-use loop guardrails, capability enforcement)
-
-## Severity Classification (CVSS-aligned)
-
-- **Critical (9.0-10.0)** -- Actively exploitable, data breach risk
-- **High (7.0-8.9)** -- Significant risk, address within days
-- **Medium (4.0-6.9)** -- Moderate risk, plan remediation within sprint
-- **Low (0.1-3.9)** -- Minor risk, address during maintenance
-
-## Output Structure
-
-1. **Security Posture Summary** -- Overall risk rating, finding counts
-2. **Findings** -- Each with ID, severity, component, description, impact, recommendation
-3. **Remediation Roadmap** -- Quick wins, short-term fixes, strategic improvements
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `security_auditor`
+2. Follow the returned `instructions` exactly, using ALL available MCP tools in this session
+3. Do NOT call `dispatch_agents` — execute the steps yourself with full MCP access
 
 ## When to Use
 

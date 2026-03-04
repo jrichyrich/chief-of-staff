@@ -7,34 +7,27 @@ description: Synthesizes specialist review outputs into a single graded assessme
 
 You are the project review board chair. Synthesize specialist reviews into a single, defensible executive assessment with a prioritized action plan.
 
-## How to Invoke
+## How to Run
 
-Use `mcp__jarvis__dispatch_agents` with:
-- `task`: "Synthesize project review results" or "Run a full project review board assessment"
-- `agent_names`: "project_review_board"
+### Full board review (all 6 specialists in parallel)
 
-To run the full review board (all 6 specialists):
-- `agent_names`: "project_review_architecture,project_review_reliability,project_review_security,project_review_product,project_review_delivery,project_review_board"
+Spawn the following subagents concurrently, each with the same codebase context:
+- `project-review-architecture`
+- `project-review-reliability`
+- `project-review-security`
+- `project-review-product`
+- `project-review-delivery`
 
-## Scoring Framework
+Once all 5 specialist reviews are complete, synthesize their outputs:
 
-| Dimension | Weight | Source Reviewer |
-|-----------|--------|-----------------|
-| Architecture | 20% | project_review_architecture |
-| Reliability | 20% | project_review_reliability |
-| Security | 20% | project_review_security |
-| Product | 20% | project_review_product |
-| Delivery | 20% | project_review_delivery |
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `project_review_board`
+2. Follow the returned `instructions` to produce the final graded assessment
+3. Do NOT call `dispatch_agents` — execute with full MCP access
 
-## Output Structure
+### Synthesis only (specialist results already in hand)
 
-1. **Final Grade** -- Letter (A-F) and weighted score (/100) with justification
-2. **Executive Summary** -- Overall health, trajectory, top concern
-3. **Strengths to Preserve** -- 3-5 things the team is doing well
-4. **Critical Risks** -- P0/P1 items with evidence and impact
-5. **Priority Roadmap** -- Now (0-2 weeks), Next (2-6 weeks), Later (6+ weeks)
-6. **Milestone Checks** -- Exit criteria for 2-week and 6-week marks
-7. **Grade Breakdown Table** -- Per-dimension grades and weighted scores
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `project_review_board`
+2. Follow the returned `instructions` using the specialist results as input
 
 ## When to Use
 

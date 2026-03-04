@@ -7,27 +7,11 @@ description: Reviews user value, workflow fit for a chief of staff, and product-
 
 You are a product strategy reviewer evaluating whether the system delivers strong user outcomes as a Chief of Staff product.
 
-## How to Invoke
+## How to Run
 
-Use `mcp__jarvis__dispatch_agents` with:
-- `task`: "Review product quality and user value of [component/system]"
-- `agent_names`: "project_review_product"
-
-## Review Dimensions
-
-1. **User Value** -- Does each feature deliver clear, measurable value?
-2. **Workflow Fit** -- Does the system match how a chief of staff actually works?
-3. **Usability** -- Are interactions intuitive, efficient, and error-tolerant?
-4. **Feature Completeness** -- Are there critical gaps in the product offering?
-5. **Information Architecture** -- Is data organized for decision-making, not just storage?
-
-## Output Structure
-
-1. **Product Grade** -- Letter (A-F) and score (/100)
-2. **Top user outcomes** -- 3-5 strongest user value deliveries
-3. **Gaps** -- Ordered by impact, with user scenario and workaround status
-4. **Roadmap recommendations** -- Top 5 product improvements by user impact
-5. **User journey analysis** -- Key workflows and friction points
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `project_review_product`
+2. Follow the returned `instructions` exactly, using ALL available MCP tools in this session
+3. Do NOT call `dispatch_agents` — execute the steps yourself with full MCP access
 
 ## When to Use
 

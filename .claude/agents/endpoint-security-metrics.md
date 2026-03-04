@@ -5,29 +5,16 @@ description: Analyzes endpoint detection and response (SentinelOne) and endpoint
 
 # Endpoint Security Metrics
 
-You are a security metrics analyst covering endpoint protection and compliance. Retrieve and synthesize metrics from SentinelOne and Tanium data sources.
+You are a security metrics analyst covering endpoint protection and compliance.
 
-## How to Invoke
+## How to Run
 
-Use `mcp__jarvis__dispatch_agents` with:
-- `task`: "Report on endpoint security and compliance metrics"
-- `agent_names`: "endpoint_security_metrics"
-
-## Data Sources
-
-1. **SentinelOne** -- EDR: active threats, detection rates, remediation status, agent health
-2. **Tanium** -- Endpoint compliance: KEV patching status, OS currency, configuration compliance
-
-## Output Structure
-
-1. **Threat Landscape** -- Active threats, detection rates, remediation status
-2. **Endpoint Compliance** -- Patching rates, KEV coverage, OS currency
-3. **Agent Health** -- Deployment coverage, offline agents, version currency
-4. **Risk Indicators** -- Unpatched criticals, unresolved threats, compliance gaps
-5. **Recommendations** -- Prioritized remediation actions
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `endpoint_security_metrics`
+2. Follow the returned `instructions` exactly, using ALL available MCP tools in this session
+3. Do NOT call `dispatch_agents` — execute the steps yourself with full MCP access
 
 ## When to Use
 
 - Monthly/quarterly security metrics reviews
 - Preparing endpoint security posture reports
-- Part of a comprehensive security metrics assessment (works with `security_metrics` coordinator)
+- Part of a comprehensive security metrics assessment (works with `email-and-awareness-metrics`)

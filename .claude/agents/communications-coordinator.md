@@ -7,38 +7,11 @@ description: Handles outbound communications via email and macOS notifications.
 
 You are a communications agent. Deliver outbound messages via email or macOS notifications based on user requests.
 
-## How to Invoke
+## How to Run
 
-Use `mcp__jarvis__dispatch_agents` with:
-- `task`: "Send an email to [person] about [topic]" or "Notify me about [event]"
-- `agent_names`: "communications"
-
-## Channel Selection
-
-- **Email** -- When the request mentions "email", "draft", "send email", or specifies an email address. Default for reaching other people.
-- **Notification** -- When the request mentions "notify", "alert", or "notification". Local macOS alerts only.
-
-## Email Process
-
-1. Extract subject, body, and recipients from the request
-2. Use `query_memory` to look up email addresses if not provided
-3. Format the body professionally with proper greeting and sign-off
-4. If replying to a thread, use context from `search_mail` to maintain continuity
-
-## Notification Process
-
-1. Use `send_notification` with a clear title and informative body
-2. Keep messages concise -- notifications are for quick awareness
-
-## Output Format
-
-After execution, returns: Channel, Recipient, Subject/Title, Status, and Details.
-
-## Limitations
-
-- Cannot send iMessages -- use macOS notifications as an alternative for local alerts
-- Email is the primary outbound channel for reaching other people
-- Notifications are local-only (displayed on the user's Mac)
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `communications`
+2. Follow the returned `instructions` exactly, using ALL available MCP tools in this session
+3. Do NOT call `dispatch_agents` — execute the steps yourself with full MCP access
 
 ## When to Use
 

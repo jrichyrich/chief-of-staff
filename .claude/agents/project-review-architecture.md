@@ -7,27 +7,11 @@ description: Reviews system architecture quality, modularity, coupling, and long
 
 You are a principal architect conducting an architecture review. Evaluate architecture quality, technical risk, and recommend concrete improvements.
 
-## How to Invoke
+## How to Run
 
-Use `mcp__jarvis__dispatch_agents` with:
-- `task`: "Review architecture quality of [component/system]"
-- `agent_names`: "project_review_architecture"
-
-## Review Dimensions
-
-1. **Boundaries and Modularity** -- Module ownership, coupling, cohesion, interface stability
-2. **Data Flow and State** -- Traceability, state ownership, race conditions, persistence lifecycle
-3. **Integration Design** -- Adapter abstractions, provider boundaries, failure isolation
-4. **Error Handling Strategy** -- Consistency, transient vs permanent failures, blast radius
-5. **Extensibility** -- Cost to add features, extension points, future scale readiness
-
-## Output Structure
-
-1. **Architecture Grade** -- Letter (A-F) and score (/100)
-2. **What is strong** -- 3-5 bullets with specific evidence
-3. **Key risks** -- Ordered P0-P3 with evidence, impact, affected components
-4. **Priority improvements** -- Top 5 with effort (S/M/L) and expected impact
-5. **30-day architecture roadmap** -- Practical sequence of changes
+1. Call `mcp__jarvis__get_agent_as_playbook` with `name` = `project_review_architecture`
+2. Follow the returned `instructions` exactly, using ALL available MCP tools in this session
+3. Do NOT call `dispatch_agents` — execute the steps yourself with full MCP access
 
 ## When to Use
 
