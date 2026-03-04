@@ -10,10 +10,10 @@ SESSION_BRAIN_PATH = DATA_DIR / "session_brain.md"
 CHROMA_PERSIST_DIR = DATA_DIR / "chroma"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 MODEL_TIERS = {
     "haiku": "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-4-5-20250929",
+    "sonnet": "claude-sonnet-4-6",
     "opus": "claude-opus-4-6",
 }
 DEFAULT_MODEL_TIER = "sonnet"
