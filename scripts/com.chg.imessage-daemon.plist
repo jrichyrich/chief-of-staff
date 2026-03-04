@@ -8,22 +8,30 @@
     <array>
         <string>/usr/bin/env</string>
         <string>python3</string>
-        <string>__PROJECT_DIR__/scripts/imessage-daemon.py</string>
+        <string>/Users/jasricha/Documents/GitHub/chief_of_staff/scripts/imessage-daemon.py</string>
     </array>
-    <key>KeepAlive</key>
-    <true/>
-    <key>RunAtLoad</key>
-    <true/>
     <key>WorkingDirectory</key>
-    <string>__PROJECT_DIR__</string>
-    <key>StandardOutPath</key>
-    <string>__PROJECT_DIR__/data/imessage-daemon.log</string>
-    <key>StandardErrorPath</key>
-    <string>__PROJECT_DIR__/data/imessage-daemon.log</string>
+    <string>/Users/jasricha</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>IMESSAGE_DAEMON_ENABLED</key>
+        <string>true</string>
+        <key>IMESSAGE_DAEMON_REPLY_HANDLE</key>
+        <string></string>
+        <key>IMESSAGE_DAEMON_MONITORED_CONVERSATION</key>
+        <string></string>
+        <key>ANTHROPIC_API_KEY</key>
+        <string></string>
     </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/jasricha/Library/Logs/Jarvis/imessage-daemon.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/jasricha/Library/Logs/Jarvis/imessage-daemon.err</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
 </dict>
 </plist>

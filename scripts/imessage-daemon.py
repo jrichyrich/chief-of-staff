@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import fcntl
 import logging
 import os
 import signal
 import sys
-import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -86,43 +86,56 @@ def parse_args() -> argparse.Namespace:
 def build_config(args: argparse.Namespace) -> DaemonConfig:
     project_dir = Path(args.project_dir).expanduser().resolve()
     data_dir = Path(args.data_dir).expanduser().resolve() if args.data_dir else project_dir / "data"
-    reader_path = Path(os.getenv("IMESSAGE_READER_PATH", str(project_dir / "scripts" / "imessage-reader"))).expanduser().resolve()
-    monitor_path = Path(os.getenv("INBOX_MONITOR_PATH", str(project_dir / "scripts" / "inbox-monitor.sh"))).expanduser().resolve()
-    state_db = Path(os.getenv("IMESSAGE_DAEMON_STATE_DB", str(data_dir / "imessage-worker.db"))).expanduser().resolve()
-    processed_file = Path(os.getenv("INBOX_MONITOR_PROCESSED_FILE", str(data_dir / "inbox-processed.json"))).expanduser().resolve()
+    state_db = Path(os.getenv("IMESSAGE_DAEMON_STATE_DB", str(data_dir / "imessage-worker.db")))
     return DaemonConfig(
         project_dir=project_dir,
         data_dir=data_dir,
-        reader_path=reader_path,
-        inbox_monitor_path=monitor_path,
         state_db_path=state_db,
-        processed_file=processed_file,
         poll_interval_seconds=max(1, args.poll_interval_seconds),
         bootstrap_lookback_minutes=max(1, args.bootstrap_lookback_minutes),
         max_lookback_minutes=max(5, args.max_lookback_minutes),
         dispatch_batch_size=max(1, args.dispatch_batch_size),
+        monitored_conversation=os.getenv("IMESSAGE_DAEMON_MONITORED_CONVERSATION", ""),
     )
+
+
+def _build_executor_and_reply():
+    """Build IMessageExecutor and reply_fn from environment. Returns (executor, reply_fn)."""
+    reply_handle = os.getenv("IMESSAGE_DAEMON_REPLY_HANDLE", "")
+    executor = None
+    reply_fn = None
+
+    try:
+        import anthropic
+        from chief.imessage_executor import IMessageExecutor
+
+        client = anthropic.AsyncAnthropic()
+        executor = IMessageExecutor(client=client)
+
+        if reply_handle:
+            from apple_messages.messages import MessageStore
+
+            ms = MessageStore()
+            reply_fn = lambda body: ms.send_message(to=reply_handle, body=body, confirm_send=True)
+    except ImportError:
+        logging.getLogger("imessage-daemon").warning("anthropic not available; dispatch disabled")
+
+    return executor, reply_fn
 
 
 def main() -> int:
     args = parse_args()
     cfg = build_config(args)
-    log_path = Path(os.getenv("IMESSAGE_DAEMON_LOG_FILE", str(cfg.data_dir / "imessage-daemon.log"))).expanduser().resolve()
+    log_path = Path(os.getenv("IMESSAGE_DAEMON_LOG_FILE", str(cfg.data_dir / "imessage-daemon.log")))
     configure_logging(log_path, verbose=args.verbose)
 
-    if not cfg.reader_path.exists():
-        logging.getLogger("imessage-daemon").error("Missing iMessage reader binary: %s", cfg.reader_path)
-        return 1
-    if not cfg.inbox_monitor_path.exists():
-        logging.getLogger("imessage-daemon").error("Missing inbox monitor script: %s", cfg.inbox_monitor_path)
-        return 1
-
-    lock = FileLock(Path(os.getenv("IMESSAGE_DAEMON_LOCK_FILE", str(cfg.data_dir / "imessage-daemon.lock"))).expanduser().resolve())
+    lock = FileLock(Path(os.getenv("IMESSAGE_DAEMON_LOCK_FILE", str(cfg.data_dir / "imessage-daemon.lock"))))
     if not lock.acquire():
         logging.getLogger("imessage-daemon").error("Another daemon instance is already running.")
         return 1
 
-    daemon = IMessageDaemon(cfg)
+    executor, reply_fn = _build_executor_and_reply()
+    daemon = IMessageDaemon(cfg, executor=executor, reply_fn=reply_fn)
     should_stop = False
 
     def _handle_signal(_signum: int, _frame: object) -> None:
@@ -134,17 +147,18 @@ def main() -> int:
 
     try:
         if args.once:
-            result = daemon.run_once()
+            result = asyncio.run(daemon.run_once())
             logging.getLogger("imessage-daemon").info("Run once: %s", result)
             return 0
 
         while not should_stop:
             try:
-                result = daemon.run_once()
+                result = asyncio.run(daemon.run_once())
                 if result["ingested"] > 0 or result["dispatched"] > 0:
                     logging.getLogger("imessage-daemon").info("Cycle result: %s", result)
             except Exception:
                 logging.getLogger("imessage-daemon").exception("Daemon cycle crashed")
+            import time
             time.sleep(cfg.poll_interval_seconds)
         logging.getLogger("imessage-daemon").info("Shutdown requested.")
         return 0
