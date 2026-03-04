@@ -1,23 +1,23 @@
 """Local iMessage ingestion and dispatch daemon for Jarvis.
 
-This daemon does not call LLMs directly. It:
-1) polls scripts/imessage-reader for new `jarvis:` messages,
+This daemon:
+1) polls MessageStore for new iMessages,
 2) stores normalized events and queue jobs in SQLite,
-3) hands queued work to scripts/inbox-monitor.sh,
-4) reconciles completion against data/inbox-processed.json.
+3) executes queued instructions via IMessageExecutor (Claude API),
+4) replies via iMessage.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
-import subprocess
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger("imessage-daemon")
 
@@ -68,18 +68,22 @@ def compute_dispatch_lookback_minutes(
     return minutes
 
 
+DISPATCH_TIMEOUT_SECONDS = 120
+
+
 @dataclass(frozen=True)
 class DaemonConfig:
     project_dir: Path
     data_dir: Path
-    reader_path: Path
-    inbox_monitor_path: Path
     state_db_path: Path
-    processed_file: Path
     poll_interval_seconds: int = 5
     bootstrap_lookback_minutes: int = 30
     max_lookback_minutes: int = 1440
     dispatch_batch_size: int = 25
+    chat_db_path: Path | None = None  # defaults to ~/Library/Messages/chat.db
+    profile_db_path: Path | None = None  # defaults to data/imessage-thread-profiles.db
+    monitored_conversation: str = ""  # filter to specific chat_identifier
+    include_from_me: bool = True  # whether to process own messages
 
 
 @dataclass(frozen=True)
@@ -259,39 +263,36 @@ class StateStore:
 
 
 class IMessageDaemon:
-    def __init__(self, config: DaemonConfig):
+    def __init__(
+        self,
+        config: DaemonConfig,
+        message_store: Any | None = None,
+        executor: Any | None = None,
+        reply_fn: Callable[..., Any] | None = None,
+    ):
         self.config = config
         self.store = StateStore(config.state_db_path)
         self.config.data_dir.mkdir(parents=True, exist_ok=True)
+        if message_store is not None:
+            self.message_store = message_store
+        else:
+            from apple_messages.messages import MessageStore
+
+            self.message_store = MessageStore(
+                db_path=config.chat_db_path,
+                profile_db_path=config.profile_db_path
+                or config.data_dir / "imessage-thread-profiles.db",
+            )
+        self.executor = executor
+        self.reply_fn = reply_fn
 
     def close(self) -> None:
         self.store.close()
 
-    def run_once(self) -> dict[str, int]:
+    async def run_once(self) -> dict[str, int]:
         ingested_count = self._ingest_cycle()
-        dispatched_count = self._dispatch_cycle()
+        dispatched_count = await self._dispatch_cycle()
         return {"ingested": ingested_count, "dispatched": dispatched_count}
-
-    def run_forever(self) -> None:
-        logger.info(
-            "Starting iMessage daemon (poll=%ss, db=%s)",
-            self.config.poll_interval_seconds,
-            self.config.state_db_path,
-        )
-        while True:
-            try:
-                result = self.run_once()
-                if result["ingested"] > 0 or result["dispatched"] > 0:
-                    logger.info(
-                        "Cycle complete: ingested=%d dispatched=%d queued=%d failed=%d",
-                        result["ingested"],
-                        result["dispatched"],
-                        self.store.count_jobs_by_status("queued"),
-                        self.store.count_jobs_by_status("failed"),
-                    )
-            except Exception:
-                logger.exception("Daemon cycle failed")
-            time.sleep(self.config.poll_interval_seconds)
 
     def _ingest_cycle(self) -> int:
         now_epoch = int(time.time())
@@ -303,22 +304,15 @@ class IMessageDaemon:
             max_minutes=self.config.max_lookback_minutes,
         )
 
-        cmd = [str(self.config.reader_path), "--minutes", str(lookback)]
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if proc.returncode != 0:
-            stderr = proc.stderr.strip()
-            logger.error("imessage-reader failed (code=%d): %s", proc.returncode, stderr)
-            return 0
-
-        raw = proc.stdout.strip() or "[]"
-        parsed = json.loads(raw)
-        if not isinstance(parsed, list):
-            raise ValueError("imessage-reader output was not a JSON array")
+        raw_messages = self.message_store.get_messages(
+            minutes=lookback,
+            limit=200,
+            include_from_me=self.config.include_from_me,
+            conversation=self.config.monitored_conversation,
+        )
 
         messages: list[IngestedMessage] = []
-        for row in parsed:
-            if not isinstance(row, dict):
-                continue
+        for row in raw_messages:
             guid = str(row.get("guid", "")).strip()
             text = str(row.get("text", "")).strip()
             date_local = str(row.get("date_local", "")).strip()
@@ -340,53 +334,41 @@ class IMessageDaemon:
             self.store.set_watermark_epoch(max_epoch)
         return inserted
 
-    def _dispatch_cycle(self) -> int:
+    async def _dispatch_cycle(self) -> int:
+        """Process queued messages: execute via Claude API and reply via iMessage."""
         queued = self.store.list_queued_jobs(limit=self.config.dispatch_batch_size)
         if not queued:
             return 0
 
-        job_ids = [int(row["id"]) for row in queued]
-        guids = [str(row["message_guid"]) for row in queued]
-        oldest_epoch = min(int(row["timestamp_epoch"]) for row in queued)
-        lookback = compute_dispatch_lookback_minutes(
-            oldest_queued_epoch=oldest_epoch,
-            now_epoch=int(time.time()),
-            max_minutes=self.config.max_lookback_minutes,
-        )
-
-        self.store.mark_jobs_running(job_ids)
-        cmd = [str(self.config.inbox_monitor_path), "--interval", str(lookback)]
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "inbox-monitor failed").strip()
-            for guid in guids:
-                self.store.mark_job_result(guid, success=False, error=err)
-            logger.error("Dispatch failed (code=%d): %s", proc.returncode, err)
-            return 0
-
-        processed_ids = self._load_processed_ids()
         dispatched = 0
-        for guid in guids:
-            if guid in processed_ids:
+        for job in queued:
+            guid = str(job["message_guid"])
+            text = str(job.get("text", "")).strip()
+            self.store.mark_jobs_running([int(job["id"])])
+
+            if not text:
+                self.store.mark_job_result(guid, success=False, error="empty_message_text")
+                continue
+
+            if self.executor is None:
+                self.store.mark_job_result(guid, success=False, error="no_executor_configured")
+                continue
+
+            try:
+                result_text = await asyncio.wait_for(
+                    self.executor.execute(text),
+                    timeout=DISPATCH_TIMEOUT_SECONDS,
+                )
+                # Reply via iMessage
+                if self.reply_fn and result_text:
+                    self.reply_fn(body=result_text)
                 self.store.mark_job_result(guid, success=True)
                 dispatched += 1
-            else:
-                self.store.mark_job_result(
-                    guid,
-                    success=False,
-                    error="guid_not_marked_processed_by_inbox_monitor",
-                )
-        return dispatched
+            except asyncio.TimeoutError:
+                self.store.mark_job_result(guid, success=False, error="execution_timeout")
+                logger.error("Dispatch timeout for guid=%s", guid)
+            except Exception as e:
+                self.store.mark_job_result(guid, success=False, error=str(e))
+                logger.error("Dispatch error for guid=%s: %s", guid, e)
 
-    def _load_processed_ids(self) -> set[str]:
-        if not self.config.processed_file.exists():
-            return set()
-        try:
-            payload = json.loads(self.config.processed_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            logger.warning("Processed file is not valid JSON: %s", self.config.processed_file)
-            return set()
-        values = payload.get("processed_ids", [])
-        if not isinstance(values, list):
-            return set()
-        return {str(v) for v in values}
+        return dispatched
