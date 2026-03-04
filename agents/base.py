@@ -1,6 +1,7 @@
 # agents/base.py
 import inspect
 import json
+import time
 from datetime import date
 from typing import Any, Optional
 
@@ -211,7 +212,28 @@ class BaseExpertAgent(
         }
         if tools:
             kwargs["tools"] = tools
-        return await self.client.messages.create(**kwargs)
+        start = time.monotonic()
+        response = await self.client.messages.create(**kwargs)
+        duration_ms = int((time.monotonic() - start) * 1000)
+
+        # Log API usage — never break the agent on failure
+        try:
+            if self.memory_store is not None:
+                usage = response.usage
+                self.memory_store.log_api_call(
+                    model_id=model_id,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cache_creation_input_tokens=getattr(usage, 'cache_creation_input_tokens', 0) or 0,
+                    cache_read_input_tokens=getattr(usage, 'cache_read_input_tokens', 0) or 0,
+                    duration_ms=duration_ms,
+                    agent_name=self.name,
+                    caller="base_agent",
+                )
+        except Exception:
+            pass  # Never break agent execution
+
+        return response
 
     def _fire_hooks(self, event_type: str, context: dict) -> list:
         """Fire hooks if a hook_registry is available. Error-isolated."""

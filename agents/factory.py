@@ -29,8 +29,9 @@ Respond with ONLY valid JSON (no markdown, no explanation):
 
 
 class AgentFactory:
-    def __init__(self, registry: AgentRegistry):
+    def __init__(self, registry: AgentRegistry, memory_store=None):
         self.registry = registry
+        self.memory_store = memory_store
 
     def create_agent(self, description: str) -> AgentConfig:
         client = anthropic.Anthropic(api_key=app_config.ANTHROPIC_API_KEY)
@@ -40,6 +41,20 @@ class AgentFactory:
             system=AGENT_CREATION_PROMPT,
             messages=[{"role": "user", "content": f"I need an agent for: {description}"}],
         )
+        try:
+            if self.memory_store is not None:
+                usage = response.usage
+                self.memory_store.log_api_call(
+                    model_id=app_config.MODEL_TIERS["haiku"],
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cache_creation_input_tokens=getattr(usage, 'cache_creation_input_tokens', 0) or 0,
+                    cache_read_input_tokens=getattr(usage, 'cache_read_input_tokens', 0) or 0,
+                    agent_name=None,
+                    caller="factory",
+                )
+        except Exception:
+            pass
 
         raw = response.content[0].text
         data = json.loads(raw)

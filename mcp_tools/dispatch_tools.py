@@ -237,6 +237,7 @@ def register(mcp, state):
                     synthesized = await synthesize_results(
                         task=task,
                         dispatches=dispatches,
+                        memory_store=state.memory_store,
                     )
                 except Exception as e:
                     logger.warning("dispatch_agents: synthesis failed: %s", e)

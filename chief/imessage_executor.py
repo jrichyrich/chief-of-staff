@@ -31,11 +31,13 @@ class IMessageExecutor:
         model: str | None = None,
         tools: list[dict] | None = None,
         tool_handlers: dict[str, Any] | None = None,
+        memory_store=None,
     ):
         self.client = client
         self.model = model or MODEL_TIERS.get("sonnet", DEFAULT_MODEL)
         self.tools = tools or []
         self.tool_handlers = tool_handlers or {}
+        self.memory_store = memory_store
 
     async def execute(self, instruction: str) -> str:
         """Send instruction to Claude, run tool-use loop, return text result."""
@@ -52,6 +54,21 @@ class IMessageExecutor:
                 kwargs["tools"] = self.tools
 
             response = await self.client.messages.create(**kwargs)
+
+            try:
+                if self.memory_store is not None:
+                    usage = response.usage
+                    self.memory_store.log_api_call(
+                        model_id=self.model,
+                        input_tokens=usage.input_tokens,
+                        output_tokens=usage.output_tokens,
+                        cache_creation_input_tokens=getattr(usage, 'cache_creation_input_tokens', 0) or 0,
+                        cache_read_input_tokens=getattr(usage, 'cache_read_input_tokens', 0) or 0,
+                        agent_name=None,
+                        caller="imessage",
+                    )
+            except Exception:
+                pass
 
             if response.stop_reason != "tool_use":
                 # Extract text from response

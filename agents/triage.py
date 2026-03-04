@@ -31,6 +31,7 @@ def classify_complexity(
     task_text: str,
     agent_config: AgentConfig,
     client: Optional[anthropic.Anthropic] = None,
+    memory_store=None,
 ) -> str:
     """Classify task complexity using a Haiku pre-call.
 
@@ -52,6 +53,20 @@ def classify_complexity(
             max_tokens=10,
             messages=[{"role": "user", "content": prompt}],
         )
+        try:
+            if memory_store is not None:
+                usage = response.usage
+                memory_store.log_api_call(
+                    model_id=app_config.MODEL_TIERS["haiku"],
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cache_creation_input_tokens=getattr(usage, 'cache_creation_input_tokens', 0) or 0,
+                    cache_read_input_tokens=getattr(usage, 'cache_read_input_tokens', 0) or 0,
+                    agent_name=agent_config.name,
+                    caller="triage",
+                )
+        except Exception:
+            pass
         text = response.content[0].text.strip().lower()
         if text in _VALID_CLASSIFICATIONS:
             return text
@@ -70,6 +85,7 @@ def classify_and_resolve(
     agent_config: AgentConfig,
     task_text: str,
     client: Optional[anthropic.Anthropic] = None,
+    memory_store=None,
 ) -> AgentConfig:
     """Classify task complexity and return a (possibly downgraded) config.
 
@@ -80,7 +96,7 @@ def classify_and_resolve(
     if agent_config.model in _SKIP_TRIAGE_TIERS:
         return agent_config
 
-    classification = classify_complexity(task_text, agent_config, client=client)
+    classification = classify_complexity(task_text, agent_config, client=client, memory_store=memory_store)
 
     if classification == "simple":
         logger.info(

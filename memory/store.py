@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 from memory.agent_memory_store import AgentMemoryStore
+from memory.api_usage_store import ApiUsageStore
 from memory.fact_store import FactStore
 from memory.identity_store import IdentityStore
 from memory.lifecycle_store import LifecycleStore
@@ -51,6 +52,7 @@ class MemoryStore:
         self._skill_store = SkillStore(self.conn, lock=self._lock)
         self._agent_memory_store = AgentMemoryStore(self.conn, lock=self._lock)
         self._identity_store = IdentityStore(self.conn, lock=self._lock)
+        self._api_usage_store = ApiUsageStore(self.conn, lock=self._lock)
 
         # --- Delegate all public methods ---
 
@@ -145,6 +147,11 @@ class MemoryStore:
         self.resolve_sender = self._identity_store.resolve_sender
         self.resolve_handle_to_name = self._identity_store.resolve_handle_to_name
 
+        # ApiUsageStore: API call logging and aggregation
+        self.log_api_call = self._api_usage_store.log_api_call
+        self.get_api_usage_summary = self._api_usage_store.get_api_usage_summary
+        self.get_api_usage_log = self._api_usage_store.get_api_usage_log
+
     # Preserve backward compat for _mmr_rerank (was a @staticmethod on MemoryStore)
     _mmr_rerank = staticmethod(FactStore._mmr_rerank)
 
@@ -177,6 +184,10 @@ class MemoryStore:
     @property
     def identity_store(self) -> IdentityStore:
         return self._identity_store
+
+    @property
+    def api_usage_store(self) -> ApiUsageStore:
+        return self._api_usage_store
 
     # --- Table creation (centralized) ---
 
@@ -355,6 +366,23 @@ class MemoryStore:
             );
 
             CREATE INDEX IF NOT EXISTS idx_identities_canonical_name ON identities(canonical_name);
+
+            CREATE TABLE IF NOT EXISTS agent_api_log (
+                id INTEGER PRIMARY KEY,
+                model_id TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER,
+                agent_name TEXT,
+                caller TEXT NOT NULL DEFAULT 'unknown',
+                session_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_api_log_model ON agent_api_log(model_id);
+            CREATE INDEX IF NOT EXISTS idx_agent_api_log_agent ON agent_api_log(agent_name);
+            CREATE INDEX IF NOT EXISTS idx_agent_api_log_created ON agent_api_log(created_at);
 
             CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
                 key, value, category,

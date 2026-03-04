@@ -24,6 +24,7 @@ async def synthesize_results(
     dispatches: list[dict[str, Any]],
     model: str = "",
     max_tokens: int = 0,
+    memory_store=None,
 ) -> str:
     """Synthesize multiple agent results into a single coherent summary.
 
@@ -68,6 +69,20 @@ async def synthesize_results(
             system=_SYNTHESIS_SYSTEM,
             messages=[{"role": "user", "content": user_content}],
         )
+        try:
+            if memory_store is not None:
+                usage = response.usage
+                memory_store.log_api_call(
+                    model_id=synth_model,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cache_creation_input_tokens=getattr(usage, 'cache_creation_input_tokens', 0) or 0,
+                    cache_read_input_tokens=getattr(usage, 'cache_read_input_tokens', 0) or 0,
+                    agent_name=None,
+                    caller="synthesis",
+                )
+        except Exception:
+            pass
         return response.content[0].text
     except Exception as e:
         logger.warning("Synthesis LLM call failed, returning fallback: %s", e)
