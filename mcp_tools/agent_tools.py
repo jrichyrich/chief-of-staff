@@ -5,7 +5,11 @@ import logging
 import sqlite3
 
 from agents.registry import AgentConfig
-from capabilities.registry import parse_capabilities_csv
+from capabilities.registry import (
+    CAPABILITY_DEFINITIONS,
+    get_mcp_alternatives,
+    parse_capabilities_csv,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +202,109 @@ def register(mcp, state):
             return json.dumps({"error": f"Unexpected error: {e}"})
 
 
+    @mcp.tool()
+    async def get_agent_as_playbook(name: str) -> str:
+        """Load an agent config as a structured playbook for Claude Code execution.
+
+        Returns the agent's system prompt, capability-to-MCP-tool guidance, agent
+        memory, and output settings — formatted as instructions that Claude Code
+        follows directly using all available MCP tools (Jarvis + M365 + Atlassian +
+        security-metrics-vacuum + etc.).
+
+        Use this instead of dispatch_agents when running in interactive Claude Code
+        sessions, where you have access to external MCP connectors that agents
+        cannot access via their internal tool-use loop.
+
+        Args:
+            name: Agent name (e.g. 'meeting_prep', 'daily_briefing')
+        """
+        try:
+            agent_registry = state.agent_registry
+            config = agent_registry.get_agent(name)
+            if not config:
+                return json.dumps({"error": f"Agent '{name}' not found"})
+
+            # Build tool guidance with MCP alternatives for each capability
+            tool_guidance = []
+            for cap in config.capabilities:
+                defn = CAPABILITY_DEFINITIONS.get(cap)
+                if not defn:
+                    continue
+                entry = {
+                    "capability": cap,
+                    "description": defn.description,
+                    "jarvis_tools": list(defn.tool_names),
+                }
+                alt = get_mcp_alternatives(cap)
+                if alt:
+                    entry["mcp_alternatives"] = alt
+                tool_guidance.append(entry)
+
+            # Retrieve agent memory for cross-session context
+            agent_memories = []
+            try:
+                memory_store = state.memory_store
+                memories = memory_store.get_agent_memories(name)
+                agent_memories = [
+                    {
+                        "memory_type": m.memory_type,
+                        "key": m.key,
+                        "value": m.value,
+                        "confidence": m.confidence,
+                    }
+                    for m in memories
+                ]
+            except Exception:
+                logger.debug("Could not load agent memories for %s", name)
+
+            # Retrieve shared namespace memories
+            shared_memories = {}
+            for ns in config.namespaces:
+                try:
+                    memory_store = state.memory_store
+                    ns_memories = memory_store.get_shared_memories(ns)
+                    if ns_memories:
+                        shared_memories[ns] = [
+                            {
+                                "memory_type": m.memory_type,
+                                "key": m.key,
+                                "value": m.value,
+                                "confidence": m.confidence,
+                            }
+                            for m in ns_memories
+                        ]
+                except Exception:
+                    logger.debug("Could not load shared memories for namespace %s", ns)
+
+            result = {
+                "mode": "playbook",
+                "name": config.name,
+                "description": config.description,
+                "instructions": config.system_prompt,
+                "capabilities_needed": config.capabilities,
+                "tool_guidance": tool_guidance,
+                "output_settings": {
+                    "model_tier": config.model,
+                    "temperature": config.temperature,
+                    "max_tokens": config.max_tokens,
+                },
+                "agent_memory": agent_memories,
+                "note": (
+                    "Execute this playbook using ALL available MCP tools. "
+                    "The instructions reference data sources that may require M365, "
+                    "Atlassian, or other external MCP connectors beyond Jarvis tools."
+                ),
+            }
+            if shared_memories:
+                result["shared_memories"] = shared_memories
+
+            return json.dumps(result)
+        except (ValueError, KeyError, sqlite3.OperationalError) as e:
+            return json.dumps({"error": f"Agent error: {e}"})
+        except Exception as e:
+            logger.exception("Unexpected error in get_agent_as_playbook")
+            return json.dumps({"error": f"Unexpected error: {e}"})
+
     # Expose tool functions at module level for testing
     import sys
     module = sys.modules[__name__]
@@ -208,3 +315,4 @@ def register(mcp, state):
     module.clear_agent_memory = clear_agent_memory
     module.store_shared_memory = store_shared_memory
     module.get_shared_memory = get_shared_memory
+    module.get_agent_as_playbook = get_agent_as_playbook

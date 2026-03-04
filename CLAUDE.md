@@ -48,7 +48,7 @@ jarvis-mcp
 | `mcp_tools/state.py` | `ServerState` dataclass, `SessionHealth` tracker, `_retry_on_transient` helper |
 | `mcp_tools/memory_tools.py` | store_fact, delete_fact, query_memory, store_location, list_locations, checkpoint_session, get_session_health |
 | `mcp_tools/document_tools.py` | search_documents, ingest_documents (supports .txt, .md, .py, .json, .yaml, .pdf, .docx) |
-| `mcp_tools/agent_tools.py` | list_agents, get_agent, create_agent, get_agent_memory, clear_agent_memory, store_shared_memory, get_shared_memory |
+| `mcp_tools/agent_tools.py` | list_agents, get_agent, create_agent, get_agent_memory, clear_agent_memory, store_shared_memory, get_shared_memory, get_agent_as_playbook |
 | `mcp_tools/lifecycle_tools.py` | create_decision, search_decisions, update_decision, delete_decision, list_pending_decisions, create_delegation, list_delegations, update_delegation, delete_delegation, check_overdue_delegations, create_alert_rule, list_alert_rules, check_alerts, dismiss_alert |
 | `mcp_tools/calendar_tools.py` | list_calendars, get_calendar_events, create/update/delete_calendar_event, search_calendar_events, find_my_open_slots, find_group_availability |
 | `mcp_tools/reminder_tools.py` | list_reminder_lists, list_reminders, create_reminder, complete_reminder, delete_reminder, search_reminders |
@@ -231,6 +231,41 @@ The `format_brief`, `format_table`, `format_card`, and `format_dashboard` MCP to
 ## Agent Teams
 
 When a task involves 3+ independent subtasks that can run in parallel (e.g., multi-source research, OKR analysis, meeting prep, daily briefs, code analysis across multiple files), **proactively create a team of agents**. Do not wait for explicit user instruction to parallelize — default to spinning up teams whenever there is a clear parallelization opportunity.
+
+## Agent Playbook Routing
+
+When a task matches an agent's domain in an interactive Claude Code session, load the agent config as a **playbook** via `get_agent_as_playbook(name)` instead of calling `dispatch_agents`. This gives you the agent's structured process (system prompt, source attribution rules, output format) while using ALL available MCP tools — including M365, Atlassian, and security-metrics-vacuum connectors that agents cannot access via their internal tool-use loop.
+
+**Rule**: In interactive Claude Code sessions, prefer `get_agent_as_playbook` over `dispatch_agents`. The daemon/autonomous paths (iMessage commands, scheduled tasks, event rules) continue using `dispatch_agents` → `BaseExpertAgent`.
+
+### Task Pattern → Agent Routing
+
+| Task Pattern | Agent | Key External Sources |
+|-------------|-------|---------------------|
+| "daily briefing", "morning brief" | `daily_briefing` | M365 Calendar + Email + Teams, Apple Calendar, iMessage, Jarvis memory |
+| "meeting prep", "talking points for" | `meeting_prep` | M365 Email + Teams, Confluence, Jarvis memory + decisions + delegations |
+| "security metrics", "security posture" | `security_metrics` | security-metrics-vacuum MCP, Jarvis memory + webhooks |
+| "project status", "track project" | `project_manager` | Jira, Confluence, M365 Email, Jarvis delegations + decisions |
+| "draft email", "send message" | `communications` | M365 Email, Jarvis memory for contacts |
+| "incident summary", "postmortem" | `incident_summarizer` | Jira, M365 Teams, Jarvis memory + webhooks |
+| "weekly plan", "priorities this week" | `weekly_planner` | M365 Calendar + Email + Teams, Jarvis delegations + decisions + reminders |
+| "delegation status", "follow up on" | `delegation_tracker` | M365 Email + Teams, Jarvis delegations |
+| "code review", "review this code" | `code_quality_reviewer` | Codebase (Claude Code native), Jarvis memory + docs |
+| "review project", "project health" | `project_review_board` | Codebase, Jarvis memory + docs |
+
+### How to Use
+
+1. Call `get_agent_as_playbook(name)` — returns system prompt, tool guidance with MCP alternatives, agent memory, and output settings
+2. Read the `instructions` field — this is your process guide (the agent's system prompt)
+3. Follow its numbered steps, using ALL available MCP tools (check `tool_guidance` for MCP alternatives to Jarvis tools)
+4. Respect its output format and source attribution rules
+5. After completion, optionally store results via `store_shared_memory` or agent memory for cross-session learning
+
+### When NOT to Use Playbook Mode
+
+- **Daemon/autonomous paths**: iMessage command channel, scheduled tasks, event rules, proactive actions — these use `dispatch_agents` → `BaseExpertAgent` since they run headless without Claude Code
+- **Simple MCP tool calls**: If the task only needs 1-2 tool calls, just call the tools directly — no need to load a full playbook
+- **Agent teams**: When spinning up Claude Code agent teams for parallel work, each team member can load its own playbook independently
 
 ## Package Naming Warning
 

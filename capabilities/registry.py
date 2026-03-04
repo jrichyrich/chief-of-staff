@@ -1096,3 +1096,61 @@ def capability_prompt_lines(include_unimplemented: bool = True) -> list[str]:
         suffix = "" if definition.implemented else " [legacy/no local tools]"
         lines.append(f"{name}: {definition.description}{suffix}")
     return lines
+
+
+# ---------------------------------------------------------------------------
+# MCP Alternative Mapping — for hybrid playbook execution
+# ---------------------------------------------------------------------------
+# Maps Jarvis capability names to external MCP connector tools available in
+# Claude Code / Claude Desktop sessions.  Used by ``get_agent_as_playbook``
+# to tell Claude Code which richer tools to prefer over Jarvis-internal ones.
+
+MCP_ALTERNATIVES: dict[str, dict] = {
+    # --- Microsoft 365 connector alternatives ---
+    "calendar_read": {
+        "primary": "mcp__claude_ai_Microsoft_365__outlook_calendar_search",
+        "also_use": ["mcp__jarvis__get_calendar_events"],
+        "note": "M365 is primary for work calendar; Apple Calendar for personal/iCloud only",
+    },
+    "mail_read": {
+        "primary": "mcp__claude_ai_Microsoft_365__outlook_email_search",
+        "also_use": ["mcp__jarvis__search_mail"],
+        "note": "M365 Outlook is primary for work email; Apple Mail may be incomplete",
+    },
+    "mail_write": {
+        "primary": "mcp__jarvis__send_email",
+        "also_use": ["mcp__jarvis__reply_to_email"],
+        "note": "Use Jarvis send_email for Apple Mail; M365 email send requires Outlook connector",
+    },
+    "scheduling": {
+        "primary": "mcp__claude_ai_Microsoft_365__find_meeting_availability",
+        "also_use": ["mcp__jarvis__find_my_open_slots", "mcp__jarvis__find_group_availability"],
+        "note": "M365 find_meeting_availability for cross-org scheduling; Jarvis for combined Apple+M365 slots",
+    },
+    # --- Atlassian connector alternatives ---
+    "document_search": {
+        "primary": "mcp__claude_ai_Atlassian__searchConfluenceUsingCql",
+        "also_use": ["mcp__jarvis__search_documents"],
+        "note": "Confluence for team docs; Jarvis documents for locally ingested files",
+    },
+    # --- Security metrics vacuum alternatives ---
+    "webhook_read": {
+        "primary": "mcp__jarvis__list_webhook_events",
+        "also_use": [
+            "mcp__security-metrics-vacuum__query_metrics",
+            "mcp__security-metrics-vacuum__generate_snapshot_report",
+        ],
+        "note": "For security agents: prefer security-metrics-vacuum MCP for live data over stored webhooks",
+    },
+    # --- Teams ---
+    "teams_write": {
+        "primary": "mcp__claude_ai_Microsoft_365__chat_message_search",
+        "also_use": ["mcp__jarvis__post_teams_message"],
+        "note": "M365 connector for reading Teams messages; Jarvis browser for posting",
+    },
+}
+
+
+def get_mcp_alternatives(capability_name: str) -> dict | None:
+    """Return MCP connector alternatives for a Jarvis capability, or None."""
+    return MCP_ALTERNATIVES.get(capability_name)
