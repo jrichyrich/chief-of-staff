@@ -84,6 +84,8 @@ class DaemonConfig:
     profile_db_path: Path | None = None  # defaults to data/imessage-thread-profiles.db
     monitored_conversation: str = ""  # filter to specific chat_identifier
     include_from_me: bool = True  # whether to process own messages
+    allowed_senders: tuple[str, ...] = ()  # if non-empty, only process from these senders
+    command_prefix: str = ""  # if set, only process messages starting with this prefix
 
 
 @dataclass(frozen=True)
@@ -261,6 +263,31 @@ class StateStore:
         ).fetchone()
         return int(row["c"]) if row else 0
 
+    def recover_stale_running_jobs(self, max_age_seconds: int = 300, max_attempts: int = 3) -> int:
+        """Reset jobs stuck in 'running' state back to 'queued' for retry.
+
+        Jobs that have exceeded max_attempts are marked as 'failed' instead.
+        Returns the number of jobs recovered.
+        """
+        now = utc_now_iso()
+        # SQLite datetime comparison: jobs running longer than max_age_seconds
+        cursor = self.conn.execute(
+            """
+            UPDATE processing_jobs
+            SET status = CASE WHEN attempts >= ? THEN 'failed' ELSE 'queued' END,
+                last_error = CASE WHEN attempts >= ? THEN 'max_attempts_exceeded' ELSE 'recovered_stale' END,
+                updated_at_utc = ?
+            WHERE status = 'running'
+              AND julianday(?) - julianday(updated_at_utc) > ? / 86400.0
+            """,
+            (max_attempts, max_attempts, now, now, max_age_seconds),
+        )
+        recovered = cursor.rowcount
+        self.conn.commit()
+        if recovered > 0:
+            logger.info("Recovered %d stale running jobs", recovered)
+        return recovered
+
 
 class IMessageDaemon:
     def __init__(
@@ -290,6 +317,7 @@ class IMessageDaemon:
         self.store.close()
 
     async def run_once(self) -> dict[str, int]:
+        self.store.recover_stale_running_jobs()
         ingested_count = self._ingest_cycle()
         dispatched_count = await self._dispatch_cycle()
         return {"ingested": ingested_count, "dispatched": dispatched_count}
@@ -312,11 +340,22 @@ class IMessageDaemon:
         )
 
         messages: list[IngestedMessage] = []
+        allowed = self.config.allowed_senders
+        prefix = self.config.command_prefix
         for row in raw_messages:
             guid = str(row.get("guid", "")).strip()
             text = str(row.get("text", "")).strip()
             date_local = str(row.get("date_local", "")).strip()
             if not guid or not date_local:
+                continue
+            # Sender allowlist filtering
+            if allowed:
+                sender = str(row.get("sender", "")).strip()
+                is_from_me = row.get("is_from_me", False)
+                if not is_from_me and sender not in allowed:
+                    continue
+            # Command prefix filtering
+            if prefix and not text.lower().startswith(prefix.lower()):
                 continue
             ts = parse_local_date_to_epoch(date_local)
             messages.append(
@@ -359,11 +398,15 @@ class IMessageDaemon:
                     self.executor.execute(text),
                     timeout=DISPATCH_TIMEOUT_SECONDS,
                 )
-                # Reply via iMessage
-                if self.reply_fn and result_text:
-                    self.reply_fn(body=result_text)
+                # Mark execution as succeeded regardless of reply outcome
                 self.store.mark_job_result(guid, success=True)
                 dispatched += 1
+                # Reply via iMessage (separate from execution success)
+                if self.reply_fn and result_text:
+                    try:
+                        self.reply_fn(body=result_text)
+                    except Exception as reply_err:
+                        logger.error("Reply failed for guid=%s: %s", guid, reply_err)
             except asyncio.TimeoutError:
                 self.store.mark_job_result(guid, success=False, error="execution_timeout")
                 logger.error("Dispatch timeout for guid=%s", guid)

@@ -133,7 +133,9 @@ def build_imessage_daemon():
     from config import (
         ANTHROPIC_API_KEY,
         DATA_DIR,
+        IMESSAGE_DAEMON_ALLOWED_SENDERS,
         IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES,
+        IMESSAGE_DAEMON_COMMAND_PREFIX,
         IMESSAGE_DAEMON_ENABLED,
         IMESSAGE_DAEMON_MONITORED_CONVERSATION,
         IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS,
@@ -154,13 +156,33 @@ def build_imessage_daemon():
         poll_interval_seconds=IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS,
         bootstrap_lookback_minutes=IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES,
         monitored_conversation=IMESSAGE_DAEMON_MONITORED_CONVERSATION,
+        allowed_senders=IMESSAGE_DAEMON_ALLOWED_SENDERS,
+        command_prefix=IMESSAGE_DAEMON_COMMAND_PREFIX,
     )
 
-    # Build executor with Claude API client
+    # Build executor with Claude API client and tool registry
     import anthropic
 
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    executor = IMessageExecutor(client=client)
+
+    # Load tool schemas and handlers for async execution
+    tools: list = []
+    tool_handlers: dict = {}
+    try:
+        from chief.imessage_tools import build_tool_registry
+        from memory.store import MemoryStore
+        from mcp_tools.state import ServerState
+
+        state = ServerState()
+        state.memory_store = MemoryStore(DATA_DIR / "memory.db")
+        tools, tool_handlers = build_tool_registry(state)
+        logger.info("Loaded %d async-safe tools for iMessage executor", len(tools))
+    except Exception as e:
+        logger.warning("Could not load tool registry: %s — executor will run without tools", e)
+
+    executor = IMessageExecutor(
+        client=client, tools=tools, tool_handlers=tool_handlers
+    )
 
     # Build reply function
     reply_handle = IMESSAGE_DAEMON_REPLY_HANDLE

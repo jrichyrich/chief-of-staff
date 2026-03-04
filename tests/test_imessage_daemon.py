@@ -197,3 +197,183 @@ async def test_run_once_ingest_and_dispatch(tmp_path):
     assert result["ingested"] == 1
     assert result["dispatched"] == 1
     daemon.close()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_timeout_marks_job_failed(tmp_path):
+    """Dispatch timeout should mark job failed with execution_timeout error."""
+    import asyncio as _asyncio
+
+    cfg = _config(tmp_path)
+    daemon = IMessageDaemon(cfg, message_store=MagicMock())
+    daemon.store.ingest_messages([
+        IngestedMessage(
+            guid="timeout-001",
+            text="Slow query",
+            date_local="2026-03-03 10:00:00",
+            timestamp_epoch=1741000000,
+            raw_json="{}",
+        )
+    ])
+
+    async def slow_execute(text):
+        await _asyncio.sleep(999)
+
+    mock_executor = AsyncMock()
+    mock_executor.execute = AsyncMock(side_effect=slow_execute)
+    daemon.executor = mock_executor
+
+    # Patch timeout to be very short for testing
+    import chief.imessage_daemon as daemon_mod
+    original_timeout = daemon_mod.DISPATCH_TIMEOUT_SECONDS
+    daemon_mod.DISPATCH_TIMEOUT_SECONDS = 0.01
+    try:
+        dispatched = await daemon._dispatch_cycle()
+    finally:
+        daemon_mod.DISPATCH_TIMEOUT_SECONDS = original_timeout
+
+    assert dispatched == 0
+    assert daemon.store.count_jobs_by_status("failed") == 1
+    # Verify error message
+    row = daemon.store.conn.execute(
+        "SELECT last_error FROM processing_jobs WHERE message_guid = 'timeout-001'"
+    ).fetchone()
+    assert row["last_error"] == "execution_timeout"
+    daemon.close()
+
+
+@pytest.mark.asyncio
+async def test_reply_fn_failure_does_not_lose_execution(tmp_path):
+    """reply_fn error should not mark a successful execution as failed."""
+    cfg = _config(tmp_path)
+    mock_store = MagicMock()
+    mock_store.get_messages.return_value = [
+        {
+            "guid": "reply-fail-001",
+            "text": "Check calendar",
+            "date_local": "2026-03-03 10:00:00",
+            "is_from_me": True,
+            "sender": "+15551234567",
+            "chat_identifier": "+15551234567",
+        }
+    ]
+
+    mock_executor = AsyncMock()
+    mock_executor.execute = AsyncMock(return_value="You have 2 meetings.")
+
+    def broken_reply(body: str):
+        raise OSError("AppleScript send failed")
+
+    daemon = IMessageDaemon(
+        cfg,
+        message_store=mock_store,
+        executor=mock_executor,
+        reply_fn=broken_reply,
+    )
+
+    result = await daemon.run_once()
+    # Execution succeeded even though reply failed
+    assert result["dispatched"] == 1
+    assert daemon.store.count_jobs_by_status("succeeded") == 1
+    daemon.close()
+
+
+def test_recover_stale_running_jobs(tmp_path):
+    """Stale 'running' jobs should be reset to 'queued'."""
+    cfg = _config(tmp_path)
+    store = StateStore(cfg.state_db_path)
+    store.ingest_messages([
+        IngestedMessage(
+            guid="stale-001",
+            text="Old job",
+            date_local="2026-03-03 10:00:00",
+            timestamp_epoch=1741000000,
+            raw_json="{}",
+        )
+    ])
+    store.mark_jobs_running([1])
+    assert store.count_jobs_by_status("running") == 1
+
+    # Force the updated_at_utc to be old enough
+    store.conn.execute(
+        "UPDATE processing_jobs SET updated_at_utc = datetime('now', '-10 minutes')"
+    )
+    store.conn.commit()
+
+    recovered = store.recover_stale_running_jobs(max_age_seconds=60)
+    assert recovered == 1
+    assert store.count_jobs_by_status("queued") == 1
+    assert store.count_jobs_by_status("running") == 0
+    store.close()
+
+
+def test_sender_allowlist_filters_messages(tmp_path):
+    """Messages from non-allowed senders should be filtered out."""
+    cfg = DaemonConfig(
+        project_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        state_db_path=tmp_path / "data" / "test.db",
+        allowed_senders=("+15551234567",),
+    )
+    (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+
+    mock_store = MagicMock()
+    mock_store.get_messages.return_value = [
+        {
+            "guid": "allowed-001",
+            "text": "From allowed sender",
+            "date_local": "2026-03-03 10:00:00",
+            "is_from_me": False,
+            "sender": "+15551234567",
+            "chat_identifier": "+15551234567",
+        },
+        {
+            "guid": "blocked-001",
+            "text": "From unknown sender",
+            "date_local": "2026-03-03 10:01:00",
+            "is_from_me": False,
+            "sender": "+19999999999",
+            "chat_identifier": "+19999999999",
+        },
+    ]
+
+    daemon = IMessageDaemon(cfg, message_store=mock_store)
+    count = daemon._ingest_cycle()
+    assert count == 1  # Only the allowed sender's message
+    daemon.close()
+
+
+def test_command_prefix_filters_messages(tmp_path):
+    """Messages without the command prefix should be filtered out."""
+    cfg = DaemonConfig(
+        project_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        state_db_path=tmp_path / "data" / "test.db",
+        command_prefix="jarvis",
+    )
+    (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+
+    mock_store = MagicMock()
+    mock_store.get_messages.return_value = [
+        {
+            "guid": "prefixed-001",
+            "text": "Jarvis, check my calendar",
+            "date_local": "2026-03-03 10:00:00",
+            "is_from_me": True,
+            "sender": "+15551234567",
+            "chat_identifier": "+15551234567",
+        },
+        {
+            "guid": "nopfx-001",
+            "text": "Hey, what's up?",
+            "date_local": "2026-03-03 10:01:00",
+            "is_from_me": True,
+            "sender": "+15551234567",
+            "chat_identifier": "+15551234567",
+        },
+    ]
+
+    daemon = IMessageDaemon(cfg, message_store=mock_store)
+    count = daemon._ingest_cycle()
+    assert count == 1  # Only the "Jarvis" prefixed message
+    daemon.close()

@@ -104,21 +104,43 @@ def _build_executor_and_reply():
     reply_handle = os.getenv("IMESSAGE_DAEMON_REPLY_HANDLE", "")
     executor = None
     reply_fn = None
+    log = logging.getLogger("imessage-daemon")
 
     try:
         import anthropic
         from chief.imessage_executor import IMessageExecutor
 
         client = anthropic.AsyncAnthropic()
-        executor = IMessageExecutor(client=client)
+
+        # Load tool registry for async-safe execution
+        tools: list = []
+        tool_handlers: dict = {}
+        try:
+            from chief.imessage_tools import build_tool_registry
+            from memory.store import MemoryStore
+            from mcp_tools.state import ServerState
+
+            data_dir = Path(os.getenv("JARVIS_DATA_DIR", str(PROJECT_ROOT / "data")))
+            state = ServerState()
+            state.memory_store = MemoryStore(data_dir / "memory.db")
+            tools, tool_handlers = build_tool_registry(state)
+            log.info("Loaded %d async-safe tools", len(tools))
+        except Exception as e:
+            log.warning("Could not load tool registry: %s", e)
+
+        executor = IMessageExecutor(
+            client=client, tools=tools, tool_handlers=tool_handlers
+        )
 
         if reply_handle:
-            from apple_messages.messages import MessageStore
+            from apple_messages.messages import MessageStore as MsgStore
 
-            ms = MessageStore()
-            reply_fn = lambda body: ms.send_message(to=reply_handle, body=body, confirm_send=True)
+            ms = MsgStore()
+            reply_fn = lambda body: ms.send_message(  # noqa: E731
+                to=reply_handle, body=body, confirm_send=True
+            )
     except ImportError:
-        logging.getLogger("imessage-daemon").warning("anthropic not available; dispatch disabled")
+        log.warning("anthropic not available; dispatch disabled")
 
     return executor, reply_fn
 

@@ -76,7 +76,7 @@ class IMessageExecutor:
                             tool_results.append({
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
-                                "content": f"Error: {e}",
+                                "content": "Tool execution failed. Try a different approach.",
                                 "is_error": True,
                             })
                     else:
