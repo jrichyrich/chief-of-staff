@@ -24,13 +24,21 @@ logger = logging.getLogger("jarvis-daemon")
 class JarvisDaemon:
     """Persistent daemon that wraps SchedulerEngine in an async tick loop."""
 
-    def __init__(self, memory_store, tick_interval: float = 60, agent_registry=None, document_store=None):
+    def __init__(
+        self,
+        memory_store,
+        tick_interval: float = 60,
+        agent_registry=None,
+        document_store=None,
+        imessage_daemon=None,
+    ):
         """
         Args:
             memory_store: MemoryStore instance for SchedulerEngine.
             tick_interval: Seconds between evaluation ticks (default 60).
             agent_registry: Optional AgentRegistry for agent-based handlers.
             document_store: Optional DocumentStore for document-aware handlers.
+            imessage_daemon: Optional IMessageDaemon for iMessage command polling.
         """
         from scheduler.engine import SchedulerEngine
 
@@ -38,6 +46,7 @@ class JarvisDaemon:
         self.tick_interval = tick_interval
         self._shutdown = False
         self._sleep_task: Optional[asyncio.Task] = None
+        self.imessage_daemon = imessage_daemon
 
     def shutdown(self):
         """Request graceful shutdown after the current tick completes."""
@@ -65,6 +74,15 @@ class JarvisDaemon:
                 )
         except Exception as e:
             logger.error("Tick failed: %s", e)
+
+        # iMessage polling
+        if self.imessage_daemon is not None:
+            try:
+                imsg_result = await self.imessage_daemon.run_once()
+                if imsg_result.get("ingested", 0) > 0 or imsg_result.get("dispatched", 0) > 0:
+                    logger.info("iMessage poll: %s", imsg_result)
+            except Exception as e:
+                logger.error("iMessage poll failed: %s", e)
 
         # Proactive action pass — act on high-priority suggestions autonomously
         try:
@@ -110,6 +128,56 @@ class JarvisDaemon:
         logger.info("Daemon shutting down gracefully")
 
 
+def build_imessage_daemon():
+    """Build IMessageDaemon from config if enabled, else return None."""
+    from config import (
+        ANTHROPIC_API_KEY,
+        DATA_DIR,
+        IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES,
+        IMESSAGE_DAEMON_ENABLED,
+        IMESSAGE_DAEMON_MONITORED_CONVERSATION,
+        IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS,
+        IMESSAGE_DAEMON_REPLY_HANDLE,
+        IMESSAGE_WORKER_DB_PATH,
+    )
+
+    if not IMESSAGE_DAEMON_ENABLED:
+        return None
+
+    from chief.imessage_daemon import DaemonConfig, IMessageDaemon
+    from chief.imessage_executor import IMessageExecutor
+
+    cfg = DaemonConfig(
+        project_dir=Path(__file__).resolve().parents[1],
+        data_dir=DATA_DIR,
+        state_db_path=IMESSAGE_WORKER_DB_PATH,
+        poll_interval_seconds=IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS,
+        bootstrap_lookback_minutes=IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES,
+        monitored_conversation=IMESSAGE_DAEMON_MONITORED_CONVERSATION,
+    )
+
+    # Build executor with Claude API client
+    import anthropic
+
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    executor = IMessageExecutor(client=client)
+
+    # Build reply function
+    reply_handle = IMESSAGE_DAEMON_REPLY_HANDLE
+    reply_fn = None
+    if reply_handle:
+        from apple_messages.messages import MessageStore
+
+        msg_store = MessageStore()
+
+        def _reply(body: str) -> dict:
+            return msg_store.send_message(to=reply_handle, body=body, confirm_send=True)
+
+        reply_fn = _reply
+
+    return IMessageDaemon(cfg, executor=executor, reply_fn=reply_fn)
+
+
 # --- Standalone Entry Point ---
 
 if __name__ == "__main__":
@@ -131,9 +199,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     store = MemoryStore(MEMORY_DB_PATH)
+    imessage = build_imessage_daemon()
     daemon = JarvisDaemon(
         memory_store=store,
         tick_interval=DAEMON_TICK_INTERVAL_SECONDS,
+        imessage_daemon=imessage,
     )
 
     try:

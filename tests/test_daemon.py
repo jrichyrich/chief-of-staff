@@ -3,7 +3,7 @@
 import asyncio
 import signal
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -159,6 +159,87 @@ class TestJarvisDaemonSignals:
             loop.close()
 
 
+class TestIMessageIntegration:
+    def test_imessage_daemon_default_none(self):
+        """imessage_daemon defaults to None."""
+        daemon = JarvisDaemon(memory_store=MagicMock())
+        assert daemon.imessage_daemon is None
+
+    def test_imessage_daemon_stored(self):
+        """imessage_daemon is stored when provided."""
+        mock_imsg = MagicMock()
+        daemon = JarvisDaemon(memory_store=MagicMock(), imessage_daemon=mock_imsg)
+        assert daemon.imessage_daemon is mock_imsg
+
+    @pytest.mark.asyncio
+    async def test_tick_runs_imessage_polling(self):
+        """Daemon tick should run iMessage polling when enabled."""
+        store = MagicMock()
+        store.get_due_tasks.return_value = []
+        daemon = JarvisDaemon(memory_store=store)
+
+        mock_imessage_daemon = AsyncMock()
+        mock_imessage_daemon.run_once = AsyncMock(return_value={"ingested": 2, "dispatched": 1})
+        daemon.imessage_daemon = mock_imessage_daemon
+
+        await daemon._tick()
+        mock_imessage_daemon.run_once.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_tick_skips_imessage_when_none(self):
+        """Tick should not fail when imessage_daemon is None."""
+        store = MagicMock()
+        store.get_due_tasks.return_value = []
+        daemon = JarvisDaemon(memory_store=store)
+        # No error should occur
+        results = await daemon._tick()
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_tick_catches_imessage_errors(self):
+        """iMessage poll errors should not crash the daemon."""
+        store = MagicMock()
+        store.get_due_tasks.return_value = []
+        daemon = JarvisDaemon(memory_store=store)
+
+        mock_imessage_daemon = AsyncMock()
+        mock_imessage_daemon.run_once = AsyncMock(side_effect=RuntimeError("chat.db locked"))
+        daemon.imessage_daemon = mock_imessage_daemon
+
+        # Should not raise
+        results = await daemon._tick()
+        assert results == []
+
+
+class TestBuildImessageDaemon:
+    def test_returns_none_when_disabled(self):
+        """build_imessage_daemon returns None when disabled."""
+        from scheduler.daemon import build_imessage_daemon
+
+        with patch("config.IMESSAGE_DAEMON_ENABLED", False):
+            result = build_imessage_daemon()
+        assert result is None
+
+    def test_returns_daemon_when_enabled(self, tmp_path):
+        """build_imessage_daemon creates daemon when enabled."""
+        from scheduler.daemon import build_imessage_daemon
+
+        with patch("config.IMESSAGE_DAEMON_ENABLED", True), \
+             patch("config.IMESSAGE_WORKER_DB_PATH", tmp_path / "worker.db"), \
+             patch("config.IMESSAGE_DAEMON_REPLY_HANDLE", ""), \
+             patch("config.DATA_DIR", tmp_path), \
+             patch("config.IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS", 60), \
+             patch("config.IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES", 30), \
+             patch("config.IMESSAGE_DAEMON_MONITORED_CONVERSATION", ""), \
+             patch("config.ANTHROPIC_API_KEY", "test-key"):
+            daemon = build_imessage_daemon()
+
+        assert daemon is not None
+        assert daemon.executor is not None
+        # No reply handle → no reply_fn
+        assert daemon.reply_fn is None
+
+
 class TestDaemonConfig:
     def test_tick_interval_from_config(self):
         """DAEMON_TICK_INTERVAL_SECONDS config is importable."""
@@ -170,3 +251,17 @@ class TestDaemonConfig:
         """DAEMON_LOG_FILE config is importable."""
         from config import DAEMON_LOG_FILE
         assert str(DAEMON_LOG_FILE).endswith("jarvis-daemon.log")
+
+    def test_imessage_config_constants(self):
+        """iMessage config constants are importable."""
+        from config import (
+            IMESSAGE_DAEMON_ENABLED,
+            IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS,
+            IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES,
+            IMESSAGE_DAEMON_MONITORED_CONVERSATION,
+            IMESSAGE_DAEMON_REPLY_HANDLE,
+            IMESSAGE_WORKER_DB_PATH,
+        )
+        assert isinstance(IMESSAGE_DAEMON_ENABLED, bool)
+        assert isinstance(IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS, int)
+        assert isinstance(IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES, int)

@@ -153,3 +153,11 @@ AGENT_BROWSER_HEADED = os.environ.get("AGENT_BROWSER_HEADED", "").lower() in ("1
 
 # Teams poster backend: "agent-browser" (default, accessibility-tree-based) or "playwright" (CSS-selector-based)
 TEAMS_POSTER_BACKEND = os.environ.get("TEAMS_POSTER_BACKEND", "agent-browser")
+
+# iMessage daemon settings
+IMESSAGE_DAEMON_ENABLED = os.environ.get("IMESSAGE_DAEMON_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS = int(os.environ.get("IMESSAGE_DAEMON_POLL_INTERVAL_SECONDS", "60"))
+IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES = int(os.environ.get("IMESSAGE_DAEMON_BOOTSTRAP_LOOKBACK_MINUTES", "30"))
+IMESSAGE_DAEMON_MONITORED_CONVERSATION = os.environ.get("IMESSAGE_DAEMON_MONITORED_CONVERSATION", "")
+IMESSAGE_DAEMON_REPLY_HANDLE = os.environ.get("IMESSAGE_DAEMON_REPLY_HANDLE", "")
+IMESSAGE_WORKER_DB_PATH = DATA_DIR / "imessage-worker.db"
