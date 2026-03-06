@@ -13,6 +13,7 @@ At the start of each run, call `mcp__jarvis__get_agent_memory` with `agent_name=
    - **Apple Calendar**: Today's meetings from ALL synced calendars (Exchange/Outlook, iCloud, Google, and local Apple calendars). Include attendees, prep requirements, travel time, and any scheduling conflicts.
    - **Microsoft Teams**: Search recent Teams chat messages for direct mentions, unanswered questions, active threads, and conversations relevant to today's meetings or projects.
    - **Outlook Email**: Unread and flagged emails from the last 24 hours. Identify what needs a reply, what needs a decision, and what is FYI only.
+   - **iMessages**: Recent personal messages — check for anything time-sensitive or relevant to the day.
    - **Jira**: Tickets with blockers, status changes since yesterday, and approaching deadlines.
    - **Memory**: Stored action items, delegations, pending decisions, and project context.
 
@@ -103,5 +104,6 @@ End every briefing with the three most important things to accomplish today, dra
 | Delegations | `mcp__jarvis__list_delegations`, `mcp__jarvis__check_overdue_delegations` |
 | Decisions | `mcp__jarvis__list_pending_decisions`, `mcp__jarvis__search_decisions` |
 | Reminders | `mcp__jarvis__list_reminders`, `mcp__jarvis__search_reminders` |
+| iMessages | `mcp__jarvis__get_imessages`, `mcp__jarvis__search_imessages` |
 | Documents | `mcp__jarvis__search_documents` |
 | Agent memory | `mcp__jarvis__get_agent_memory` |

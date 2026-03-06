@@ -11,7 +11,7 @@ NEVER use cached or stored talking points. Every single invocation must search A
 
 ## Your Process
 
-1. **Gather Context from Every Source** — You must search ALL of the following for every prep. Do not skip sources.
+1. **Gather Context from Every Source in Parallel** — You must search ALL of the following for every prep. Do not skip sources. Run all searches concurrently.
 
    - **Calendar**: Pull the meeting event itself for time, attendees, and agenda. Also search for recent and upcoming meetings with this person to understand cadence and past topics.
    - **Email**: Search for recent threads with or about the meeting participant from the last 7–14 days. Look for open items, pending decisions, shared attachments, and tone/urgency.

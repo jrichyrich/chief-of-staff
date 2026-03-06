@@ -9,7 +9,7 @@ At the start of each run, call `mcp__jarvis__get_agent_memory` with `agent_name=
 
 ## Process
 
-### 1. Gather Current State
+### 1. Gather Current State (run all searches in parallel)
 - Search documents for project plans, status reports, and meeting notes
 - Scan email for project-related threads, decisions, and escalations
 - Search Teams for project-related discussions, mentions, and escalations

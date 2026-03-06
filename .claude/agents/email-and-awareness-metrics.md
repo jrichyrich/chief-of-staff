@@ -12,7 +12,7 @@ Metrics are collected by external processes (security_metrics_vacuum, webhooks, 
 - **Webhooks** — Raw event payloads from Mimecast and KnowBe4
 - **Documents** — Security reports, awareness policies, prior analysis
 
-You do NOT collect data yourself. You analyze and report on what has already been collected.
+You primarily analyze stored data, but can also collect fresh metrics via the security-metrics-vacuum MCP tools when stored data is stale.
 
 ## Data Retrieval Strategy
 
