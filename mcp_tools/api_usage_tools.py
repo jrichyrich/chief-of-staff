@@ -3,6 +3,7 @@
 import json
 import logging
 
+from .decorators import tool_errors
 from .state import _retry_on_transient
 
 logger = logging.getLogger("jarvis-mcp")
@@ -12,6 +13,7 @@ def register(mcp, state):
     """Register API usage query tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("API usage error")
     async def get_api_usage_summary(
         since: str = "", agent_name: str = "", model: str = ""
     ) -> str:
@@ -49,6 +51,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to get API usage summary: {e}"})
 
     @mcp.tool()
+    @tool_errors("API usage error")
     async def get_api_usage_log(
         since: str = "",
         agent_name: str = "",

@@ -195,7 +195,8 @@ def register(mcp, state):
             kwargs["target_provider"] = target_provider
         if provider_preference and provider_preference != "auto":
             kwargs["provider_preference"] = provider_preference
-        result = calendar_store.update_event(
+        result = _retry_on_transient(
+            calendar_store.update_event,
             event_uid,
             calendar_name=calendar_name or None,
             **kwargs,
@@ -224,7 +225,7 @@ def register(mcp, state):
             kwargs["target_provider"] = target_provider
         if provider_preference and provider_preference != "auto":
             kwargs["provider_preference"] = provider_preference
-        result = calendar_store.delete_event(event_uid, **kwargs)
+        result = _retry_on_transient(calendar_store.delete_event, event_uid, **kwargs)
         return json.dumps(result)
 
     @mcp.tool()
@@ -256,7 +257,7 @@ def register(mcp, state):
             kwargs["provider_preference"] = provider_preference
         if source_filter:
             kwargs["source_filter"] = source_filter
-        events = calendar_store.search_events(query, start_dt, end_dt, **kwargs)
+        events = _retry_on_transient(calendar_store.search_events, query, start_dt, end_dt, **kwargs)
         return json.dumps({"results": events})
 
     @mcp.tool()

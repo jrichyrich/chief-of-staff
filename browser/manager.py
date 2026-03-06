@@ -166,16 +166,28 @@ class TeamsBrowserManager:
     def close(self) -> dict:
         """Stop the Chromium process."""
         state = self._load_state()
-        if state and "pid" in state:
+        pid = state.get("pid") if state else None
+        if pid is not None:
             try:
-                os.kill(state["pid"], signal.SIGTERM)
-                logger.info("Sent SIGTERM to pid %d", state["pid"])
+                os.kill(pid, signal.SIGTERM)
+                logger.info("Sent SIGTERM to pid %d", pid)
             except ProcessLookupError:
-                pass
+                pid = None  # Already gone
         self._clear_state()
         # Brief wait for process to exit after SIGTERM
         for _ in range(6):
             if not self.is_alive():
                 return {"status": "closed"}
             time.sleep(0.5)
-        return {"status": "error", "error": "Browser still running after SIGTERM"}
+        # Escalate to SIGKILL if SIGTERM was insufficient
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                logger.warning("Escalated to SIGKILL for pid %d", pid)
+            except ProcessLookupError:
+                return {"status": "closed"}
+            for _ in range(4):
+                if not self.is_alive():
+                    return {"status": "closed"}
+                time.sleep(0.5)
+        return {"status": "error", "error": "Browser still running after SIGKILL"}

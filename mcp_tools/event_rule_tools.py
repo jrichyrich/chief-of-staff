@@ -5,17 +5,23 @@ Manages event rules that link webhook events to expert agent activation.
 
 import json
 import logging
+import sqlite3
+from typing import Optional
 
 from memory.models import WebhookStatus
+from .decorators import tool_errors
 from .state import _retry_on_transient
 
 logger = logging.getLogger("jarvis-mcp")
+
+_EXPECTED = (ValueError, KeyError, sqlite3.OperationalError)
 
 
 def register(mcp, state):
     """Register event rule tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("Event rule error", expected=_EXPECTED)
     async def create_event_rule(
         name: str,
         event_source: str,
@@ -67,6 +73,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    @tool_errors("Event rule error", expected=_EXPECTED)
     async def update_event_rule(
         rule_id: int,
         name: str = "",
@@ -77,7 +84,7 @@ def register(mcp, state):
         agent_input_template: str = "",
         delivery_channel: str = "",
         delivery_config: str = "",
-        enabled: bool = True,
+        enabled: Optional[bool] = None,
         priority: int = -1,
     ) -> str:
         """Update an existing event rule.
@@ -92,7 +99,7 @@ def register(mcp, state):
             agent_input_template: New input template
             delivery_channel: New delivery channel
             delivery_config: New delivery config (JSON string)
-            enabled: Whether the rule is active
+            enabled: Whether the rule is active (omit to leave unchanged)
             priority: New priority value (-1 means no change)
         """
         memory_store = state.memory_store
@@ -113,22 +120,20 @@ def register(mcp, state):
             kwargs["delivery_channel"] = delivery_channel
         if delivery_config:
             kwargs["delivery_config"] = delivery_config
-        # enabled is always passed since it's a bool with a default
-        kwargs["enabled"] = enabled
+        if enabled is not None:
+            kwargs["enabled"] = enabled
         if priority >= 0:
             kwargs["priority"] = priority
 
-        try:
-            result = _retry_on_transient(
-                memory_store.update_event_rule, rule_id, **kwargs
-            )
-            if result is None:
-                return json.dumps({"error": f"Event rule {rule_id} not found"})
-            return json.dumps(result)
-        except Exception as e:
-            return json.dumps({"error": str(e)})
+        result = _retry_on_transient(
+            memory_store.update_event_rule, rule_id, **kwargs
+        )
+        if result is None:
+            return json.dumps({"error": f"Event rule {rule_id} not found"})
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Event rule error", expected=_EXPECTED)
     async def delete_event_rule(rule_id: int) -> str:
         """Delete an event rule by ID.
 
@@ -140,6 +145,7 @@ def register(mcp, state):
         return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Event rule error", expected=_EXPECTED)
     async def list_event_rules(enabled_only: bool = True) -> str:
         """List event rules.
 
@@ -153,6 +159,7 @@ def register(mcp, state):
         return json.dumps({"rules": rules, "count": len(rules)})
 
     @mcp.tool()
+    @tool_errors("Event rule error", expected=_EXPECTED)
     async def dispatch_webhook_event(event_id: int) -> str:
         """Manually trigger agent dispatch for a specific webhook event.
 

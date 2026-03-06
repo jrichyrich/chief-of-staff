@@ -35,7 +35,7 @@ class DocumentStore:
         metadatas: list[dict],
         ids: list[str],
     ) -> None:
-        self.collection.add(documents=texts, metadatas=metadatas, ids=ids)
+        self.collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
 
     def search(self, query: str, top_k: int = 5) -> list[dict]:
         if self.collection.count() == 0:

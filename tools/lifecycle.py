@@ -12,9 +12,17 @@ from memory.models import (
 )
 
 
+def _validate_enum(value: str, enum_cls, field_name: str) -> None:
+    """Validate that value is a valid member of the given StrEnum."""
+    valid = [e.value for e in enum_cls]
+    if value not in valid:
+        raise ValueError(f"Invalid {field_name} '{value}'. Must be one of: {', '.join(valid)}")
+
+
 def create_decision(memory_store, *, title: str, description: str = "", context: str = "",
                     decided_by: str = "", owner: str = "", status: str = DecisionStatus.pending_execution,
                     follow_up_date: str = "", tags: str = "", source: str = "") -> dict[str, Any]:
+    _validate_enum(status, DecisionStatus, "status")
     decision = Decision(
         title=title,
         description=description,
@@ -117,6 +125,7 @@ def delete_decision(memory_store, *, decision_id: int) -> dict[str, Any]:
 
 def create_delegation(memory_store, *, task: str, delegated_to: str, description: str = "",
                       due_date: str = "", priority: str = DelegationPriority.medium, source: str = "") -> dict[str, Any]:
+    _validate_enum(priority, DelegationPriority, "priority")
     delegation = Delegation(
         task=task,
         delegated_to=delegated_to,
@@ -270,17 +279,22 @@ def _evaluate_rule(memory_store, rule) -> dict[str, Any]:
     if alert_type == "overdue_delegation":
         min_days = int(parsed.get("days_overdue", 1))
         today = date.today()
-        matches = [
-            {
-                "id": d.id,
-                "task": d.task,
-                "delegated_to": d.delegated_to,
-                "due_date": d.due_date,
-                "days_overdue": (today - date.fromisoformat(d.due_date)).days,
-            }
-            for d in memory_store.list_overdue_delegations()
-            if d.due_date and (today - date.fromisoformat(d.due_date)).days >= min_days
-        ]
+        matches = []
+        for d in memory_store.list_overdue_delegations():
+            if not d.due_date:
+                continue
+            try:
+                days_overdue = (today - date.fromisoformat(d.due_date)).days
+            except ValueError:
+                continue
+            if days_overdue >= min_days:
+                matches.append({
+                    "id": d.id,
+                    "task": d.task,
+                    "delegated_to": d.delegated_to,
+                    "due_date": d.due_date,
+                    "days_overdue": days_overdue,
+                })
     elif alert_type in ("pending_decision", "stale_decision"):
         stale_days = int(parsed.get("days_stale", 7))
         cutoff = (date.today() - timedelta(days=stale_days)).isoformat()

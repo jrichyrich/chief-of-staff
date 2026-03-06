@@ -6,6 +6,8 @@ from pathlib import Path
 
 import config as app_config
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-mcp")
 
 
@@ -36,6 +38,7 @@ def register(mcp, state):
     """Register OKR tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("OKR error")
     async def refresh_okr_data(source_path: str = "") -> str:
         """Parse the ISP OKR Excel spreadsheet and store a fresh snapshot.
 
@@ -87,6 +90,7 @@ def register(mcp, state):
         })
 
     @mcp.tool()
+    @tool_errors("OKR error")
     async def query_okr_status(
         query: str = "",
         okr_id: str = "",
@@ -117,6 +121,7 @@ def register(mcp, state):
         return json.dumps(_format_okr_results(results))
 
     @mcp.tool()
+    @tool_errors("OKR error")
     async def refresh_okr_from_sharepoint(sharepoint_url: str = "") -> str:
         """Download the OKR spreadsheet from SharePoint and refresh data.
 

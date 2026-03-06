@@ -402,9 +402,46 @@ class MemoryStore:
             END;
         """)
         self.conn.commit()
-        # Rebuild FTS index to pick up any pre-existing data
-        self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
-        self.conn.commit()
+        # Rebuild FTS index only if it's out of sync (empty while facts exist)
+        self._rebuild_fts_if_needed()
+
+    def _rebuild_fts_if_needed(self):
+        """Rebuild FTS5 index only when it appears out of sync.
+
+        The FTS5 content-synced table's COUNT(*) reads from the backing
+        table, so we can't use it to detect an empty index.  Instead we
+        sample a fact and verify the index can find it via MATCH.
+        """
+        try:
+            sample = self.conn.execute(
+                "SELECT key FROM facts LIMIT 1"
+            ).fetchone()
+            if sample is None:
+                # No facts at all — nothing to index
+                return
+            # Try to find the sample via FTS MATCH
+            sanitized = sample[0].replace('"', '')
+            if not sanitized.strip():
+                # Key is empty / whitespace — can't query, just rebuild
+                self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
+                self.conn.commit()
+                return
+            fts_hit = self.conn.execute(
+                'SELECT rowid FROM facts_fts WHERE facts_fts MATCH ? LIMIT 1',
+                (f'"{sanitized}"',),
+            ).fetchone()
+            if fts_hit is None:
+                logger.info("FTS5 index out of sync — rebuilding")
+                self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
+                self.conn.commit()
+        except Exception:
+            # If anything goes wrong, fall back to unconditional rebuild
+            logger.debug("FTS5 sync check failed — rebuilding unconditionally")
+            try:
+                self.conn.execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
+                self.conn.commit()
+            except Exception:
+                logger.warning("FTS5 rebuild failed", exc_info=True)
 
     # --- Migrations (centralized) ---
 

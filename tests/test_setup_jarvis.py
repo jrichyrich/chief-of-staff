@@ -588,17 +588,17 @@ class TestBuildSteps:
         assert keys.index("venv") < keys.index("pip")
         assert keys.index("pip") < keys.index("server_verify")
 
-    def test_build_steps_contains_all_twelve(self):
+    def test_build_steps_contains_all_thirteen(self):
         steps = build_steps()
-        assert len(steps) == 12
+        assert len(steps) == 13
 
     def test_build_steps_all_keys(self):
         steps = build_steps()
         keys = {s.key for s in steps}
         expected = {
             "venv", "pip", "system_deps", "env_config", "data_dirs",
-            "playwright", "launch_agents", "imessage_perms", "calendar_perms",
-            "m365_bridge", "test_suite", "server_verify",
+            "jarvis_app", "playwright", "launch_agents", "imessage_perms",
+            "calendar_perms", "m365_bridge", "test_suite", "server_verify",
         }
         assert keys == expected
 

@@ -41,6 +41,7 @@ def register(mcp, state):
                     complete_action_item, add_decision, add_person, add_handoff_note
             data: JSON string with action-specific fields:
                 - add_workstream: {"name", "status", "context"}
+                - update_workstream: {"name", "status"?, "context"?}
                 - add_action_item: {"text", "source"?}
                 - complete_action_item: {"text"}
                 - add_decision: {"summary"}
@@ -58,7 +59,7 @@ def register(mcp, state):
 
         actions = {
             "add_workstream": lambda p: brain.add_workstream(p["name"], p["status"], p["context"]),
-            "update_workstream": lambda p: brain.update_workstream(p["name"], status=p["status"], context=p["context"]),
+            "update_workstream": lambda p: brain.update_workstream(p["name"], status=p.get("status"), context=p.get("context")),
             "add_action_item": lambda p: brain.add_action_item(p["text"], source=p.get("source", "")),
             "complete_action_item": lambda p: brain.complete_action_item(p["text"]),
             "add_decision": lambda p: brain.add_decision(p["summary"]),

@@ -4,13 +4,18 @@ import json
 import logging
 import sys
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-mcp")
+
+_EXPECTED = (ValueError, KeyError)
 
 
 def register(mcp, state):
     """Register channel routing tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("Routing error", expected=_EXPECTED)
     async def route_message(
         recipient_type: str,
         urgency: str = "informational",
@@ -36,6 +41,7 @@ def register(mcp, state):
             select_channel,
         )
 
+        work_hours = is_work_hours()
         tier = determine_safety_tier(
             recipient_type=recipient_type,
             sensitive=sensitive,
@@ -45,7 +51,7 @@ def register(mcp, state):
         channel = select_channel(
             recipient_type=recipient_type,
             urgency=urgency,
-            work_hours=is_work_hours(),
+            work_hours=work_hours,
         )
 
         return json.dumps({
@@ -53,7 +59,7 @@ def register(mcp, state):
             "channel": channel,
             "recipient_type": recipient_type,
             "urgency": urgency,
-            "work_hours": is_work_hours(),
+            "work_hours": work_hours,
         })
 
     module = sys.modules[__name__]

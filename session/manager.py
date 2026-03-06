@@ -126,7 +126,7 @@ class SessionManager:
         for i, content in enumerate(extracted["decisions"]):
             fact = Fact(
                 category="work",
-                key=f"session_decision_{timestamp}_{i}",
+                key=f"session_decision_{self.session_id}_{timestamp}_{i}",
                 value=content,
                 confidence=0.9,
                 source="session_flush",
@@ -139,7 +139,7 @@ class SessionManager:
             for i, content in enumerate(extracted["action_items"]):
                 fact = Fact(
                     category="work",
-                    key=f"session_action_{timestamp}_{i}",
+                    key=f"session_action_{self.session_id}_{timestamp}_{i}",
                     value=content,
                     confidence=0.85,
                     source="session_flush",
@@ -152,7 +152,7 @@ class SessionManager:
             for i, content in enumerate(extracted["key_facts"]):
                 fact = Fact(
                     category="work",
-                    key=f"session_fact_{timestamp}_{i}",
+                    key=f"session_fact_{self.session_id}_{timestamp}_{i}",
                     value=content,
                     confidence=0.8,
                     source="session_flush",
@@ -228,10 +228,10 @@ class SessionManager:
         Returns dict with context_entries and related_facts.
         """
         entries = self.memory_store.list_context(session_id=session_id, limit=10)
-        # Search for facts created by session flush (keyed with session_ prefix)
-        decision_facts = self.memory_store.search_facts("session_decision")
-        action_facts = self.memory_store.search_facts("session_action")
-        fact_facts = self.memory_store.search_facts("session_fact")
+        # Search for facts created by session flush, scoped to the target session_id
+        decision_facts = self.memory_store.search_facts(f"session_decision_{session_id}")
+        action_facts = self.memory_store.search_facts(f"session_action_{session_id}")
+        fact_facts = self.memory_store.search_facts(f"session_fact_{session_id}")
         all_facts = decision_facts + action_facts + fact_facts
         # Deduplicate by id
         seen_ids = set()

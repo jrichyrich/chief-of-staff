@@ -4,6 +4,8 @@ import json
 import logging
 import os
 
+from .decorators import tool_errors
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,6 +51,7 @@ def register(mcp, state):
     """Register iMessage tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("iMessage error", expected=(OSError, PermissionError))
     async def get_imessages(
         minutes: int = 60,
         limit: int = 25,
@@ -79,6 +82,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
+    @tool_errors("iMessage error", expected=(OSError, PermissionError))
     async def list_imessage_threads(minutes: int = 7 * 24 * 60, limit: int = 50) -> str:
         """List active iMessage threads with persisted profile metadata.
 
@@ -101,6 +105,7 @@ def register(mcp, state):
         return await list_imessage_threads(minutes=minutes, limit=limit)
 
     @mcp.tool()
+    @tool_errors("iMessage error", expected=(OSError, PermissionError))
     async def get_imessage_thread_messages(
         chat_identifier: str,
         minutes: int = 7 * 24 * 60,
@@ -131,6 +136,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
+    @tool_errors("iMessage error", expected=(OSError, PermissionError))
     async def get_thread_context(
         chat_identifier: str,
         minutes: int = 7 * 24 * 60,
@@ -158,6 +164,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Unexpected error: {e}"})
 
     @mcp.tool()
+    @tool_errors("iMessage error", expected=(OSError, PermissionError))
     async def search_imessages(
         query: str,
         minutes: int = 24 * 60,
@@ -281,6 +288,7 @@ def register(mcp, state):
         }
 
     @mcp.tool()
+    @tool_errors("iMessage error", expected=(OSError, PermissionError))
     async def send_imessage_reply(
         to: str = "",
         body: str = "",

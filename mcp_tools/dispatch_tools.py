@@ -5,6 +5,8 @@ import json
 import logging
 import time
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-dispatch")
 
 
@@ -12,6 +14,7 @@ def register(mcp, state):
     """Register dispatch tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("Dispatch error")
     async def dispatch_agents(
         task: str,
         agent_names: str = "",

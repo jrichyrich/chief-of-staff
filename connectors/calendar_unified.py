@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from connectors.router import ProviderRouter, normalize_provider_name
+
+logger = logging.getLogger(__name__)
 
 
 class UnifiedCalendarService:
@@ -50,14 +53,17 @@ class UnifiedCalendarService:
             )
             conn.commit()
 
-    def _upsert_ownership(self, event: dict) -> None:
+    def _upsert_ownership(self, event: dict, conn: sqlite3.Connection | None = None) -> None:
         unified_uid = str(event.get("unified_uid", "")).strip()
         provider = normalize_provider_name(str(event.get("provider", "")))
         native_id = str(event.get("native_id", "")).strip()
         calendar_name = str(event.get("calendar", "") or event.get("calendar_id", "")).strip()
         if not unified_uid or not provider or not native_id:
             return
-        with self._open_ownership_db() as conn:
+        own_conn = conn is None
+        if own_conn:
+            conn = self._open_ownership_db()
+        try:
             conn.execute(
                 """
                 INSERT INTO event_ownership(unified_uid, provider, native_id, calendar_name, updated_at_utc)
@@ -70,6 +76,19 @@ class UnifiedCalendarService:
                 """,
                 (unified_uid, provider, native_id, calendar_name, self._utc_now_iso()),
             )
+            if own_conn:
+                conn.commit()
+        finally:
+            if own_conn:
+                conn.close()
+
+    def _batch_upsert_ownership(self, events: list[dict]) -> None:
+        """Upsert ownership for multiple events using a single DB connection."""
+        if not events:
+            return
+        with self._open_ownership_db() as conn:
+            for event in events:
+                self._upsert_ownership(event, conn=conn)
             conn.commit()
 
     def _delete_ownership(self, unified_uid: str) -> None:
@@ -158,6 +177,71 @@ class UnifiedCalendarService:
                 filtered.append(row)
         return filtered
 
+    def _read_from_providers(
+        self,
+        provider_preference: str,
+        source_filter: str,
+        fetch_fn: Callable,
+        *,
+        tag_events: bool = False,
+        dedupe_events: bool = False,
+        track_ownership: bool = False,
+    ) -> list[dict]:
+        """Shared read-loop: iterate providers, collect results, apply policies.
+
+        Args:
+            provider_preference: Provider routing hint.
+            source_filter: Optional text filter on source/provider.
+            fetch_fn: Callable(provider) -> payload.  Called once per provider.
+            tag_events: Whether to run _tag_event on each result row.
+            dedupe_events: Whether to deduplicate event rows.
+            track_ownership: Whether to batch-upsert ownership for result rows.
+        """
+        decision = self.router.decide_read(provider_preference=provider_preference)
+        if not decision.providers:
+            return [{"error": "No connected calendar providers available"}]
+
+        rows: list[dict] = []
+        errors: list[dict] = []
+        succeeded: set[str] = set()
+        for provider_name in decision.providers:
+            provider = self.router.get_provider(provider_name)
+            if provider is None:
+                continue
+            try:
+                payload = fetch_fn(provider)
+            except Exception:
+                logger.exception("Provider %s raised an exception during read", provider_name)
+                errors.append({"error": f"Provider {provider_name} raised an unexpected exception"})
+                continue
+            if self._is_error_payload(payload):
+                errors.extend(payload if isinstance(payload, list) else [payload])
+                continue
+            succeeded.add(provider_name)
+            provider_rows = payload if isinstance(payload, list) else [payload]
+            if tag_events:
+                provider_rows = [self._tag_event(row, provider_name) for row in provider_rows]
+            rows.extend(provider_rows)
+
+        if dedupe_events:
+            rows = self._dedupe_events(rows)
+        rows = self._filter_source(rows, source_filter=source_filter)
+
+        if (
+            self.require_all_read_providers_success
+            and len(decision.providers) > 1
+            and len(succeeded) < len(decision.providers)
+        ):
+            return [self._build_dual_read_error(decision.providers, sorted(succeeded), rows, errors)]
+
+        if track_ownership and rows:
+            self._batch_upsert_ownership(rows)
+        if rows:
+            return rows
+        if errors:
+            return errors
+        return []
+
     @staticmethod
     def _event_dedupe_key(event: dict) -> tuple:
         ical_uid = str(event.get("ical_uid", "")).strip()
@@ -195,36 +279,11 @@ class UnifiedCalendarService:
         provider_preference: str = "auto",
         source_filter: str = "",
     ) -> list[dict]:
-        decision = self.router.decide_read(provider_preference=provider_preference)
-        if not decision.providers:
-            return [{"error": "No connected calendar providers available"}]
-
-        rows: list[dict] = []
-        errors: list[dict] = []
-        succeeded: set[str] = set()
-        for provider_name in decision.providers:
-            provider = self.router.get_provider(provider_name)
-            if provider is None:
-                continue
-            payload = provider.list_calendars()
-            if self._is_error_payload(payload):
-                errors.extend(payload if isinstance(payload, list) else [payload])
-                continue
-            succeeded.add(provider_name)
-            rows.extend(payload if isinstance(payload, list) else [payload])
-
-        rows = self._filter_source(rows, source_filter=source_filter)
-        if (
-            self.require_all_read_providers_success
-            and len(decision.providers) > 1
-            and len(succeeded) < len(decision.providers)
-        ):
-            return [self._build_dual_read_error(decision.providers, sorted(succeeded), rows, errors)]
-        if rows:
-            return rows
-        if errors:
-            return errors
-        return []
+        return self._read_from_providers(
+            provider_preference=provider_preference,
+            source_filter=source_filter,
+            fetch_fn=lambda p: p.list_calendars(),
+        )
 
     def get_events(
         self,
@@ -234,42 +293,14 @@ class UnifiedCalendarService:
         provider_preference: str = "auto",
         source_filter: str = "",
     ) -> list[dict]:
-        decision = self.router.decide_read(provider_preference=provider_preference)
-        if not decision.providers:
-            return [{"error": "No connected calendar providers available"}]
-
-        rows: list[dict] = []
-        errors: list[dict] = []
-        succeeded: set[str] = set()
-        for provider_name in decision.providers:
-            provider = self.router.get_provider(provider_name)
-            if provider is None:
-                continue
-            payload = provider.get_events(start_dt, end_dt, calendar_names=calendar_names)
-            if self._is_error_payload(payload):
-                errors.extend(payload if isinstance(payload, list) else [payload])
-                continue
-            succeeded.add(provider_name)
-            provider_rows = payload if isinstance(payload, list) else [payload]
-            for row in provider_rows:
-                tagged = self._tag_event(row, provider_name)
-                rows.append(tagged)
-
-        rows = self._dedupe_events(rows)
-        rows = self._filter_source(rows, source_filter=source_filter)
-        if (
-            self.require_all_read_providers_success
-            and len(decision.providers) > 1
-            and len(succeeded) < len(decision.providers)
-        ):
-            return [self._build_dual_read_error(decision.providers, sorted(succeeded), rows, errors)]
-        for row in rows:
-            self._upsert_ownership(row)
-        if rows:
-            return rows
-        if errors:
-            return errors
-        return []
+        return self._read_from_providers(
+            provider_preference=provider_preference,
+            source_filter=source_filter,
+            fetch_fn=lambda p: p.get_events(start_dt, end_dt, calendar_names=calendar_names),
+            tag_events=True,
+            dedupe_events=True,
+            track_ownership=True,
+        )
 
     def search_events(
         self,
@@ -279,42 +310,14 @@ class UnifiedCalendarService:
         provider_preference: str = "auto",
         source_filter: str = "",
     ) -> list[dict]:
-        decision = self.router.decide_read(provider_preference=provider_preference)
-        if not decision.providers:
-            return [{"error": "No connected calendar providers available"}]
-
-        rows: list[dict] = []
-        errors: list[dict] = []
-        succeeded: set[str] = set()
-        for provider_name in decision.providers:
-            provider = self.router.get_provider(provider_name)
-            if provider is None:
-                continue
-            payload = provider.search_events(query, start_dt, end_dt)
-            if self._is_error_payload(payload):
-                errors.extend(payload if isinstance(payload, list) else [payload])
-                continue
-            succeeded.add(provider_name)
-            provider_rows = payload if isinstance(payload, list) else [payload]
-            for row in provider_rows:
-                tagged = self._tag_event(row, provider_name)
-                rows.append(tagged)
-
-        rows = self._dedupe_events(rows)
-        rows = self._filter_source(rows, source_filter=source_filter)
-        if (
-            self.require_all_read_providers_success
-            and len(decision.providers) > 1
-            and len(succeeded) < len(decision.providers)
-        ):
-            return [self._build_dual_read_error(decision.providers, sorted(succeeded), rows, errors)]
-        for row in rows:
-            self._upsert_ownership(row)
-        if rows:
-            return rows
-        if errors:
-            return errors
-        return []
+        return self._read_from_providers(
+            provider_preference=provider_preference,
+            source_filter=source_filter,
+            fetch_fn=lambda p: p.search_events(query, start_dt, end_dt),
+            tag_events=True,
+            dedupe_events=True,
+            track_ownership=True,
+        )
 
     def _resolve_write_provider(
         self,

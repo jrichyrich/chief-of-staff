@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -1082,7 +1081,7 @@ def get_tools_for_capabilities(capabilities: Iterable[str] | None) -> list[dict]
             schema = TOOL_SCHEMAS.get(tool_name)
             if schema is None:
                 continue
-            tools.append(deepcopy(schema))
+            tools.append(schema)
             seen_tool_names.add(tool_name)
 
     return tools

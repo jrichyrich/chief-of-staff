@@ -12,6 +12,8 @@ import json
 import logging
 import sys
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-mcp")
 
 
@@ -19,6 +21,7 @@ def register(mcp, state):
     """Register formatter tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("Formatter error", expected=(json.JSONDecodeError,))
     async def format_table(title: str, columns: str, rows: str, mode: str = "terminal") -> str:
         """Render a formatted table from structured data.
 
@@ -48,6 +51,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    @tool_errors("Formatter error", expected=(json.JSONDecodeError,))
     async def format_brief(data: str, mode: str = "terminal") -> str:
         """Render a daily brief from structured JSON data.
 
@@ -87,6 +91,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    @tool_errors("Formatter error", expected=(json.JSONDecodeError,))
     async def format_dashboard(title: str, panels: str, columns: int = 1, mode: str = "terminal") -> str:
         """Render a multi-panel dashboard.
 
@@ -115,6 +120,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    @tool_errors("Formatter error", expected=(json.JSONDecodeError,))
     async def format_card(title: str, fields: str, status: str = "", body: str = "", mode: str = "terminal") -> str:
         """Render a status card with key-value fields and optional status badge.
 

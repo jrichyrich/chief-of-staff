@@ -222,7 +222,7 @@ class TestRunWithCleanupUsed:
 
         mock_run.assert_called_once()
         call_kwargs = mock_run.call_args[1]
-        assert call_kwargs["timeout"] == 180  # default timeout
+        assert call_kwargs["timeout"] == 360  # default timeout from config
         assert call_kwargs["text"] is True
 
 

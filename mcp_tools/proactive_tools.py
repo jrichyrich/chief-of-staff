@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime
 
 logger = logging.getLogger("jarvis-mcp")
 
@@ -28,6 +29,18 @@ def register(mcp, state):
                 session_brain=getattr(state, "session_brain", None),
             )
             suggestions = engine.generate_suggestions()
+
+            # Filter out previously dismissed suggestions
+            try:
+                dismissed_facts = memory_store.search_facts("dismissed_suggestion:")
+                dismissed_keys = {f.key for f in dismissed_facts}
+                suggestions = [
+                    s for s in suggestions
+                    if f"dismissed_suggestion:{s.category}:{s.title}" not in dismissed_keys
+                ]
+            except Exception:
+                logger.debug("Could not filter dismissed suggestions", exc_info=True)
+
             if not suggestions:
                 return json.dumps({"message": "No suggestions at this time.", "suggestions": []})
             results = [
@@ -54,11 +67,31 @@ def register(mcp, state):
             category: The suggestion category (skill, webhook, delegation, decision, deadline)
             title: The title of the suggestion to dismiss
         """
+        from memory.models import Fact
+
+        memory_store = state.memory_store
+        try:
+            fact = Fact(
+                category="preference",
+                key=f"dismissed_suggestion:{category}:{title}",
+                value=json.dumps({"category": category, "title": title, "dismissed_at": datetime.now().isoformat()}),
+                confidence=1.0,
+                source="proactive_dismiss",
+            )
+            memory_store.store_fact(fact)
+        except Exception as e:
+            logger.warning("Failed to persist suggestion dismissal: %s", e)
+            return json.dumps({
+                "status": "dismissed",
+                "category": category,
+                "title": title,
+                "message": f"Suggestion dismissed but persistence failed: {e}",
+            })
+
         return json.dumps({
             "status": "dismissed",
             "category": category,
             "title": title,
-            "message": "Suggestion dismissed (note: persistent dismiss not yet implemented)",
         })
 
     # Expose tool functions at module level for testing

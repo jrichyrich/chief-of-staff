@@ -74,6 +74,7 @@ class Microsoft365CalendarProvider(CalendarProvider):
         location: Optional[str] = None,
         notes: Optional[str] = None,
         is_all_day: bool = False,
+        alarms: Optional[list[int]] = None,
     ) -> dict:
         if not self.is_connected():
             return self._not_connected_error()

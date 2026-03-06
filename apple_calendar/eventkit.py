@@ -1,7 +1,7 @@
 """EventKit wrapper for macOS calendar access via PyObjC."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -54,8 +54,8 @@ def _event_to_dict(event, calendar_name: str) -> dict:
     return {
         "uid": str(event.calendarItemExternalIdentifier()),
         "title": str(event.title()) if event.title() else "",
-        "start": datetime.fromtimestamp(start.timeIntervalSince1970()).isoformat() if start else None,
-        "end": datetime.fromtimestamp(end.timeIntervalSince1970()).isoformat() if end else None,
+        "start": datetime.fromtimestamp(start.timeIntervalSince1970(), tz=timezone.utc).isoformat() if start else None,
+        "end": datetime.fromtimestamp(end.timeIntervalSince1970(), tz=timezone.utc).isoformat() if end else None,
         "location": str(event.location()) if event.location() else None,
         "notes": str(event.notes()) if event.notes() else None,
         "attendees": attendees,

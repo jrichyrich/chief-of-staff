@@ -76,7 +76,7 @@ def _handle_checkpoint(suggestion, memory_store=None, session_manager=None, **kw
     """Flush session memory to preserve context."""
     if session_manager is None:
         return {"status": "skipped", "reason": "No session manager available"}
-    result = session_manager.flush_to_memory()
+    result = session_manager.flush()
     if session_health := kwargs.get("session_health"):
         session_health.record_checkpoint()
     logger.info("Proactive checkpoint executed: %s", result)

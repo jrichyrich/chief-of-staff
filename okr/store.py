@@ -66,14 +66,16 @@ class OKRStore:
             initiatives = [i for i in initiatives if i["okr_id"] == okr_id]
 
         if team:
-            objectives = [o for o in objectives if o["team"] == team]
-            key_results = [kr for kr in key_results if kr["team"] == team]
-            initiatives = [i for i in initiatives if i["team"] == team]
+            team_lower = team.lower()
+            objectives = [o for o in objectives if o["team"].lower() == team_lower]
+            key_results = [kr for kr in key_results if kr["team"].lower() == team_lower]
+            initiatives = [i for i in initiatives if i["team"].lower() == team_lower]
 
         if status:
-            objectives = [o for o in objectives if o["status"] == status]
-            key_results = [kr for kr in key_results if kr["status"] == status]
-            initiatives = [i for i in initiatives if i["status"] == status]
+            status_lower = status.lower()
+            objectives = [o for o in objectives if o["status"].lower() == status_lower]
+            key_results = [kr for kr in key_results if kr["status"].lower() == status_lower]
+            initiatives = [i for i in initiatives if i["status"].lower() == status_lower]
 
         if blocked_only:
             initiatives = [i for i in initiatives if i["blocker"]]

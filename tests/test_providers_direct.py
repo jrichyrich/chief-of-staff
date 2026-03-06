@@ -181,6 +181,7 @@ class TestAppleCalendarProvider:
             location="Room 101",
             notes="Important meeting",
             is_all_day=False,
+            alarms=None,
         )
 
     def test_create_event_with_error(self, mock_calendar_store):

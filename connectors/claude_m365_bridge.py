@@ -120,6 +120,7 @@ class ClaudeM365Bridge:
         location: Optional[str] = None,
         notes: Optional[str] = None,
         is_all_day: bool = False,
+        alarms: Optional[list[int]] = None,
     ) -> dict:
         schema = {
             "type": "object",

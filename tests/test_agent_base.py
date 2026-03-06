@@ -775,6 +775,7 @@ EXPECTED_DISPATCH_TOOLS = {
     "check_overdue_delegations", "delete_delegation",
     "create_alert_rule", "list_alert_rules", "check_alerts", "dismiss_alert",
     "get_calendar_events", "search_calendar_events",
+    "find_my_open_slots", "find_group_availability",
     "list_reminders", "search_reminders", "create_reminder", "complete_reminder",
     "send_notification",
     "get_mail_messages", "get_mail_message", "search_mail",
@@ -782,6 +783,18 @@ EXPECTED_DISPATCH_TOOLS = {
     "mark_mail_read", "mark_mail_flagged", "move_mail_message",
     "web_open", "web_snapshot", "web_click", "web_fill",
     "web_get_text", "web_screenshot", "web_execute_js",
+    "web_scroll", "web_find", "web_state_save", "web_state_load",
+    "open_teams_browser", "post_teams_message", "confirm_teams_post",
+    "cancel_teams_post", "close_teams_browser",
+    "get_agent_memory", "clear_agent_memory",
+    "list_inbound_events", "get_event_summary",
+    "get_proactive_suggestions", "dismiss_suggestion",
+    "list_webhook_events", "get_webhook_event", "process_webhook_event",
+    "list_scheduled_tasks", "get_scheduler_status",
+    "create_scheduled_task", "update_scheduled_task",
+    "delete_scheduled_task", "run_scheduled_task",
+    "list_skill_suggestions", "record_tool_usage",
+    "analyze_skill_patterns", "auto_create_skill",
 }
 
 

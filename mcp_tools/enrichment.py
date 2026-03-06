@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-enrichment")
 
 
@@ -11,6 +13,7 @@ def register(mcp, state):
     """Register enrichment tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("Enrichment error")
     async def enrich_person(name: str, days_back: int = 7) -> str:
         """Get a consolidated profile for a person: identities, facts, delegations, decisions, recent messages, and emails.
 
@@ -24,7 +27,7 @@ def register(mcp, state):
         context = {"name": name}
         minutes = days_back * 1440
 
-        async def fetch_identities():
+        def fetch_identities():
             try:
                 results = state.memory_store.search_identity(name)
                 if results:
@@ -33,7 +36,7 @@ def register(mcp, state):
                 logger.debug("enrich_person: identities failed: %s", e)
             return None
 
-        async def fetch_facts():
+        def fetch_facts():
             try:
                 results = state.memory_store.search_facts(name)
                 if results:
@@ -47,7 +50,7 @@ def register(mcp, state):
                 logger.debug("enrich_person: facts failed: %s", e)
             return None
 
-        async def fetch_delegations():
+        def fetch_delegations():
             try:
                 results = state.memory_store.list_delegations(delegated_to=name)
                 if results:
@@ -61,7 +64,7 @@ def register(mcp, state):
                 logger.debug("enrich_person: delegations failed: %s", e)
             return None
 
-        async def fetch_decisions():
+        def fetch_decisions():
             try:
                 results = state.memory_store.search_decisions(name)
                 if results:
@@ -75,7 +78,7 @@ def register(mcp, state):
                 logger.debug("enrich_person: decisions failed: %s", e)
             return None
 
-        async def fetch_imessages():
+        def fetch_imessages():
             try:
                 messages_store = state.messages_store
                 if messages_store is None:
@@ -87,7 +90,7 @@ def register(mcp, state):
                 logger.debug("enrich_person: imessages failed: %s", e)
             return None
 
-        async def fetch_emails():
+        def fetch_emails():
             try:
                 mail_store = state.mail_store
                 if mail_store is None:
@@ -100,12 +103,12 @@ def register(mcp, state):
             return None
 
         results = await asyncio.gather(
-            fetch_identities(),
-            fetch_facts(),
-            fetch_delegations(),
-            fetch_decisions(),
-            fetch_imessages(),
-            fetch_emails(),
+            asyncio.to_thread(fetch_identities),
+            asyncio.to_thread(fetch_facts),
+            asyncio.to_thread(fetch_delegations),
+            asyncio.to_thread(fetch_decisions),
+            asyncio.to_thread(fetch_imessages),
+            asyncio.to_thread(fetch_emails),
         )
 
         for result in results:

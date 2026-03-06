@@ -5,6 +5,7 @@ import subprocess
 from typing import Optional
 
 from apple_notifications.notifier import Notifier
+from utils.osascript import escape_osascript as _escape_osascript
 from utils.subprocess import run_with_cleanup
 
 logger = logging.getLogger(__name__)
@@ -15,17 +16,6 @@ _DEFAULT_TIMEOUT = 15
 _SEND_TIMEOUT = 30
 _FIELD_SEP = "|||"
 _RECORD_SEP = "~~~RECORD~~~"
-
-
-def _escape_osascript(text: str) -> str:
-    """Escape text for safe use in AppleScript strings."""
-    return (
-        text.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-    )
 
 
 def _run_applescript(script: str, timeout: int = _DEFAULT_TIMEOUT) -> dict:

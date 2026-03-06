@@ -16,6 +16,8 @@ import json
 import logging
 import sys
 
+from .decorators import tool_errors
+
 logger = logging.getLogger(__name__)
 
 _manager = None
@@ -70,6 +72,7 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> dict:
 
     Returns a dict with 'ok' (bool) and optional 'detail' message.
     """
+    pw = None
     try:
         pw, browser = await manager.connect()
         ctx = browser.contexts[0]
@@ -77,14 +80,12 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> dict:
 
         # If already on Teams, nothing to do
         if any(p in page.url.lower() for p in ("teams.microsoft.com", "teams.cloud.microsoft")):
-            await pw.stop()
             return {"ok": True}
 
         # Go through Okta auth -> tile click -> Teams
         from browser.okta_auth import ensure_okta_and_open_teams
         await ensure_okta_and_open_teams(page, ctx)
 
-        await pw.stop()
         return {"ok": True}
     except RuntimeError as exc:
         msg = str(exc)
@@ -98,12 +99,16 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> dict:
     except Exception as exc:
         logger.warning("Failed to navigate to Teams via Okta: %s", exc)
         return {"ok": False, "detail": str(exc)}
+    finally:
+        if pw is not None:
+            await pw.stop()
 
 
 def register(mcp, state):
     """Register Teams browser tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("Teams browser error")
     async def open_teams_browser() -> str:
         """Launch a persistent browser and navigate to Teams.
 
@@ -139,6 +144,7 @@ def register(mcp, state):
             return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Teams browser error")
     async def post_teams_message(target: str, message: str, auto_send: bool = False) -> str:
         """Prepare a message for posting to a Teams channel, person, or group.
 
@@ -174,6 +180,7 @@ def register(mcp, state):
         return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Teams browser error")
     async def confirm_teams_post() -> str:
         """Send the previously prepared Teams message.
 
@@ -185,6 +192,7 @@ def register(mcp, state):
         return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Teams browser error")
     async def cancel_teams_post() -> str:
         """Cancel the previously prepared Teams message.
 
@@ -195,6 +203,7 @@ def register(mcp, state):
         return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Teams browser error")
     async def close_teams_browser() -> str:
         """Close the persistent Teams browser.
 

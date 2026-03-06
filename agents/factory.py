@@ -57,7 +57,18 @@ class AgentFactory:
             pass
 
         raw = response.content[0].text
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"AgentFactory: LLM returned invalid JSON: {exc}. Raw output: {raw[:500]}"
+            ) from exc
+        for required_key in ("name", "description", "system_prompt"):
+            if required_key not in data:
+                raise ValueError(
+                    f"AgentFactory: LLM output missing required key '{required_key}'. "
+                    f"Got keys: {list(data.keys())}"
+                )
         capabilities = validate_capabilities(data.get("capabilities", ["memory_read"]))
         # Filter out restricted capabilities and cap count for auto-generated agents
         capabilities = [c for c in capabilities if c not in RESTRICTED_CAPABILITIES]

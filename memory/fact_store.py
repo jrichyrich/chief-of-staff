@@ -147,15 +147,36 @@ class FactStore:
         scored: list[tuple[Fact, float]] = []
         ids = results.get("ids", [[]])[0]
         distances = results.get("distances", [[]])[0]
+
+        # Parse vector IDs into (category, key) pairs, preserving order
+        parsed: list[tuple[str, str, float]] = []
         for i, doc_id in enumerate(ids):
             parts = doc_id.split(":", 1)
             if len(parts) != 2:
                 continue
-            category, key = parts
-            fact = self.get_fact(category, key)
+            distance = distances[i] if i < len(distances) else 1.0
+            parsed.append((parts[0], parts[1], distance))
+
+        if not parsed:
+            return []
+
+        # Batch-fetch all matching facts in a single query
+        placeholders = " OR ".join(["(category=? AND key=?)"] * len(parsed))
+        params: list[str] = []
+        for cat, key, _ in parsed:
+            params.extend([cat, key])
+        rows = self.conn.execute(
+            f"SELECT * FROM facts WHERE {placeholders}", params
+        ).fetchall()
+        fact_map: dict[tuple[str, str], "Fact"] = {}
+        for row in rows:
+            f = self._row_to_fact(row)
+            fact_map[(f.category, f.key)] = f
+
+        for cat, key, distance in parsed:
+            fact = fact_map.get((cat, key))
             if fact is None:
                 continue
-            distance = distances[i] if i < len(distances) else 1.0
             score = max(0.0, 1.0 - distance)
             scored.append((fact, score))
         return scored

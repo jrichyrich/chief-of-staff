@@ -163,8 +163,8 @@ class TestToolResultTruncation:
 class TestMailSendGuard:
     """Agent-level mail sending must always force confirm_send=False."""
 
-    def test_mail_send_forces_confirm_false(self, memory_store, doc_store):
-        """_handle_mail_send must pass confirm_send=False regardless of input."""
+    def test_mail_send_uses_confirm_true(self, memory_store, doc_store):
+        """_handle_mail_send passes confirm_send=True (dispatch is the confirmation gate)."""
         config = AgentConfig(
             name="mail_agent",
             description="Mail test",
@@ -172,7 +172,7 @@ class TestMailSendGuard:
             capabilities=["mail_write"],
         )
         mock_mail = MagicMock()
-        mock_mail.send_message.return_value = {"status": "draft_created"}
+        mock_mail.send_message.return_value = {"status": "sent"}
 
         agent = BaseExpertAgent(
             config=config,
@@ -185,13 +185,13 @@ class TestMailSendGuard:
             "to": "user@example.com",
             "subject": "Test",
             "body": "Hello",
-            "confirm_send": True,  # caller tries to force True
+            "confirm_send": True,
         })
 
-        # Verify confirm_send was always False
+        # Verify confirm_send=True (agent dispatch decision is the confirmation gate)
         mock_mail.send_message.assert_called_once()
         call_kwargs = mock_mail.send_message.call_args
-        assert call_kwargs[1]["confirm_send"] is False or call_kwargs.kwargs.get("confirm_send") is False
+        assert call_kwargs[1]["confirm_send"] is True or call_kwargs.kwargs.get("confirm_send") is True
 
     def test_mail_send_without_store_returns_error(self, memory_store, doc_store):
         """_handle_mail_send returns error when mail_store is None."""

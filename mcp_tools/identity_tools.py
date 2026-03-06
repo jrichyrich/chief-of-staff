@@ -2,11 +2,14 @@
 
 import json
 
+from .decorators import tool_errors
+
 
 def register(mcp, state):
     """Register identity linking tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("Identity error")
     async def link_identity(
         canonical_name: str,
         provider: str,
@@ -39,6 +42,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    @tool_errors("Identity error")
     async def unlink_identity(provider: str, provider_id: str) -> str:
         """Remove an identity link for a specific provider account.
 
@@ -56,6 +60,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    @tool_errors("Identity error")
     async def get_identity(canonical_name: str) -> str:
         """Get all linked accounts for a person by their canonical name.
 
@@ -69,6 +74,7 @@ def register(mcp, state):
             return json.dumps({"error": str(e)})
 
     @mcp.tool()
+    @tool_errors("Identity error")
     async def search_identity(query: str) -> str:
         """Search identities by name, email, or provider ID.
 

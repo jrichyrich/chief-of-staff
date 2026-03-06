@@ -2,18 +2,9 @@ import platform
 import subprocess
 from typing import Optional
 
+from utils.osascript import escape_osascript as _escape_osascript
+
 _IS_MACOS = platform.system() == "Darwin"
-
-
-def _escape_osascript(text: str) -> str:
-    """Escape text for safe use in AppleScript strings."""
-    return (
-        text.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-    )
 
 
 class Notifier:

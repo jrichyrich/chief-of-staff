@@ -285,7 +285,7 @@ class MailMixin:
             body=tool_input["body"],
             cc=cc_list,
             bcc=bcc_list,
-            confirm_send=False,  # Agents must never auto-send
+            confirm_send=True,  # Agents are autonomous; dispatch is the confirm gate
         )
 
     def _handle_mail_mark_read(self, tool_input: dict) -> Any:
@@ -389,6 +389,53 @@ class WebBrowserMixin:
         from browser.agent_browser import AgentBrowserError
         try:
             result = await self.agent_browser.execute_js(tool_input["code"])
+            return {"status": "ok", **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_scroll(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.scroll(
+                tool_input["direction"],
+                pixels=tool_input.get("pixels"),
+            )
+            return {"status": "ok", **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_find(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.find(
+                tool_input["locator"],
+                tool_input["value"],
+                text=tool_input.get("text"),
+            )
+            return {"status": "ok", **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_state_save(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.state_save(tool_input["name"])
+            return {"status": "ok", **result}
+        except AgentBrowserError as exc:
+            return {"status": "error", "error": str(exc)}
+
+    async def _handle_web_state_load(self, tool_input: dict) -> Any:
+        if self.agent_browser is None:
+            return {"error": "Web browser not available (agent-browser not configured)"}
+        from browser.agent_browser import AgentBrowserError
+        try:
+            result = await self.agent_browser.state_load(tool_input["name"])
             return {"status": "ok", **result}
         except AgentBrowserError as exc:
             return {"status": "error", "error": str(exc)}

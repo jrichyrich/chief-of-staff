@@ -15,6 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import DATA_DIR, MEMORY_DB_PATH
 from memory.store import MemoryStore
 
+# Default cooldown period between repeated notifications for the same alert rule.
+# If a rule was triggered less than this many hours ago, skip re-notification.
+ALERT_COOLDOWN_HOURS = 4
+
 
 def _setup_logging():
     """Configure logging to data/alert-eval.log."""
@@ -170,6 +174,18 @@ def evaluate_alerts():
                 if result["count"] > 0:
                     triggered_count += 1
                     _log(log_path, f"Rule triggered: {rule.name} ({result['count']} matches)")
+
+                    # Cooldown check: skip notification if this rule was triggered recently
+                    cooldown = timedelta(hours=ALERT_COOLDOWN_HOURS)
+                    last_triggered = getattr(rule, "last_triggered_at", None)
+                    if last_triggered:
+                        try:
+                            last_dt = datetime.fromisoformat(last_triggered)
+                            if datetime.now() - last_dt < cooldown:
+                                _log(log_path, f"Rule {rule.name} still within cooldown ({ALERT_COOLDOWN_HOURS}h), skipping notification")
+                                continue
+                        except (ValueError, TypeError):
+                            pass  # If last_triggered_at is unparseable, proceed with notification
 
                     # Send notification
                     title = f"Alert: {rule.name}"

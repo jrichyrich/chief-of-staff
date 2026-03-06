@@ -2,11 +2,14 @@
 
 import json
 
+from .decorators import tool_errors
+
 
 def register(mcp, state):
     """Register reminder tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("Reminder error")
     async def list_reminder_lists() -> str:
         """List all reminder lists available on this Mac."""
         reminder_store = state.reminder_store
@@ -17,6 +20,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to list reminder lists: {e}"})
 
     @mcp.tool()
+    @tool_errors("Reminder error")
     async def list_reminders(list_name: str = "", completed: str = "") -> str:
         """Get reminders, optionally filtered by list and completion status.
 
@@ -41,6 +45,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to get reminders: {e}"})
 
     @mcp.tool()
+    @tool_errors("Reminder error")
     async def create_reminder(
         title: str,
         list_name: str = "",
@@ -71,6 +76,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to create reminder: {e}"})
 
     @mcp.tool()
+    @tool_errors("Reminder error")
     async def complete_reminder(reminder_id: str) -> str:
         """Mark a reminder as completed.
 
@@ -85,6 +91,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to complete reminder: {e}"})
 
     @mcp.tool()
+    @tool_errors("Reminder error")
     async def delete_reminder(reminder_id: str) -> str:
         """Delete a reminder.
 
@@ -99,6 +106,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to delete reminder: {e}"})
 
     @mcp.tool()
+    @tool_errors("Reminder error")
     async def search_reminders(query: str, include_completed: bool = False) -> str:
         """Search reminders by title text.
 

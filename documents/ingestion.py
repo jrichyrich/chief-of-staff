@@ -1,6 +1,9 @@
 import hashlib
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from documents.store import DocumentStore
@@ -37,7 +40,7 @@ def _load_pdf(file_path: Path) -> str:
     text_parts = []
     for page in reader.pages:
         page_text = page.extract_text()
-        if page_text.strip():  # Only add non-empty pages
+        if page_text and page_text.strip():  # Only add non-empty pages
             text_parts.append(page_text)
 
     return "\n".join(text_parts)
@@ -123,6 +126,10 @@ def ingest_path(path: Path, document_store: "DocumentStore") -> str:
         try:
             text = load_text_file(file)
         except ValueError:
+            skipped += 1
+            continue
+        except UnicodeDecodeError:
+            logger.warning("Skipping file with encoding error: %s", file)
             skipped += 1
             continue
         chunks = chunk_text(text)

@@ -90,7 +90,8 @@ class ReminderStore:
     def _ensure_store(self):
         """Lazily create EKEventStore and request access.
 
-        Returns the EKEventStore on success, or an error dict if unavailable.
+        Returns None on success (store is set on self._store),
+        or an error dict if unavailable.
         """
         if not _EVENTKIT_AVAILABLE:
             return _PLATFORM_ERROR
@@ -104,7 +105,7 @@ class ReminderStore:
         if not self._access_granted:
             return _PERMISSION_ERROR
 
-        return self._store
+        return None
 
     def _request_access(self) -> bool:
         """Request Reminders access synchronously."""
@@ -174,9 +175,10 @@ class ReminderStore:
 
     def list_reminder_lists(self) -> list[dict]:
         """Return all reminder lists (calendars with entityType Reminder)."""
-        store = self._ensure_store()
-        if isinstance(store, dict):
-            return [store]
+        err = self._ensure_store()
+        if err is not None:
+            return [err]
+        store = self._store
         err = self._check_access()
         if err:
             return [err]
@@ -213,9 +215,10 @@ class ReminderStore:
         completed=None returns all, True returns completed only,
         False returns incomplete only.
         """
-        store = self._ensure_store()
-        if isinstance(store, dict):
-            return [store]
+        err = self._ensure_store()
+        if err is not None:
+            return [err]
+        store = self._store
         err = self._check_access()
         if err:
             return [err]
@@ -262,9 +265,10 @@ class ReminderStore:
             priority: 0=none, 1=high, 4=medium, 9=low.
             notes: Optional notes text.
         """
-        store = self._ensure_store()
-        if isinstance(store, dict):
-            return store
+        err = self._ensure_store()
+        if err is not None:
+            return err
+        store = self._store
         err = self._check_access()
         if err:
             return err
@@ -308,9 +312,10 @@ class ReminderStore:
 
     def complete_reminder(self, reminder_id: str) -> dict:
         """Mark a reminder as completed by its ID."""
-        store = self._ensure_store()
-        if isinstance(store, dict):
-            return store
+        err = self._ensure_store()
+        if err is not None:
+            return err
+        store = self._store
         err = self._check_access()
         if err:
             return err
@@ -332,9 +337,10 @@ class ReminderStore:
 
     def delete_reminder(self, reminder_id: str) -> dict:
         """Delete a reminder by its ID. Returns status dict on success, or an error dict."""
-        store = self._ensure_store()
-        if isinstance(store, dict):
-            return store
+        err = self._ensure_store()
+        if err is not None:
+            return err
+        store = self._store
         err = self._check_access()
         if err:
             return err
@@ -363,9 +369,10 @@ class ReminderStore:
             query: Text to search for in reminder titles (case-insensitive).
             include_completed: If False (default), only search incomplete reminders.
         """
-        store = self._ensure_store()
-        if isinstance(store, dict):
-            return [store]
+        err = self._ensure_store()
+        if err is not None:
+            return [err]
+        store = self._store
         err = self._check_access()
         if err:
             return [err]

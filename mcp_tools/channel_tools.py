@@ -2,16 +2,21 @@
 
 import json
 import logging
+import sqlite3
 
 from channels.adapter import adapt_event
+from .decorators import tool_errors
 
 logger = logging.getLogger("jarvis-mcp")
+
+_EXPECTED = (ValueError, KeyError, sqlite3.OperationalError)
 
 
 def register(mcp, state):
     """Register channel tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("Channel error", expected=_EXPECTED)
     async def list_inbound_events(
         channel: str = "",
         event_type: str = "",
@@ -29,11 +34,13 @@ def register(mcp, state):
             [channel] if channel else ["imessage", "mail", "webhook"]
         )
         all_events = []
+        errors = []
 
         for ch in channels_to_query:
             raw_events = _fetch_raw_events(state, ch, limit)
             for raw in raw_events:
                 if "error" in raw:
+                    errors.append({"channel": ch, "error": raw["error"]})
                     continue
                 try:
                     event = adapt_event(ch, raw)
@@ -53,9 +60,13 @@ def register(mcp, state):
 
         # Sort by received_at descending (best effort — mixed date formats)
         all_events.sort(key=lambda e: e.get("received_at", ""), reverse=True)
-        return json.dumps({"results": all_events[:limit], "count": len(all_events)})
+        result = {"results": all_events[:limit], "count": len(all_events)}
+        if errors:
+            result["errors"] = errors
+        return json.dumps(result)
 
     @mcp.tool()
+    @tool_errors("Channel error", expected=_EXPECTED)
     async def get_event_summary() -> str:
         """Get a count of recent inbound events by channel."""
         summary = {}

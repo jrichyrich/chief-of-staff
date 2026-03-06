@@ -39,7 +39,7 @@ def register(mcp, state):
             handler_config: JSON config for the handler. For custom: {"command": "echo hello"}
             description: Human-readable description of the task
             enabled: Whether the task is active (default: True)
-            delivery_channel: Channel to deliver results: email, imessage, or notification (optional)
+            delivery_channel: Channel to deliver results: email, imessage, notification, or teams (optional)
             delivery_config: JSON config for delivery (optional). Examples:
                 - email: {"to": ["user@example.com"], "subject_template": "Task $task_name completed"}
                 - imessage: {"recipient": "+15551234567"}
@@ -59,8 +59,8 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": f"Invalid handler_type '{handler_type}'. Valid: {valid}"})
 
         # Validate delivery_channel
-        if delivery_channel and delivery_channel not in ("email", "imessage", "notification"):
-            return json.dumps({"status": "error", "error": f"Invalid delivery_channel: {delivery_channel}. Must be email, imessage, or notification."})
+        if delivery_channel and delivery_channel not in ("email", "imessage", "notification", "teams"):
+            return json.dumps({"status": "error", "error": f"Invalid delivery_channel: {delivery_channel}. Must be email, imessage, notification, or teams."})
 
         # Parse delivery_config
         parsed_delivery_config = None
@@ -151,7 +151,7 @@ def register(mcp, state):
             enabled: Enable or disable the task
             schedule_config: New schedule config (JSON string)
             handler_config: New handler config (JSON string)
-            delivery_channel: Channel to deliver results: email, imessage, notification, or "none" to clear
+            delivery_channel: Channel to deliver results: email, imessage, notification, teams, or "none" to clear
             delivery_config: JSON config for delivery channel
         """
         memory_store = state.memory_store
@@ -177,8 +177,8 @@ def register(mcp, state):
             if delivery_channel == "none":
                 kwargs["delivery_channel"] = None
                 kwargs["delivery_config"] = None
-            elif delivery_channel not in ("email", "imessage", "notification"):
-                return json.dumps({"status": "error", "error": f"Invalid delivery_channel: {delivery_channel}. Must be email, imessage, notification, or none."})
+            elif delivery_channel not in ("email", "imessage", "notification", "teams"):
+                return json.dumps({"status": "error", "error": f"Invalid delivery_channel: {delivery_channel}. Must be email, imessage, notification, teams, or none."})
             else:
                 kwargs["delivery_channel"] = delivery_channel
         if delivery_config:
@@ -248,6 +248,8 @@ def register(mcp, state):
             handler_result = await asyncio.to_thread(
                 execute_handler, task.handler_type, task.handler_config,
                 memory_store,
+                agent_registry=state.agent_registry,
+                document_store=state.document_store,
             )
             task_result["result"] = handler_result
 

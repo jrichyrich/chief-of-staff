@@ -169,12 +169,11 @@ class TestSendIMessagesTool:
         result = await send_imessage_reply(to="self", body="Done", confirm_send=True)
         data = json.loads(result)
         assert data["status"] == "sent"
-        messages_state.send_message.assert_called_once_with(
-            to="self",
-            body="Done",
-            confirm_send=True,
-            chat_identifier="",
-        )
+        # "self" is resolved to actual handle via JARVIS_IMESSAGE_SELF env or identity lookup
+        call_kwargs = messages_state.send_message.call_args[1]
+        assert call_kwargs["body"] == "Done"
+        assert call_kwargs["confirm_send"] is True
+        assert call_kwargs["chat_identifier"] == ""
 
     @pytest.mark.asyncio
     async def test_send_by_chat_identifier(self, messages_state):

@@ -10,6 +10,8 @@ import sys
 
 import config as app_config
 
+from .decorators import tool_errors
+
 logger = logging.getLogger(__name__)
 
 _browser = None
@@ -34,6 +36,7 @@ def register(mcp, state):
     """Register web browser tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_open(url: str) -> str:
         """Open a URL in the agent-browser.
 
@@ -53,6 +56,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_snapshot() -> str:
         """Get an accessibility tree snapshot of the current page.
 
@@ -71,6 +75,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_click(ref: str) -> str:
         """Click an element by its reference ID from a snapshot.
 
@@ -87,6 +92,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_fill(ref: str, value: str) -> str:
         """Fill an input field identified by its reference ID.
 
@@ -104,6 +110,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_get_text(ref: str) -> str:
         """Extract text content from an element by its reference ID.
 
@@ -120,6 +127,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_screenshot() -> str:
         """Capture a screenshot of the current page.
 
@@ -135,6 +143,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_execute_js(code: str) -> str:
         """Execute JavaScript in the current page context.
 
@@ -151,6 +160,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_scroll(direction: str, pixels: int | None = None) -> str:
         """Scroll the page in a given direction.
 
@@ -171,6 +181,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_state_save(name: str) -> str:
         """Save the browser's authentication and cookie state.
 
@@ -183,9 +194,16 @@ def register(mcp, state):
         """
         from browser.agent_browser import AgentBrowserError
 
+        # Sanitize name to prevent directory traversal
+        if not name or "/" in name or "\\" in name or ".." in name or "\0" in name:
+            return json.dumps({"status": "error", "error": "Invalid state name: must not contain path separators, '..', or null bytes"})
+
         state_dir = app_config.AGENT_BROWSER_DATA_DIR / "states"
         state_dir.mkdir(parents=True, exist_ok=True)
-        path = str(state_dir / f"{name}.json")
+        resolved = (state_dir / f"{name}.json").resolve()
+        if not resolved.parent == state_dir.resolve():
+            return json.dumps({"status": "error", "error": "Invalid state name: path escapes state directory"})
+        path = str(resolved)
 
         browser = state.agent_browser or _get_browser()
         try:
@@ -195,6 +213,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_state_load(name: str) -> str:
         """Load a previously saved browser state by name.
 
@@ -206,8 +225,15 @@ def register(mcp, state):
         """
         from browser.agent_browser import AgentBrowserError
 
+        # Sanitize name to prevent directory traversal
+        if not name or "/" in name or "\\" in name or ".." in name or "\0" in name:
+            return json.dumps({"status": "error", "error": "Invalid state name: must not contain path separators, '..', or null bytes"})
+
         state_dir = app_config.AGENT_BROWSER_DATA_DIR / "states"
-        path = str(state_dir / f"{name}.json")
+        resolved = (state_dir / f"{name}.json").resolve()
+        if not resolved.parent == state_dir.resolve():
+            return json.dumps({"status": "error", "error": "Invalid state name: path escapes state directory"})
+        path = str(resolved)
 
         browser = state.agent_browser or _get_browser()
         try:
@@ -217,6 +243,7 @@ def register(mcp, state):
             return json.dumps({"status": "error", "error": str(exc)})
 
     @mcp.tool()
+    @tool_errors("Web browser error")
     async def web_find(locator: str, value: str, text: str | None = None) -> str:
         """Find an element semantically without needing a snapshot ref ID.
 

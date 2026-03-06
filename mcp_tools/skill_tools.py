@@ -4,6 +4,7 @@ import json
 import logging
 
 from memory.models import SkillSuggestion
+from .decorators import tool_errors
 from .state import _retry_on_transient
 
 logger = logging.getLogger("jarvis-mcp")
@@ -13,6 +14,7 @@ def register(mcp, state):
     """Register skill tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("Skill error")
     async def record_tool_usage(tool_name: str, query_pattern: str) -> str:
         """Record a tool usage pattern for skill analysis.
 
@@ -29,6 +31,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to record usage: {e}"})
 
     @mcp.tool()
+    @tool_errors("Skill error")
     async def analyze_skill_patterns() -> str:
         """Analyze recorded tool usage patterns and generate skill suggestions.
 
@@ -66,6 +69,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to analyze patterns: {e}"})
 
     @mcp.tool()
+    @tool_errors("Skill error")
     async def list_skill_suggestions(status: str = "pending") -> str:
         """List skill suggestions filtered by status.
 
@@ -95,6 +99,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to list suggestions: {e}"})
 
     @mcp.tool()
+    @tool_errors("Skill error")
     async def auto_create_skill(suggestion_id: int) -> str:
         """Accept a skill suggestion and create an agent from it using AgentFactory.
 
@@ -130,6 +135,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to create skill: {e}"})
 
     @mcp.tool()
+    @tool_errors("Skill error")
     async def auto_execute_skills() -> str:
         """Auto-create agents from high-confidence pending skill suggestions.
 
@@ -154,6 +160,7 @@ def register(mcp, state):
             return json.dumps({"error": f"Failed to auto-execute skills: {e}"})
 
     @mcp.tool()
+    @tool_errors("Skill error")
     async def get_tool_statistics(tool_name: str = "") -> str:
         """Get usage statistics for Jarvis MCP tools.
 

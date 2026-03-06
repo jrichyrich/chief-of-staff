@@ -49,17 +49,24 @@ def _format_alerts(results):
     """Add formatted text to alert results."""
     try:
         from formatter.cards import render as render_card
-        alerts = results.get("alerts", [])
+        alerts = results.get("alerts", {})
         if not alerts:
             results["formatted"] = ""
             return results
         fields = {}
-        for i, alert in enumerate(alerts):
-            fields[f"Alert {i+1}"] = alert.get("message", str(alert))
+        for category, items in alerts.items():
+            if items:
+                fields[category] = f"{len(items)} item(s)"
+                for i, item in enumerate(items):
+                    label = item.get("title") or item.get("task") or str(item)
+                    fields[f"  {category} #{i+1}"] = label
+        if not fields:
+            results["formatted"] = ""
+            return results
         results["formatted"] = render_card(
             title="Active Alerts",
             fields=fields,
-            status="red" if len(alerts) > 0 else "green",
+            status="red" if fields else "green",
             mode="plain",
         )
     except Exception:

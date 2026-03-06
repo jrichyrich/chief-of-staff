@@ -13,6 +13,8 @@ from pathlib import Path
 
 import config as app_config
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-mcp")
 
 # Allowed file extensions for downloaded files (security guard)
@@ -46,6 +48,7 @@ def register(mcp, state):
     """Register SharePoint download tools with the MCP server."""
 
     @mcp.tool()
+    @tool_errors("SharePoint error")
     async def download_from_sharepoint(
         sharepoint_url: str,
         destination_dir: str = "",

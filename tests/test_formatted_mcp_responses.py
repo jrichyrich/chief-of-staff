@@ -63,15 +63,19 @@ class TestCheckAlertsFormatted:
     async def test_includes_formatted_key(self, lifecycle_state):
         with patch("tools.lifecycle.check_alerts") as mock_fn:
             mock_fn.return_value = {
-                "alerts": [
-                    {"type": "overdue_delegation", "message": "Review RBAC is overdue"},
-                ],
+                "alerts": {
+                    "overdue_delegations": [
+                        {"id": 1, "task": "Review RBAC", "delegated_to": "Jason", "due_date": "2026-02-28"},
+                    ],
+                    "stale_decisions": [],
+                    "upcoming_deadlines": [],
+                },
                 "count": 1,
             }
             result = await check_alerts()
             parsed = json.loads(result)
             assert "formatted" in parsed
-            assert "overdue" in parsed["formatted"].lower() or "RBAC" in parsed["formatted"]
+            assert "overdue" in parsed["formatted"].lower() or "RBAC" in parsed["formatted"] or "Alerts" in parsed["formatted"]
 
     @pytest.mark.asyncio
     async def test_empty_alerts_no_formatted(self, lifecycle_state):

@@ -554,9 +554,9 @@ class TestMailToolsSmoke:
             "body": "Hello",
         })
         assert isinstance(result, dict)
-        # Verify confirm_send=False safety (agents must never auto-send)
+        # Agents dispatch with confirm_send=True (dispatch decision is the confirmation gate)
         call_kwargs = mail_store.send_message.call_args[1]
-        assert call_kwargs["confirm_send"] is False
+        assert call_kwargs["confirm_send"] is True
 
     def test_send_email_with_cc_bcc(self, agent, mail_store):
         agent._dispatch_tool("send_email", {
@@ -674,12 +674,45 @@ class TestReturnTypes:
         "web_get_text": {"ref": "@e1"},
         "web_screenshot": {},
         "web_execute_js": {"code": "1+1"},
+        "web_scroll": {"direction": "down"},
+        "web_find": {"text": "test"},
+        "web_state_save": {"name": "test"},
+        "web_state_load": {"name": "test"},
+        "find_my_open_slots": {"start_date": "2026-03-01", "end_date": "2026-03-02"},
+        "find_group_availability": {"participants": "a@b.com", "start_date": "2026-03-01", "end_date": "2026-03-02"},
+        "open_teams_browser": {},
+        "post_teams_message": {"channel": "test", "message": "hi"},
+        "confirm_teams_post": {},
+        "cancel_teams_post": {},
+        "close_teams_browser": {},
+        "get_agent_memory": {"agent_name": "test"},
+        "clear_agent_memory": {"agent_name": "test"},
+        "list_inbound_events": {},
+        "get_event_summary": {},
+        "get_proactive_suggestions": {},
+        "dismiss_suggestion": {"category": "test", "title": "test"},
+        "list_webhook_events": {},
+        "get_webhook_event": {"event_id": -1},
+        "process_webhook_event": {"event_id": -1},
+        "list_scheduled_tasks": {},
+        "get_scheduler_status": {},
+        "create_scheduled_task": {"name": "test", "handler_type": "alert_eval", "schedule_type": "interval", "schedule_config": '{"hours": 1}'},
+        "update_scheduled_task": {"task_id": -1},
+        "delete_scheduled_task": {"task_id": -1},
+        "run_scheduled_task": {"task_id": -1},
+        "list_skill_suggestions": {},
+        "record_tool_usage": {"tool_name": "test", "query_pattern": "test"},
+        "analyze_skill_patterns": {},
+        "auto_create_skill": {"suggestion_id": -1},
     }
 
-    # Web browser tools are async — they return coroutines from sync dispatch
+    # Web browser and Teams tools are async — they return coroutines from sync dispatch
     _ASYNC_TOOLS = {
         "web_open", "web_snapshot", "web_click", "web_fill",
         "web_get_text", "web_screenshot", "web_execute_js",
+        "web_scroll", "web_find", "web_state_save", "web_state_load",
+        "open_teams_browser", "post_teams_message", "confirm_teams_post",
+        "cancel_teams_post", "close_teams_browser",
     }
 
     def test_all_handlers_return_dict_or_list(self, agent):

@@ -3,6 +3,7 @@
 import json
 import logging
 
+from .decorators import tool_errors
 from .state import _retry_on_transient
 
 logger = logging.getLogger("jarvis-mcp")
@@ -15,6 +16,7 @@ def register(mcp, state):
     """Register webhook tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("Webhook error")
     async def list_webhook_events(
         status: str = "", source: str = "", limit: int = 50
     ) -> str:
@@ -53,6 +55,7 @@ def register(mcp, state):
         return json.dumps({"results": results, "count": len(results)})
 
     @mcp.tool()
+    @tool_errors("Webhook error")
     async def get_webhook_event(event_id: int) -> str:
         """Get full details of a webhook event including its payload.
 
@@ -82,6 +85,7 @@ def register(mcp, state):
         })
 
     @mcp.tool()
+    @tool_errors("Webhook error")
     async def process_webhook_event(event_id: int) -> str:
         """Mark a webhook event as processed.
 

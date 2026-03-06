@@ -7,6 +7,8 @@ from pathlib import Path
 
 import config as app_config
 
+from .decorators import tool_errors
+
 logger = logging.getLogger("jarvis-mcp")
 
 
@@ -18,6 +20,7 @@ def register(mcp, state):
     """Register playbook tools with the FastMCP server."""
 
     @mcp.tool()
+    @tool_errors("Playbook error")
     async def list_playbooks() -> str:
         """List all available team playbooks.
 
@@ -39,6 +42,7 @@ def register(mcp, state):
         })
 
     @mcp.tool()
+    @tool_errors("Playbook error")
     async def get_playbook(name: str) -> str:
         """Get details of a specific playbook including its workstreams and inputs.
 
@@ -64,6 +68,7 @@ def register(mcp, state):
         })
 
     @mcp.tool()
+    @tool_errors("Playbook error")
     async def execute_playbook(
         name: str,
         inputs: str = "{}",

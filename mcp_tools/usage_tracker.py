@@ -98,9 +98,23 @@ def install_usage_tracker(mcp, state):
             except Exception:
                 logger.debug("Failed to record usage for %s", name, exc_info=True)
 
+            # Fire before_tool_call hooks
+            hook_registry = getattr(state, "hook_registry", None)
+            if hook_registry is not None:
+                try:
+                    from hooks.registry import build_tool_context, extract_transformed_args
+                    before_ctx = build_tool_context(name, arguments or {})
+                    hook_results = hook_registry.fire_hooks("before_tool_call", before_ctx)
+                    transformed = extract_transformed_args(hook_results)
+                    if transformed is not None:
+                        arguments = transformed
+                except Exception:
+                    logger.debug("before_tool_call hooks failed for %s", name, exc_info=True)
+
             # Execute tool and log individual invocation
             start = time.monotonic()
             success = True
+            result = None
             response_size_bytes = None
             try:
                 result = await original_call_tool(name, arguments, **kwargs)
@@ -126,6 +140,28 @@ def install_usage_tracker(mcp, state):
                         )
                 except Exception:
                     logger.debug("Failed to log invocation for %s", name, exc_info=True)
+
+                # Fire after_tool_call hooks
+                if hook_registry is not None:
+                    try:
+                        from hooks.registry import build_tool_context
+                        after_ctx = build_tool_context(
+                            name, arguments or {},
+                            result=result if success else None,
+                        )
+                        after_ctx["success"] = success
+                        after_ctx["duration_ms"] = duration_ms
+                        hook_registry.fire_hooks("after_tool_call", after_ctx)
+                    except Exception:
+                        logger.debug("after_tool_call hooks failed for %s", name, exc_info=True)
+
+                # Record tool call in session health
+                try:
+                    session_health = getattr(state, "session_health", None)
+                    if session_health is not None:
+                        session_health.record_tool_call()
+                except Exception:
+                    logger.debug("Failed to record tool call in session health", exc_info=True)
         else:
             return await original_call_tool(name, arguments, **kwargs)
 

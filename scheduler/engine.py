@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from memory.models import ScheduleType
-from scheduler.handlers import execute_handler, _validate_custom_command  # noqa: F401
+from scheduler.handlers import execute_handler, _parse_json_config, _validate_custom_command  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 class CronExpression:
     """Minimal cron expression parser supporting: minute hour day month weekday.
+
+    **Weekday convention**: Uses Python's ``datetime.weekday()`` numbering
+    (0=Monday ... 6=Sunday), which differs from standard cron (0=Sunday).
+    For example, ``0 8 * * 0-4`` matches Monday--Friday 08:00, not
+    Sunday--Thursday.
 
     Supports:
       - Exact values: 5
@@ -37,7 +42,11 @@ class CronExpression:
         self.hour = self._parse_field(parts[1], 0, 23)
         self.day = self._parse_field(parts[2], 1, 31)
         self.month = self._parse_field(parts[3], 1, 12)
-        self.weekday = self._parse_field(parts[4], 0, 6)  # 0=Monday
+        # NOTE: Weekday uses Python's datetime.weekday() convention where 0=Monday,
+        # NOT standard cron convention where 0=Sunday. This divergence is intentional
+        # to match Python's native weekday numbering. Users writing cron expressions
+        # should use: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun.
+        self.weekday = self._parse_field(parts[4], 0, 6)  # 0=Mon ... 6=Sun
 
     @staticmethod
     def _parse_field(field: str, min_val: int, max_val: int) -> set[int]:
@@ -133,17 +142,6 @@ def calculate_next_run(
 
     else:
         raise ValueError(f"Unknown schedule_type: {schedule_type}")
-
-
-def _parse_json_config(config_str: str) -> dict:
-    """Safely parse a JSON config string."""
-    if not config_str or not config_str.strip():
-        return {}
-    try:
-        value = json.loads(config_str)
-    except json.JSONDecodeError:
-        return {}
-    return value if isinstance(value, dict) else {}
 
 
 # --- Scheduler Engine ---

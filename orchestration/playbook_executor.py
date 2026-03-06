@@ -32,16 +32,12 @@ async def _dispatch_workstream(
         pass
 
     if config is None:
-        # Fallback: use first agent with non-empty capabilities
-        all_agents = agent_registry.list_agents()
-        for a in all_agents:
-            if a.capabilities:
-                config = a
-                break
-
-    if config is None:
+        logger.warning(
+            "No agent named '%s' found for workstream; no fallback will be used.",
+            workstream.name,
+        )
         return json.dumps({
-            "dispatches": [{"agent_name": workstream.name, "status": "error", "result": "No suitable agent found"}],
+            "dispatches": [{"agent_name": workstream.name, "status": "error", "result": f"No agent named '{workstream.name}' found in registry"}],
             "summary": "No agent available",
         })
 

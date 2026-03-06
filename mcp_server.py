@@ -17,7 +17,6 @@ from agents.registry import AgentRegistry
 from apple_calendar.eventkit import CalendarStore
 from apple_mail.mail import MailStore
 from apple_messages.messages import MessageStore
-from apple_notifications.notifier import Notifier
 from apple_reminders.eventkit import ReminderStore
 from connectors.calendar_unified import UnifiedCalendarService
 from connectors.claude_m365_bridge import ClaudeM365Bridge
@@ -194,7 +193,6 @@ async def app_lifespan(server: FastMCP):
     logger.info("Jarvis MCP server initialized")
 
     # Fire session_start hooks
-    from hooks.registry import build_tool_context
     hook_registry.fire_hooks("session_start", {"event": "session_start"})
 
     try:
