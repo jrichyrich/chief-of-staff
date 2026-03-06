@@ -255,6 +255,7 @@ In the **main Claude Code conversation** (not inside a subagent), `get_agent_as_
 | Task Pattern | Agent | Key External Sources |
 |-------------|-------|---------------------|
 | "daily briefing", "morning brief" | `daily_briefing` | M365 Calendar + Email + Teams, Apple Calendar, iMessage, Jarvis memory |
+| "weekly brief for Theresa", "CIO update", "brief for Theresa" | `weekly_cio_briefing` | OKR SharePoint refresh, M365 Calendar + Email + Teams, Jarvis delegations + decisions + alerts + memory |
 | "meeting prep", "talking points for" | `meeting_prep` | M365 Email + Teams, Confluence, Jarvis memory + decisions + delegations |
 | "security metrics", "security posture" | `security_metrics` | security-metrics-vacuum MCP, Jarvis memory + webhooks |
 | "project status", "track project" | `project_manager` | Jira, Confluence, M365 Email, Jarvis delegations + decisions |
