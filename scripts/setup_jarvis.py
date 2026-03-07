@@ -604,6 +604,7 @@ _LAUNCH_SH_ITERM2 = r"""#!/bin/bash
 # Launch iTerm2 with Claude Code in chief_of_staff project
 # Uses "Jarvis" profile (frosted glass Material theme)
 # --teammate-mode tmux lets Claude manage tmux panes for agent splits
+# Auto-schedules startup loops after Claude boots
 
 osascript <<'APPLESCRIPT'
 tell application "iTerm2"
@@ -615,6 +616,10 @@ tell application "iTerm2"
     tell current session of newWindow
         set name to "Jarvis — Chief of Staff"
         write text "cd {project_dir} && clear && {banner_path} && sleep 2 && {claude_bin} --dangerously-skip-permissions --teammate-mode tmux"
+
+        -- Wait for Claude to boot, then schedule startup loops
+        delay 15
+        write text "/startup-loops"
     end tell
 end tell
 APPLESCRIPT
@@ -623,6 +628,7 @@ APPLESCRIPT
 _LAUNCH_SH_TERMINAL = r"""#!/bin/bash
 # Launch Terminal.app with Claude Code in chief_of_staff project
 # --teammate-mode tmux lets Claude manage tmux panes for agent splits
+# Auto-schedules startup loops after Claude boots
 
 osascript <<'APPLESCRIPT'
 tell application "Terminal"
@@ -631,6 +637,9 @@ tell application "Terminal"
     do script jarvisCmd
     -- Set the window title
     set custom title of front window to "Jarvis — Chief of Staff"
+    -- Wait for Claude to boot, then schedule startup loops
+    delay 15
+    do script "/startup-loops" in front window
 end tell
 APPLESCRIPT
 """
