@@ -26,6 +26,7 @@ _BRIEF_KEYS = {"date", "calendar", "action_items", "conflicts", "email_highlight
 def _maybe_format_brief(result_text: str) -> str:
     """If result_text is JSON with daily-brief keys, render via formatter.
 
+    Also unwraps morning_brief handler JSON envelopes to extract the markdown brief.
     Returns the original text unchanged if it's not brief-like JSON.
     """
     import json as _json
@@ -34,7 +35,14 @@ def _maybe_format_brief(result_text: str) -> str:
     except (ValueError, TypeError):
         return result_text
 
-    if not isinstance(data, dict) or not (_BRIEF_KEYS & set(data.keys())):
+    if not isinstance(data, dict):
+        return result_text
+
+    # Unwrap morning_brief handler envelope: {"status": "ok", "handler": "morning_brief", "brief": "..."}
+    if data.get("handler") == "morning_brief" and data.get("status") == "ok" and "brief" in data:
+        return data["brief"]
+
+    if not (_BRIEF_KEYS & set(data.keys())):
         return result_text
 
     try:
