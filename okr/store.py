@@ -4,8 +4,29 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
-from okr.models import Initiative, KeyResult, OKRSnapshot, Objective
+from okr.models import Initiative, KeyResult, OKRSnapshot, Objective, KR_WEIGHT, INITIATIVE_WEIGHT
 from utils.atomic import atomic_write, locked_read
+
+
+def _compute_blended(key_results: list, initiatives: list, okr_id: str) -> dict:
+    """Compute kr_avg_pct, initiative_avg_pct, and blended_pct for a single OKR.
+
+    Filters key_results and initiatives by okr_id, averages their pct_complete,
+    then applies the blended formula: (KR_avg * KR_WEIGHT) + (Initiative_avg * INITIATIVE_WEIGHT).
+    Returns a dict with kr_avg_pct, initiative_avg_pct, and blended_pct (all rounded to 2dp).
+    """
+    okr_krs = [kr for kr in key_results if kr["okr_id"] == okr_id]
+    okr_inits = [i for i in initiatives if i["okr_id"] == okr_id]
+
+    kr_avg = round(sum(kr["pct_complete"] for kr in okr_krs) / len(okr_krs), 2) if okr_krs else 0.0
+    init_avg = round(sum(i["pct_complete"] for i in okr_inits) / len(okr_inits), 2) if okr_inits else 0.0
+    blended = round((kr_avg * KR_WEIGHT) + (init_avg * INITIATIVE_WEIGHT), 2)
+
+    return {
+        "kr_avg_pct": kr_avg,
+        "initiative_avg_pct": init_avg,
+        "blended_pct": blended,
+    }
 
 
 class OKRStore:
@@ -98,6 +119,17 @@ class OKRStore:
                 or text_lower in i["description"].lower()
             ]
 
+        # Enrich each objective with computed blended percentages.
+        # Use the full (unfiltered) key_results and initiatives lists so that
+        # averages are always computed over all items belonging to the OKR,
+        # regardless of any active filters on the sibling lists.
+        all_key_results = [asdict(kr) for kr in snapshot.key_results]
+        all_initiatives = [asdict(i) for i in snapshot.initiatives]
+        for o in objectives:
+            computed = _compute_blended(all_key_results, all_initiatives, o["okr_id"])
+            o.update(computed)
+            o["pct_complete"] = computed["blended_pct"]
+
         return {
             "objectives": objectives,
             "key_results": key_results,
@@ -124,15 +156,23 @@ class OKRStore:
         blocked = sum(1 for o in snapshot.objectives if o.status == "Blocked")
         total_investment = sum(i.investment_dollars for i in snapshot.initiatives)
 
-        objectives_summary = [
-            {
-                "okr_id": o.okr_id,
-                "name": o.name,
-                "status": o.status,
-                "pct_complete": o.pct_complete,
-            }
-            for o in snapshot.objectives
-        ]
+        all_key_results = [asdict(kr) for kr in snapshot.key_results]
+        all_initiatives = [asdict(i) for i in snapshot.initiatives]
+
+        objectives_summary = []
+        for o in snapshot.objectives:
+            computed = _compute_blended(all_key_results, all_initiatives, o.okr_id)
+            objectives_summary.append(
+                {
+                    "okr_id": o.okr_id,
+                    "name": o.name,
+                    "status": o.status,
+                    "kr_avg_pct": computed["kr_avg_pct"],
+                    "initiative_avg_pct": computed["initiative_avg_pct"],
+                    "blended_pct": computed["blended_pct"],
+                    "pct_complete": computed["blended_pct"],  # backward compat; replaces stale Objectives tab value
+                }
+            )
 
         return {
             "objectives_count": len(snapshot.objectives),

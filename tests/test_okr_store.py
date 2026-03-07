@@ -2,7 +2,7 @@
 import pytest
 from pathlib import Path
 
-from okr.models import Objective, KeyResult, Initiative, OKRSnapshot
+from okr.models import Objective, KeyResult, Initiative, OKRSnapshot, KR_WEIGHT, INITIATIVE_WEIGHT
 from okr.store import OKRStore
 
 
@@ -138,7 +138,9 @@ def test_executive_summary(store, sample_snapshot):
     assert obj1_summary["okr_id"] == "OKR 1"
     assert obj1_summary["name"] == "Security Controls"
     assert obj1_summary["status"] == "On Track"
-    assert obj1_summary["pct_complete"] == 15
+    # pct_complete is now the blended value: (kr_avg * 0.6) + (initiative_avg * 0.4)
+    # KR avg = (10+20)/2 = 15.0, Initiative avg = (5+10+20)/3 = 11.67 → blended = 13.67
+    assert obj1_summary["pct_complete"] == pytest.approx(13.67, abs=0.01)
 
 
 def test_executive_summary_no_data(store):
@@ -151,3 +153,132 @@ def test_executive_summary_no_data(store):
     assert summary["at_risk"] == 0
     assert summary["blocked"] == 0
     assert summary["objectives_summary"] == []
+
+
+# ---------------------------------------------------------------------------
+# Blended % complete tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def blended_snapshot() -> OKRSnapshot:
+    """Snapshot with precisely controlled KR and Initiative pct_complete values.
+
+    OKR-A:
+      KRs:          pct_complete = 0.10, 0.30  → kr_avg = 0.20
+      Initiatives:  pct_complete = 0.20, 0.40  → initiative_avg = 0.30
+      Expected blended = (0.20 * 0.6) + (0.30 * 0.4) = 0.12 + 0.12 = 0.24
+    """
+    return OKRSnapshot(
+        timestamp="2026-03-06T08:00:00",
+        source_file="synthetic.xlsx",
+        objectives=[
+            Objective("OKR-A", "Blended Test", "Test blending", "Tester", "QA", "2026", "On Track", 0.99),
+        ],
+        key_results=[
+            KeyResult("KR-A1", "OKR-A", "KR One", "On Track", 0.10, owner="Tester", team="QA"),
+            KeyResult("KR-A2", "OKR-A", "KR Two", "On Track", 0.30, owner="Tester", team="QA"),
+        ],
+        initiatives=[
+            Initiative("ISP-A1", "KR-A1", "OKR-A", "Initiative One", 0.20, "On Track", owner="Tester", team="QA"),
+            Initiative("ISP-A2", "KR-A2", "OKR-A", "Initiative Two", 0.40, "On Track", owner="Tester", team="QA"),
+        ],
+    )
+
+
+def test_blended_weights_constants():
+    """KR_WEIGHT and INITIATIVE_WEIGHT must match the documented formula."""
+    assert KR_WEIGHT == 0.6
+    assert INITIATIVE_WEIGHT == 0.4
+    assert KR_WEIGHT + INITIATIVE_WEIGHT == pytest.approx(1.0)
+
+
+def test_executive_summary_uses_blended_pct(store, blended_snapshot):
+    """blended_pct must equal (kr_avg * 0.6) + (initiative_avg * 0.4), not the cached Objective tab value."""
+    store.save(blended_snapshot)
+    summary = store.executive_summary()
+
+    obj_summary = summary["objectives_summary"][0]
+    assert obj_summary["okr_id"] == "OKR-A"
+
+    # KR avg = (0.10 + 0.30) / 2 = 0.20; Initiative avg = (0.20 + 0.40) / 2 = 0.30
+    expected_blended = round((0.20 * 0.6) + (0.30 * 0.4), 2)  # == 0.24
+    assert obj_summary["blended_pct"] == pytest.approx(expected_blended, abs=1e-9)
+
+    # The stale cached value (0.99) must NOT be used as blended_pct
+    assert obj_summary["blended_pct"] != pytest.approx(0.99)
+
+
+def test_executive_summary_exposes_kr_and_initiative_avg(store, blended_snapshot):
+    """objectives_summary entries must expose kr_avg_pct and initiative_avg_pct separately."""
+    store.save(blended_snapshot)
+    summary = store.executive_summary()
+
+    obj_summary = summary["objectives_summary"][0]
+    assert "kr_avg_pct" in obj_summary
+    assert "initiative_avg_pct" in obj_summary
+
+    assert obj_summary["kr_avg_pct"] == pytest.approx(0.20, abs=1e-9)
+    assert obj_summary["initiative_avg_pct"] == pytest.approx(0.30, abs=1e-9)
+
+
+def test_executive_summary_empty_initiatives(store):
+    """When an OKR has KRs but no initiatives, blended_pct = kr_avg * 0.6 (initiative_avg = 0.0)."""
+    snapshot = OKRSnapshot(
+        timestamp="2026-03-06T08:00:00",
+        source_file="synthetic.xlsx",
+        objectives=[
+            Objective("OKR-B", "No Initiatives", "Test", "Tester", "QA", "2026", "On Track", 0.0),
+        ],
+        key_results=[
+            KeyResult("KR-B1", "OKR-B", "Only KR", "On Track", 0.50, owner="Tester", team="QA"),
+        ],
+        initiatives=[],
+    )
+    store.save(snapshot)
+    summary = store.executive_summary()
+
+    obj_summary = summary["objectives_summary"][0]
+    assert obj_summary["kr_avg_pct"] == pytest.approx(0.50, abs=1e-9)
+    assert obj_summary["initiative_avg_pct"] == pytest.approx(0.0, abs=1e-9)
+    # blended = (0.50 * 0.6) + (0.0 * 0.4) = 0.30
+    assert obj_summary["blended_pct"] == pytest.approx(0.30, abs=1e-9)
+
+
+def test_executive_summary_empty_krs(store):
+    """When an OKR has initiatives but no KRs, blended_pct = initiative_avg * 0.4 (kr_avg = 0.0)."""
+    snapshot = OKRSnapshot(
+        timestamp="2026-03-06T08:00:00",
+        source_file="synthetic.xlsx",
+        objectives=[
+            Objective("OKR-C", "No KRs", "Test", "Tester", "QA", "2026", "On Track", 0.0),
+        ],
+        key_results=[],
+        initiatives=[
+            Initiative("ISP-C1", "", "OKR-C", "Only Initiative", 0.80, "On Track", owner="Tester", team="QA"),
+        ],
+    )
+    store.save(snapshot)
+    summary = store.executive_summary()
+
+    obj_summary = summary["objectives_summary"][0]
+    assert obj_summary["kr_avg_pct"] == pytest.approx(0.0, abs=1e-9)
+    assert obj_summary["initiative_avg_pct"] == pytest.approx(0.80, abs=1e-9)
+    # blended = (0.0 * 0.6) + (0.80 * 0.4) = 0.32
+    assert obj_summary["blended_pct"] == pytest.approx(0.32, abs=1e-9)
+
+
+def test_query_objectives_include_blended_pct(store, blended_snapshot):
+    """query() objective dicts must also contain blended_pct, kr_avg_pct, initiative_avg_pct."""
+    store.save(blended_snapshot)
+    result = store.query(okr_id="OKR-A")
+
+    assert len(result["objectives"]) == 1
+    obj = result["objectives"][0]
+
+    assert "blended_pct" in obj, "query() objectives must include blended_pct"
+    assert "kr_avg_pct" in obj, "query() objectives must include kr_avg_pct"
+    assert "initiative_avg_pct" in obj, "query() objectives must include initiative_avg_pct"
+
+    assert obj["blended_pct"] == pytest.approx(0.24, abs=1e-9)
+    assert obj["kr_avg_pct"] == pytest.approx(0.20, abs=1e-9)
+    assert obj["initiative_avg_pct"] == pytest.approx(0.30, abs=1e-9)

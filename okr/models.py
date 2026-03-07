@@ -1,6 +1,10 @@
 """Data models for OKR tracking."""
 from dataclasses import dataclass, field, asdict
 
+# Blended % Complete weights — matches Summary Dashboard formula: (KR_avg * 0.6) + (Initiative_avg * 0.4)
+KR_WEIGHT: float = 0.6
+INITIATIVE_WEIGHT: float = 0.4
+
 
 @dataclass
 class Objective:
