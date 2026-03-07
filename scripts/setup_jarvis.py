@@ -603,6 +603,7 @@ class CalendarPermsStep(SetupStep):
 _LAUNCH_SH_ITERM2 = r"""#!/bin/bash
 # Launch iTerm2 with Claude Code in chief_of_staff project
 # Uses "Jarvis" profile (frosted glass Material theme)
+# --teammate-mode tmux lets Claude manage tmux panes for agent splits
 
 osascript <<'APPLESCRIPT'
 tell application "iTerm2"
@@ -621,6 +622,7 @@ APPLESCRIPT
 
 _LAUNCH_SH_TERMINAL = r"""#!/bin/bash
 # Launch Terminal.app with Claude Code in chief_of_staff project
+# --teammate-mode tmux lets Claude manage tmux panes for agent splits
 
 osascript <<'APPLESCRIPT'
 tell application "Terminal"
