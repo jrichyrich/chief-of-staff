@@ -1,12 +1,6 @@
----
-name: startup-loops
-description: Schedule recurring monitoring loops from ~/.config/jarvis/startup-loops.txt. Run at session start or anytime with /startup-loops.
-user-invocable: true
----
+Schedule recurring monitoring loops from `~/.config/jarvis/startup-loops.txt`.
 
-# Startup Loops
-
-Read the file `~/.config/jarvis/startup-loops.txt` and schedule each loop using CronCreate.
+Read the file and schedule each loop using CronCreate.
 
 ## Steps
 
