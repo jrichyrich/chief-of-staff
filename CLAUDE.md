@@ -261,7 +261,7 @@ In the **main Claude Code conversation** (not inside a subagent), `get_agent_as_
 | "project status", "track project" | `project_manager` | Jira, Confluence, M365 Email, Jarvis delegations + decisions |
 | "draft email", "send message" | `communications` | M365 Email, Jarvis memory for contacts |
 | "incident summary", "postmortem" | `incident_summarizer` | Jira, M365 Teams, Jarvis memory + webhooks |
-| "weekly plan", "priorities this week" | `weekly_planner` | M365 Calendar + Email + Teams, Jarvis delegations + decisions + reminders |
+| "weekly plan", "priorities this week", "weekly planning brief" | `weekly_planner` | M365 Calendar + Email + Teams, OKR status, Jira, iMessages, Jarvis delegations + decisions + alerts + reminders + memory |
 | "delegation status", "follow up on" | `delegation_tracker` | M365 Email + Teams, Jarvis delegations |
 | "code review", "review this code" | `code_quality_reviewer` | Codebase (Claude Code native), Jarvis memory + docs |
 | "review project", "project health" | `project_review_board` | Codebase, Jarvis memory + docs |
