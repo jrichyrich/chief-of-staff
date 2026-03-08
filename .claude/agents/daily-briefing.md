@@ -106,4 +106,7 @@ End every briefing with the three most important things to accomplish today, dra
 | Reminders | `mcp__jarvis__list_reminders`, `mcp__jarvis__search_reminders` |
 | iMessages | `mcp__jarvis__get_imessages`, `mcp__jarvis__search_imessages` |
 | Documents | `mcp__jarvis__search_documents` |
+| Alerts | `mcp__jarvis__check_alerts` |
+| Email (Apple) | `mcp__jarvis__search_mail`, `mcp__jarvis__get_mail_messages` |
+| Shared memory | `mcp__jarvis__store_shared_memory`, `mcp__jarvis__get_shared_memory` |
 | Agent memory | `mcp__jarvis__get_agent_memory` |

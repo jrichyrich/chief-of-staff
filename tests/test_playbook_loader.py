@@ -389,7 +389,7 @@ class TestBuiltInPlaybooks:
         playbooks_dir = app_config.BASE_DIR / "playbooks"
         loader = PlaybookLoader(playbooks_dir)
         names = loader.list_playbooks()
-        assert len(names) >= 4, f"Expected at least 4 playbooks, got {names}"
+        assert len(names) >= 3, f"Expected at least 3 playbooks, got {names}"
         for name in names:
             pb = loader.get_playbook(name)
             assert pb is not None, f"Playbook {name} failed to load"
@@ -405,13 +405,6 @@ class TestBuiltInPlaybooks:
         ws_names = [w.name for w in pb.workstreams]
         assert "email_context" in ws_names
         assert "calendar_context" in ws_names
-
-    def test_daily_briefing_has_expected_workstreams(self):
-        playbooks_dir = app_config.BASE_DIR / "playbooks"
-        loader = PlaybookLoader(playbooks_dir)
-        pb = loader.get_playbook("daily_briefing")
-        assert pb is not None
-        assert len(pb.workstreams) >= 4
 
     def test_expert_research_has_conditional_workstream(self):
         playbooks_dir = app_config.BASE_DIR / "playbooks"

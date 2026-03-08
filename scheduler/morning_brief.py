@@ -19,7 +19,8 @@ from utils.subprocess import run_with_cleanup
 
 logger = logging.getLogger(__name__)
 
-# Defaults — overridable via handler_config
+# Defaults — model/timeout/project_dir overridable via handler_config;
+# claude_bin is hardcoded for security (SEC-01).
 _DEFAULT_CLAUDE_BIN = app_config.CLAUDE_BIN
 _DEFAULT_MODEL = app_config.MORNING_BRIEF_DEFAULT_MODEL
 _DEFAULT_TIMEOUT = app_config.MORNING_BRIEF_DEFAULT_TIMEOUT
@@ -66,28 +67,32 @@ def run_morning_brief(handler_config: str = "") -> str:
 
     Args:
         handler_config: JSON string with optional overrides:
-            - claude_bin: path to claude binary
             - model: Claude model to use (default: sonnet)
-            - timeout: max seconds to wait (default: 180)
-            - project_dir: project directory for MCP config
-            - prompt_extra: additional instructions appended to the prompt
+            - timeout: max seconds to wait (default: 360)
+            - project_dir: project directory for MCP config discovery
+
+        Security note: ``claude_bin``, ``mcp_config_override``, and
+        ``prompt_extra`` are intentionally **not** read from handler_config.
+        They are hardcoded / derived to prevent arbitrary binary execution
+        (SEC-01), malicious MCP config injection (SEC-02), and prompt
+        injection (SEC-03).
 
     Returns:
         JSON string with status and the brief text (or error).
     """
     config = _parse_config(handler_config)
 
-    claude_bin = config.get("claude_bin", _DEFAULT_CLAUDE_BIN)
+    # SEC-01: Always use the hardcoded default binary — never from user config.
+    claude_bin = _DEFAULT_CLAUDE_BIN
     model = config.get("model", _DEFAULT_MODEL)
     timeout = int(config.get("timeout", _DEFAULT_TIMEOUT))
     project_dir = config.get("project_dir", _DEFAULT_PROJECT_DIR)
-    prompt_extra = config.get("prompt_extra", "")
 
+    # SEC-03: Prompt is fixed — no user-supplied prompt_extra.
     prompt = _BRIEF_PROMPT
-    if prompt_extra:
-        prompt += f"\n\nAdditional instructions:\n{prompt_extra}"
 
-    mcp_config = config.get("mcp_config_override", "") or str(Path(project_dir) / ".mcp.json")
+    # SEC-02: MCP config always derived from project_dir — never overridden.
+    mcp_config = str(Path(project_dir) / ".mcp.json")
 
     # Pre-check: verify MCP config exists before spawning CLI
     if not Path(mcp_config).exists():

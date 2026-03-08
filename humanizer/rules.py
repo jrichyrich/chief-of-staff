@@ -22,18 +22,20 @@ def _build_rules() -> list[HumanizerRule]:
     """Build the default set of humanizer rules."""
     rules = []
 
-    # --- Em dash removal ---
+    # --- Em dash removal (context-aware) ---
+    # Only replace em dashes between word characters (not between digits,
+    # not at line starts) to preserve date ranges and markdown formatting.
     rules.append(HumanizerRule(
         name="em_dash",
-        pattern=re.compile(r"\s*\u2014\s*"),
+        pattern=re.compile(r"(?<=\w)\s*\u2014\s*(?=[a-zA-Z])"),
         replacement=", ",
-        description="Replace em dashes with commas",
+        description="Replace em dashes with commas (word-to-word only)",
     ))
     rules.append(HumanizerRule(
         name="double_hyphen_em_dash",
-        pattern=re.compile(r"\s*--\s*"),
+        pattern=re.compile(r"(?<=\w)\s*--\s*(?=[a-zA-Z])"),
         replacement=", ",
-        description="Replace double-hyphen em dashes with commas",
+        description="Replace double-hyphen em dashes with commas (word-to-word only)",
     ))
 
     # --- AI vocabulary swaps ---
@@ -199,11 +201,11 @@ def humanize(text: str | None, rules: list[HumanizerRule] | None = None) -> str:
     for rule in rules:
         result = rule.pattern.sub(rule.replacement, result)
 
-    # Clean up double spaces left by removals
-    result = re.sub(r"  +", " ", result)
+    # Clean up double spaces left by removals (only mid-line, preserve leading indent)
+    result = re.sub(r"(?<=\S)  +", " ", result)
     # Clean up space before punctuation
     result = re.sub(r" ([.,;:!?])", r"\1", result)
-    # Clean up leading space on lines
-    result = re.sub(r"(?m)^ +", "", result)
+    # NOTE: Leading spaces are NOT stripped — they are meaningful in markdown
+    # (nested lists, code blocks, indentation).
 
     return result.strip()

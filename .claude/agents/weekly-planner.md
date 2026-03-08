@@ -72,7 +72,7 @@ Run ALL of these searches concurrently — do not wait for one to finish before 
     - Initiatives with status changes since last week
     - Any initiative at risk of missing quarterly milestone
 
-11. **Jira** — Call `mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql` for:
+11. **Jira** — Call `mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql` for:
     - Issues assigned to Jason or his team with approaching deadlines
     - Blocked issues
     - High-priority issues updated in the last 7 days
@@ -239,7 +239,7 @@ Target **600-900 words** for core content. Use markdown formatting.
 
 1. Save the brief to `~/Documents/Jarvis/Weekly_Plans/YYYY-MM-DD_Weekly_Plan.md`
 2. Present a summary to the user for review
-3. Store the Top 3 priorities via `mcp__jarvis__store_fact` with key `weekly_priorities_MMDD` (category: work) so next week's retrospective can compare
+3. Store the Top 3 priorities via `mcp__jarvis__store_shared_memory` with key `weekly_priorities_MMDD` so next week's retrospective can compare
 4. If delivery is requested: email via `mcp__jarvis__send_email` and/or notify via `mcp__jarvis__send_imessage_reply`
 
 ## Related Agents
@@ -267,11 +267,11 @@ Target **600-900 words** for core content. Use markdown formatting.
 | Email (M365) | `mcp__claude_ai_Microsoft_365__outlook_email_search` |
 | Email (Apple) | `mcp__jarvis__search_mail`, `mcp__jarvis__get_mail_messages` |
 | Teams | `mcp__claude_ai_Microsoft_365__chat_message_search` |
-| Jira | `mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql` |
-| Confluence | `mcp__plugin_atlassian_atlassian__searchConfluenceUsingCql` |
+| Jira | `mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql` |
+| Confluence | `mcp__claude_ai_Atlassian__searchConfluenceUsingCql` |
 | OKR refresh | `mcp__jarvis__refresh_okr_from_sharepoint`, `mcp__jarvis__query_okr_status` |
 | Memory read | `mcp__jarvis__query_memory`, `mcp__jarvis__list_facts` |
-| Memory write | `mcp__jarvis__store_fact` |
+| Memory write | `mcp__jarvis__store_fact`, `mcp__jarvis__store_shared_memory` |
 | Delegations | `mcp__jarvis__list_delegations`, `mcp__jarvis__check_overdue_delegations` |
 | Decisions | `mcp__jarvis__list_pending_decisions`, `mcp__jarvis__search_decisions` |
 | Alerts | `mcp__jarvis__check_alerts` |
@@ -279,7 +279,7 @@ Target **600-900 words** for core content. Use markdown formatting.
 | iMessages | `mcp__jarvis__get_imessages`, `mcp__jarvis__search_imessages` |
 | Documents | `mcp__jarvis__search_documents` |
 | Proactive | `mcp__jarvis__get_proactive_suggestions` |
-| Agent memory | `mcp__jarvis__get_agent_memory`, `mcp__jarvis__store_fact` |
+| Agent memory | `mcp__jarvis__get_agent_memory`, `mcp__jarvis__store_shared_memory` |
 | People | `mcp__jarvis__enrich_person`, `mcp__jarvis__get_identity` |
 | Email send | `mcp__jarvis__send_email` |
 | iMessage send | `mcp__jarvis__send_imessage_reply` |

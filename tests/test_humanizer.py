@@ -9,15 +9,38 @@ from humanizer.rules import humanize, HumanizerRule, DEFAULT_RULES
 
 class TestEmDashRemoval:
     def test_em_dash_replaced_with_comma(self):
-        text = "The tool — which is powerful — works well"
+        text = "The tool \u2014 which is powerful \u2014 works well"
         result = humanize(text)
-        assert "\u2014" not in result
-        assert "tool," in result or "tool " in result
+        # Em dashes between words should be replaced
+        assert "tool, which" in result
 
     def test_double_hyphen_em_dash(self):
         text = "The tool -- which is great -- works"
         result = humanize(text)
         assert "--" not in result
+
+    def test_em_dash_between_digits_preserved(self):
+        """Em dashes in date ranges like 'March 2\u20146' should be preserved."""
+        text = "March 2\u20146"
+        result = humanize(text)
+        assert result == "March 2\u20146"
+
+    def test_double_hyphen_between_digits_preserved(self):
+        """Double hyphens in ranges like 'pages 10--20' should be preserved."""
+        text = "pages 10--20"
+        result = humanize(text)
+        assert result == "pages 10--20"
+
+    def test_em_dash_between_words_replaced(self):
+        """Em dashes between word characters should still be replaced."""
+        text = "word\u2014another"
+        result = humanize(text)
+        assert result == "word, another"
+
+    def test_double_hyphen_between_words_replaced(self):
+        text = "word--another"
+        result = humanize(text)
+        assert result == "word, another"
 
 
 class TestAIVocabulary:
@@ -142,3 +165,15 @@ class TestRuleStructure:
     def test_humanize_preserves_normal_text(self):
         text = "The server is running on port 8080."
         assert humanize(text) == text
+
+    def test_leading_spaces_preserved_for_markdown(self):
+        """Leading spaces are meaningful in markdown (nested lists, code blocks)."""
+        text = "- item\n  - sub item\n    - deep item"
+        result = humanize(text)
+        assert result == text
+
+    def test_double_spaces_still_cleaned(self):
+        """Double spaces left by removals should still be collapsed."""
+        text = "word  word"
+        result = humanize(text)
+        assert result == "word word"
