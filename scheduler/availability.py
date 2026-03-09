@@ -1,8 +1,13 @@
 """Availability analysis for finding open calendar slots."""
 
+import logging
 from datetime import datetime, time, timedelta
 from typing import Union
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
+
+_OOO_KEYWORDS = ("pto", "ooo", "out of office", "vacation", "holiday", "day off")
 
 
 def normalize_event_for_scheduler(event: dict) -> dict:
@@ -19,7 +24,8 @@ def normalize_event_for_scheduler(event: dict) -> dict:
 
     Returns:
         Normalized dict with: uid, title, start, end, calendar, provider,
-        is_all_day, attendees, location, notes
+        is_all_day, attendees, location, notes, show_as, is_cancelled,
+        response_status, start_tz, end_tz
     """
     # UID normalization
     uid = (
@@ -35,11 +41,17 @@ def normalize_event_for_scheduler(event: dict) -> dict:
 
     # Time normalization — handle M365 nested {"dateTime": ..., "timeZone": ...}
     start = event.get("start") or ""
+    start_tz = ""
     if isinstance(start, dict):
-        start = start.get("dateTime") or ""
+        start_dict = start
+        start = start_dict.get("dateTime") or ""
+        start_tz = start_dict.get("timeZone") or ""
     end = event.get("end") or ""
+    end_tz = ""
     if isinstance(end, dict):
-        end = end.get("dateTime") or ""
+        end_dict = end
+        end = end_dict.get("dateTime") or ""
+        end_tz = end_dict.get("timeZone") or ""
 
     # Calendar/provider normalization
     calendar = event.get("calendar") or ""
@@ -47,6 +59,15 @@ def normalize_event_for_scheduler(event: dict) -> dict:
 
     # All-day normalization
     is_all_day = event.get("is_all_day") or event.get("isAllDay") or False
+
+    # showAs / cancelled normalization
+    show_as = event.get("showAs") or event.get("show_as") or ""
+    is_cancelled = event.get("isCancelled") or event.get("is_cancelled") or False
+
+    # Response status normalization
+    response_status = event.get("responseStatus") or event.get("response_status") or ""
+    if isinstance(response_status, dict):
+        response_status = response_status.get("response") or ""
 
     # Attendees normalization - Apple vs M365 format
     raw_attendees = event.get("attendees") or []
@@ -90,17 +111,24 @@ def normalize_event_for_scheduler(event: dict) -> dict:
         "title": title,
         "start": start,
         "end": end,
+        "start_tz": start_tz,
+        "end_tz": end_tz,
         "calendar": calendar,
         "provider": provider,
         "is_all_day": is_all_day,
         "attendees": attendees,
         "location": location,
         "notes": notes,
+        "show_as": show_as,
+        "is_cancelled": is_cancelled,
+        "response_status": response_status,
     }
 
 
 def classify_event_softness(
-    event: dict, soft_keywords: list[str] | None = None
+    event: dict,
+    soft_keywords: list[str] | None = None,
+    user_email: str | None = None,
 ) -> dict:
     """Classify whether an event is 'soft' (movable) or 'hard' (fixed).
 
@@ -115,6 +143,7 @@ def classify_event_softness(
     Args:
         event: Normalized event dict from normalize_event_for_scheduler
         soft_keywords: Custom keyword list (optional)
+        user_email: If provided, only check this user's tentative status
 
     Returns:
         {is_soft: bool, reason: str, confidence: float}
@@ -153,7 +182,15 @@ def classify_event_softness(
             }
 
     # Check attendee status for tentative responses
-    for attendee in attendees:
+    check_attendees = attendees
+    if user_email:
+        user_email_lower = user_email.lower()
+        check_attendees = [
+            a for a in attendees
+            if (a.get("email") or "").lower() == user_email_lower
+        ]
+
+    for attendee in check_attendees:
         status = attendee.get("status")
         # Apple: status==3 is tentative
         if status == 3:
@@ -189,6 +226,8 @@ def find_available_slots(
     timezone_name: str = "America/Denver",
     include_soft_blocks: bool = True,
     soft_keywords: list[str] | None = None,
+    user_email: str | None = None,
+    block_ooo_all_day: bool = False,
 ) -> list[dict]:
     """Find available time slots in a date range, excluding hard calendar blocks.
 
@@ -196,7 +235,7 @@ def find_available_slots(
     1. Compute working window (working_hours_start to working_hours_end)
     2. Normalize all events, classify soft/hard
     3. If include_soft_blocks=True, treat soft blocks as available
-    4. Skip all-day events and zero-duration events
+    4. Skip all-day events (unless PTO/OOO with block_ooo_all_day)
     5. Compute gaps between hard blocks within working hours
     6. Filter gaps by minimum duration_minutes
 
@@ -210,6 +249,8 @@ def find_available_slots(
         timezone_name: Timezone name (default: America/Denver)
         include_soft_blocks: Treat soft blocks as available (default: True)
         soft_keywords: Custom soft keyword list (optional)
+        user_email: User email for scoping tentative checks (optional)
+        block_ooo_all_day: Block entire day for PTO/OOO all-day events (default: False)
 
     Returns:
         List of dicts: [{start: ISO str, end: ISO str, duration_minutes: int,
@@ -233,11 +274,19 @@ def find_available_slots(
     if end_dt.tzinfo is None:
         end_dt = end_dt.replace(tzinfo=tz)
 
+    # Filter out error payloads
+    clean_events = []
+    for event in events:
+        if isinstance(event, dict) and "error" in event:
+            logger.warning("Filtering out error payload from events: %s", event.get("error"))
+            continue
+        clean_events.append(event)
+
     # Normalize and classify all events
     normalized_events = []
-    for event in events:
+    for event in clean_events:
         normalized = normalize_event_for_scheduler(event)
-        classification = classify_event_softness(normalized, soft_keywords)
+        classification = classify_event_softness(normalized, soft_keywords, user_email)
         normalized["_softness"] = classification
         normalized_events.append(normalized)
 
@@ -253,32 +302,77 @@ def find_available_slots(
 
         # Collect hard blocks for this day
         hard_blocks = []
-        for event in normalized_events:
-            # Skip events we should treat as available
-            if include_soft_blocks and event["_softness"]["is_soft"]:
+        ooo_day_blocked = False
+        for normalized in normalized_events:
+            # Skip cancelled events
+            if normalized.get("is_cancelled"):
                 continue
 
-            # Skip all-day events
-            if event.get("is_all_day"):
+            # Skip events marked as "free"
+            if (normalized.get("show_as") or "").lower() == "free":
+                continue
+
+            # Skip declined events
+            if (normalized.get("response_status") or "").lower() == "declined":
+                continue
+
+            # Skip events we should treat as available (soft blocks)
+            if include_soft_blocks and normalized["_softness"]["is_soft"]:
+                continue
+
+            # Handle all-day events
+            if normalized.get("is_all_day"):
+                if block_ooo_all_day:
+                    title_lower = (normalized.get("title") or "").lower()
+                    if any(kw in title_lower for kw in _OOO_KEYWORDS):
+                        hard_blocks.append((day_start, day_end))
+                        ooo_day_blocked = True
+                continue
+
+            if ooo_day_blocked:
                 continue
 
             # Parse event times
-            event_start_str = event.get("start")
-            event_end_str = event.get("end")
+            event_start_str = normalized.get("start")
+            event_end_str = normalized.get("end")
             if not event_start_str or not event_end_str:
+                logger.debug(
+                    "Skipping event with missing start/end: %s",
+                    normalized.get("title") or normalized.get("uid") or "unknown",
+                )
                 continue
 
             try:
                 event_start = datetime.fromisoformat(event_start_str)
                 event_end = datetime.fromisoformat(event_end_str)
             except (ValueError, TypeError):
+                logger.debug(
+                    "Skipping event with unparseable time: %s",
+                    normalized.get("title") or "unknown",
+                )
                 continue
 
-            # Handle naive datetimes
+            # Handle naive datetimes — use event timezone if available
             if event_start.tzinfo is None:
-                event_start = event_start.replace(tzinfo=tz)
+                event_tz_name = normalized.get("start_tz") or ""
+                if event_tz_name:
+                    try:
+                        event_tz = ZoneInfo(event_tz_name)
+                        event_start = event_start.replace(tzinfo=event_tz)
+                    except (KeyError, ValueError):
+                        event_start = event_start.replace(tzinfo=tz)
+                else:
+                    event_start = event_start.replace(tzinfo=tz)
             if event_end.tzinfo is None:
-                event_end = event_end.replace(tzinfo=tz)
+                event_tz_name = normalized.get("end_tz") or ""
+                if event_tz_name:
+                    try:
+                        event_tz = ZoneInfo(event_tz_name)
+                        event_end = event_end.replace(tzinfo=event_tz)
+                    except (KeyError, ValueError):
+                        event_end = event_end.replace(tzinfo=tz)
+                else:
+                    event_end = event_end.replace(tzinfo=tz)
 
             # Convert to user timezone
             event_start = event_start.astimezone(tz)

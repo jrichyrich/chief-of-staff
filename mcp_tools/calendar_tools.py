@@ -319,7 +319,34 @@ def register(mcp, state):
         kwargs = {"calendar_names": calendar_names}
         if provider_preference and provider_preference != "auto":
             kwargs["provider_preference"] = provider_preference
-        events = calendar_store.get_events(start_dt, end_dt, **kwargs)
+        events = calendar_store.get_events(
+            start_dt, end_dt,
+            require_all_success=False,  # Availability uses best-effort — partial data better than no data
+            **kwargs,
+        )
+
+        # Check for error payloads from provider failures
+        if events and isinstance(events[0], dict) and events[0].get("error"):
+            error_payload = events[0]
+            # Try to use partial results if available (degraded accuracy)
+            partial = error_payload.get("partial_results") or []
+            if partial:
+                logger.warning(
+                    "Calendar provider partial failure: %s. Using %d partial events.",
+                    error_payload.get("error", "unknown"), len(partial),
+                )
+                events = partial
+            else:
+                return json.dumps({
+                    "error": error_payload.get("error", "Calendar provider failure"),
+                    "slots": [],
+                    "formatted_text": "Unable to determine availability — calendar provider error.",
+                    "count": 0,
+                    "provider_details": {
+                        "providers_failed": error_payload.get("providers_failed", []),
+                        "providers_succeeded": error_payload.get("providers_succeeded", []),
+                    },
+                })
 
         # Find available slots
         slots = find_available_slots(

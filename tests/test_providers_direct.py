@@ -774,3 +774,59 @@ class TestClaudeM365Bridge:
         assert bridge.model == "opus"
         assert bridge.timeout_seconds == 120
         assert bridge.detect_timeout_seconds == 10
+
+
+class TestMicrosoft365ConnectivityRefresh:
+    def test_m365_provider_connectivity_refresh_after_ttl(self):
+        """After TTL expires, is_connected() calls the connectivity_checker callback."""
+        call_count = {"n": 0}
+
+        def checker():
+            call_count["n"] += 1
+            return True
+
+        provider = Microsoft365CalendarProvider(
+            connected=False,
+            connectivity_checker=checker,
+            connectivity_ttl_seconds=0,  # TTL=0 means always re-check
+        )
+
+        # First call — TTL expired immediately, should call checker
+        assert provider.is_connected() is True
+        assert call_count["n"] == 1
+
+        # Second call — TTL=0 so it re-checks again
+        assert provider.is_connected() is True
+        assert call_count["n"] == 2
+
+    def test_m365_provider_connectivity_uses_cached_before_ttl(self):
+        """Before TTL expires, is_connected() uses cached value without calling checker."""
+        call_count = {"n": 0}
+
+        def checker():
+            call_count["n"] += 1
+            return False
+
+        provider = Microsoft365CalendarProvider(
+            connected=True,
+            connectivity_checker=checker,
+            connectivity_ttl_seconds=9999,  # Very long TTL
+        )
+
+        # Should use cached value (True), not call checker
+        assert provider.is_connected() is True
+        assert call_count["n"] == 0
+
+    def test_m365_provider_connectivity_checker_exception_keeps_state(self):
+        """If connectivity_checker raises, keep last known state."""
+        def bad_checker():
+            raise ConnectionError("network down")
+
+        provider = Microsoft365CalendarProvider(
+            connected=True,
+            connectivity_checker=bad_checker,
+            connectivity_ttl_seconds=0,
+        )
+
+        # Should keep connected=True despite checker raising
+        assert provider.is_connected() is True

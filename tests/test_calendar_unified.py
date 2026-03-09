@@ -207,3 +207,82 @@ def test_create_event_no_alarms_by_default(tmp_path: Path):
     # Work calendar routes to m365 first
     assert len(m365.created) == 1
     assert "alarms" not in m365.created[0]
+
+
+# ---------------------------------------------------------------------------
+# require_all_success parameter tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_events_require_all_success_false(tmp_path: Path):
+    """With one provider failing, require_all_success=False returns the successful provider's events."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    m365.read_should_fail = True
+    apple.events = [
+        {
+            "uid": "apple-1",
+            "title": "Personal",
+            "start": "2026-02-16T10:00:00",
+            "end": "2026-02-16T11:00:00",
+            "calendar": "Personal",
+        },
+    ]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = service.get_events(
+        datetime(2026, 2, 16), datetime(2026, 2, 17),
+        require_all_success=False,
+    )
+    # Should get Apple's event, not an error dict
+    assert len(rows) >= 1
+    assert rows[0].get("title") == "Personal"
+    assert "error" not in rows[0]
+
+
+def test_get_events_require_all_success_true(tmp_path: Path):
+    """With one provider failing, require_all_success=True returns error dict."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    m365.read_should_fail = True
+    apple.events = [
+        {
+            "uid": "apple-1",
+            "title": "Personal",
+            "start": "2026-02-16T10:00:00",
+            "end": "2026-02-16T11:00:00",
+            "calendar": "Personal",
+        },
+    ]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = service.get_events(
+        datetime(2026, 2, 16), datetime(2026, 2, 17),
+        require_all_success=True,
+    )
+    assert len(rows) == 1
+    assert "error" in rows[0]
+    assert rows[0]["providers_required"] == ["microsoft_365", "apple"]
+
+
+def test_get_events_require_all_success_default_none(tmp_path: Path):
+    """require_all_success=None uses the instance default (True)."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    m365.read_should_fail = True
+    apple.events = [
+        {
+            "uid": "apple-1",
+            "title": "Personal",
+            "start": "2026-02-16T10:00:00",
+            "end": "2026-02-16T11:00:00",
+            "calendar": "Personal",
+        },
+    ]
+    # Instance default is require_all_read_providers_success=True
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = service.get_events(
+        datetime(2026, 2, 16), datetime(2026, 2, 17),
+        require_all_success=None,
+    )
+    # Should behave like require_all_success=True (instance default)
+    assert len(rows) == 1
+    assert "error" in rows[0]

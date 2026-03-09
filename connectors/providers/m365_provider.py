@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -25,8 +26,13 @@ class Microsoft365CalendarProvider(CalendarProvider):
         update_event_fn: Callable[..., dict] | None = None,
         delete_event_fn: Callable[..., dict] | None = None,
         search_events_fn: Callable[[str, datetime, datetime], list[dict]] | None = None,
+        connectivity_checker: Callable[[], bool] | None = None,
+        connectivity_ttl_seconds: int = 300,
     ):
         self._connected = bool(connected)
+        self._connectivity_checker = connectivity_checker
+        self._connectivity_ttl = connectivity_ttl_seconds
+        self._last_connectivity_check = time.monotonic()
         self._hooks = {
             "list_calendars": list_calendars_fn,
             "get_events": get_events_fn,
@@ -37,6 +43,14 @@ class Microsoft365CalendarProvider(CalendarProvider):
         }
 
     def is_connected(self) -> bool:
+        if self._connectivity_checker and (
+            time.monotonic() - self._last_connectivity_check > self._connectivity_ttl
+        ):
+            try:
+                self._connected = self._connectivity_checker()
+            except Exception:
+                pass  # Keep last known state on check failure
+            self._last_connectivity_check = time.monotonic()
         return self._connected
 
     def set_connected(self, connected: bool) -> None:

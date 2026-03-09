@@ -679,3 +679,105 @@ class TestCalendarToolErrorHandling:
         assert "RuntimeError" in data["error"]
         # Sanitized: no internal details leaked, only exception type name
         assert "Connection failed" not in data["error"]
+
+
+# ---------------------------------------------------------------------------
+# find_my_open_slots / find_group_availability
+# ---------------------------------------------------------------------------
+
+
+class TestFindMyOpenSlotsTool:
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_basic(self, calendar_state):
+        """find_my_open_slots returns correct slots JSON with count, slots, formatted_text."""
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        calendar_state.get_events.return_value = [
+            {
+                "uid": "E1",
+                "title": "Morning Meeting",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T10:00:00-07:00",
+                "calendar": "Work",
+                "is_all_day": False,
+                "attendees": [{"status": 2}],
+            },
+            {
+                "uid": "E2",
+                "title": "Afternoon Meeting",
+                "start": "2026-02-18T14:00:00-07:00",
+                "end": "2026-02-18T15:00:00-07:00",
+                "calendar": "Work",
+                "is_all_day": False,
+                "attendees": [{"status": 2}],
+            },
+        ]
+
+        result = await find_my_open_slots("2026-02-18", "2026-02-18")
+        data = json.loads(result)
+
+        assert "count" in data
+        assert "slots" in data
+        assert "formatted_text" in data
+        assert data["count"] == 3  # 8-9, 10-14, 15-18
+        assert len(data["slots"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_error_payload_uses_partial(self, calendar_state):
+        """Error payload with partial_results → extracts partial results and returns valid slots."""
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        calendar_state.get_events.return_value = [
+            {
+                "error": "Dual-read policy requires all connected providers to succeed",
+                "partial_results": [
+                    {
+                        "uid": "E1",
+                        "title": "Morning Meeting",
+                        "start": "2026-02-18T09:00:00-07:00",
+                        "end": "2026-02-18T10:00:00-07:00",
+                        "calendar": "Work",
+                        "is_all_day": False,
+                        "attendees": [{"status": 2}],
+                    },
+                ],
+                "providers_succeeded": ["apple"],
+                "providers_failed": ["microsoft_365"],
+            }
+        ]
+
+        result = await find_my_open_slots("2026-02-18", "2026-02-18")
+        data = json.loads(result)
+
+        # Should use partial results, not return error
+        assert "error" not in data
+        assert data["count"] >= 1
+        assert len(data["slots"]) >= 1
+
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_error_payload_no_partial(self, calendar_state):
+        """Error payload without partial_results → returns error JSON with empty slots."""
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        calendar_state.get_events.return_value = [
+            {
+                "error": "All providers failed",
+                "providers_failed": ["apple", "microsoft_365"],
+                "providers_succeeded": [],
+            }
+        ]
+
+        result = await find_my_open_slots("2026-02-18", "2026-02-18")
+        data = json.loads(result)
+
+        assert "error" in data
+        assert data["slots"] == []
+        assert data["count"] == 0
+
+    def test_find_my_open_slots_tool_registered(self):
+        """Verify find_my_open_slots and find_group_availability are registered."""
+        import mcp_server
+
+        tool_names = [t.name for t in mcp_server.mcp._tool_manager.list_tools()]
+        assert "find_my_open_slots" in tool_names
+        assert "find_group_availability" in tool_names

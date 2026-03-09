@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -74,7 +75,28 @@ class ClaudeM365Bridge:
     ) -> list[dict]:
         schema = {
             "type": "object",
-            "properties": {"results": {"type": "array", "items": {"type": "object"}}},
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "uid": {"type": "string"},
+                            "title": {"type": "string"},
+                            "start": {"type": "string"},
+                            "end": {"type": "string"},
+                            "calendar": {"type": "string"},
+                            "is_all_day": {"type": "boolean"},
+                            "showAs": {"type": "string"},
+                            "isCancelled": {"type": "boolean"},
+                            "responseStatus": {"type": "string"},
+                            "attendees": {"type": "array"},
+                            "location": {"type": "string"},
+                        },
+                        "required": ["title", "start", "end"],
+                    },
+                }
+            },
             "required": ["results"],
         }
         filter_clause = (
@@ -87,27 +109,68 @@ class ClaudeM365Bridge:
             "Use only Microsoft 365 MCP connector tools to get calendar events. "
             f"Time range start={start_dt.isoformat()} end={end_dt.isoformat()}. "
             f"{filter_clause}"
-            "Return results with fields like uid/native_id, title, start, end, calendar/calendar_id, source_account."
+            "Return each event with these exact field names: "
+            "uid (event ID), title (subject), start (ISO datetime string), end (ISO datetime string), "
+            "calendar (calendar name), is_all_day (boolean), showAs (free/busy/tentative/oof), "
+            "isCancelled (boolean), responseStatus (the current user's response: accepted/declined/tentative/none), "
+            "attendees (list of email strings), location (string). "
+            "start and end must be ISO datetime strings WITH timezone offset (e.g., 2026-03-10T09:00:00-06:00). "
+            "If the source provides UTC times, convert to the event's local timezone or include the Z suffix."
         )
+        t0 = time.monotonic()
         data = self._invoke_structured(prompt, schema)
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
         if data.get("error"):
+            data["elapsed_ms"] = elapsed_ms
+            data["operation"] = "get_events"
             return [data]
         return [dict(row) for row in data.get("results", []) if isinstance(row, dict)]
 
     def search_events(self, query: str, start_dt: datetime, end_dt: datetime) -> list[dict]:
         schema = {
             "type": "object",
-            "properties": {"results": {"type": "array", "items": {"type": "object"}}},
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "uid": {"type": "string"},
+                            "title": {"type": "string"},
+                            "start": {"type": "string"},
+                            "end": {"type": "string"},
+                            "calendar": {"type": "string"},
+                            "is_all_day": {"type": "boolean"},
+                            "showAs": {"type": "string"},
+                            "isCancelled": {"type": "boolean"},
+                            "responseStatus": {"type": "string"},
+                            "attendees": {"type": "array"},
+                            "location": {"type": "string"},
+                        },
+                        "required": ["title", "start", "end"],
+                    },
+                }
+            },
             "required": ["results"],
         }
         prompt = (
             "Use only Microsoft 365 MCP connector tools to search Outlook/Exchange calendar events by title text. "
             f"query=<user_query>{self._sanitize_for_prompt(query)}</user_query>, "
             f"start={start_dt.isoformat()}, end={end_dt.isoformat()}. "
-            "Return results with fields like uid/native_id, title, start, end, calendar/calendar_id, source_account."
+            "Return each event with these exact field names: "
+            "uid (event ID), title (subject), start (ISO datetime string), end (ISO datetime string), "
+            "calendar (calendar name), is_all_day (boolean), showAs (free/busy/tentative/oof), "
+            "isCancelled (boolean), responseStatus (the current user's response: accepted/declined/tentative/none), "
+            "attendees (list of email strings), location (string). "
+            "start and end must be ISO datetime strings WITH timezone offset (e.g., 2026-03-10T09:00:00-06:00). "
+            "If the source provides UTC times, convert to the event's local timezone or include the Z suffix."
         )
+        t0 = time.monotonic()
         data = self._invoke_structured(prompt, schema)
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
         if data.get("error"):
+            data["elapsed_ms"] = elapsed_ms
+            data["operation"] = "search_events"
             return [data]
         return [dict(row) for row in data.get("results", []) if isinstance(row, dict)]
 

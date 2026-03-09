@@ -581,3 +581,416 @@ class TestFormatSlotsForSharing:
         assert "Feb 19" in result or "February 19" in result
         # Should be separate lines or sections for each day
         assert result.count("8:00") == 2 or result.count("08:00") == 2
+
+
+# ---------------------------------------------------------------------------
+# Error payload filtering tests
+# ---------------------------------------------------------------------------
+
+
+class TestFindSlotsErrorPayloadFiltering:
+    def test_find_slots_error_payload_filtered(self):
+        """Error payload dicts in events list are filtered out — returns full-day availability."""
+        events = [{"error": "provider failed"}]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+        )
+
+        # Error dict filtered out → full working day available
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+    def test_find_slots_error_payload_mixed_with_events(self):
+        """Error dict mixed with valid events: error filtered, valid event still blocks."""
+        events = [
+            {"error": "Dual-read policy failed"},
+            {
+                "uid": "real-1",
+                "title": "Real Meeting",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T10:00:00-07:00",
+                "is_all_day": False,
+                "attendees": [{"status": 2}],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+        )
+
+        # Real meeting 9-10 blocks time; error dict is filtered
+        assert len(slots) == 2
+        assert slots[0]["duration_minutes"] == 60   # 8-9 AM
+        assert slots[1]["duration_minutes"] == 480   # 10 AM-6 PM
+
+
+# ---------------------------------------------------------------------------
+# Cancelled / declined / showAs filtering tests
+# ---------------------------------------------------------------------------
+
+
+class TestFindSlotsCancelledDeclinedShowAs:
+    def test_find_slots_cancelled_event_skipped(self):
+        """Event with is_cancelled=True should not block time."""
+        events = [
+            {
+                "uid": "cancel-1",
+                "title": "Cancelled Meeting",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T10:00:00-07:00",
+                "is_all_day": False,
+                "isCancelled": True,
+                "attendees": [{"status": 2}],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+        )
+
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+    def test_find_slots_declined_event_skipped(self):
+        """Event with responseStatus='declined' should not block time."""
+        events = [
+            {
+                "uid": "decline-1",
+                "title": "Declined Meeting",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T10:00:00-07:00",
+                "is_all_day": False,
+                "responseStatus": "declined",
+                "attendees": [{"status": 2}],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+        )
+
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+    def test_find_slots_show_as_free_skipped(self):
+        """Event with showAs='free' should not block time."""
+        events = [
+            {
+                "uid": "free-1",
+                "title": "Free Event",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T10:00:00-07:00",
+                "is_all_day": False,
+                "showAs": "free",
+                "attendees": [{"status": 2}],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+        )
+
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+    def test_find_slots_show_as_busy_blocks(self):
+        """Event with showAs='busy' blocks time normally."""
+        events = [
+            {
+                "uid": "busy-1",
+                "title": "Busy Event",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T10:00:00-07:00",
+                "is_all_day": False,
+                "showAs": "busy",
+                "attendees": [{"status": 2}],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+        )
+
+        # 9-10 blocked → 8-9 AM and 10 AM-6 PM
+        assert len(slots) == 2
+        assert slots[0]["duration_minutes"] == 60
+        assert slots[1]["duration_minutes"] == 480
+
+
+# ---------------------------------------------------------------------------
+# User-scoped tentative classification tests
+# ---------------------------------------------------------------------------
+
+
+class TestClassifySoftnessUserScoped:
+    def test_classify_softness_user_tentative(self):
+        """User email matches a tentative attendee → soft."""
+        event = {
+            "uid": "tent-1",
+            "title": "Team Sync",
+            "start": "2026-02-18T10:00:00-07:00",
+            "end": "2026-02-18T11:00:00-07:00",
+            "attendees": [
+                {"name": "Jason", "email": "jason@example.com", "status": 3},
+                {"name": "Matt", "email": "matt@example.com", "status": 2},
+            ],
+            "is_all_day": False,
+        }
+
+        result = classify_event_softness(event, user_email="jason@example.com")
+
+        assert result["is_soft"] is True
+        assert "tentative" in result["reason"].lower()
+
+    def test_classify_softness_other_tentative_not_user(self):
+        """Another attendee is tentative but user accepted → NOT soft."""
+        event = {
+            "uid": "tent-2",
+            "title": "Team Sync",
+            "start": "2026-02-18T10:00:00-07:00",
+            "end": "2026-02-18T11:00:00-07:00",
+            "attendees": [
+                {"name": "Jason", "email": "jason@example.com", "status": 2},  # accepted
+                {"name": "Matt", "email": "matt@example.com", "status": 3},    # tentative
+            ],
+            "is_all_day": False,
+        }
+
+        result = classify_event_softness(event, user_email="jason@example.com")
+
+        assert result["is_soft"] is False
+
+
+# ---------------------------------------------------------------------------
+# PTO/OOO all-day blocking tests
+# ---------------------------------------------------------------------------
+
+
+class TestFindSlotsOOOBlocking:
+    def test_find_slots_ooo_all_day_blocks(self):
+        """All-day PTO event with block_ooo_all_day=True blocks the entire day."""
+        events = [
+            {
+                "uid": "pto-1",
+                "title": "PTO",
+                "start": "2026-02-18T00:00:00-07:00",
+                "end": "2026-02-18T23:59:59-07:00",
+                "is_all_day": True,
+                "attendees": [],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+            block_ooo_all_day=True,
+        )
+
+        assert len(slots) == 0
+
+    def test_find_slots_ooo_all_day_default_skipped(self):
+        """All-day PTO event with default params should NOT block (backward compat)."""
+        events = [
+            {
+                "uid": "pto-2",
+                "title": "PTO",
+                "start": "2026-02-18T00:00:00-07:00",
+                "end": "2026-02-18T23:59:59-07:00",
+                "is_all_day": True,
+                "attendees": [],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+            # block_ooo_all_day defaults to False
+        )
+
+        # PTO all-day ignored by default → full working day
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+
+# ---------------------------------------------------------------------------
+# Timezone and normalization tests
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeTimezoneAndFields:
+    def test_normalize_m365_timezone_preserved(self):
+        """M365 event with nested dateTime/timeZone has start_tz in normalized output."""
+        event = {
+            "id": "m365-tz-1",
+            "subject": "UTC Meeting",
+            "start": {"dateTime": "2026-02-18T16:00:00", "timeZone": "UTC"},
+            "end": {"dateTime": "2026-02-18T17:00:00", "timeZone": "UTC"},
+            "isAllDay": False,
+        }
+
+        result = normalize_event_for_scheduler(event)
+
+        assert result["start_tz"] == "UTC"
+        assert result["end_tz"] == "UTC"
+        assert result["start"] == "2026-02-18T16:00:00"
+        assert result["end"] == "2026-02-18T17:00:00"
+
+    def test_find_slots_m365_utc_event_converted(self):
+        """Event with naive datetime and start_tz=UTC placed at correct Mountain Time position."""
+        # 4 PM UTC = 9 AM Mountain (MST = UTC-7)
+        events = [
+            {
+                "id": "utc-1",
+                "subject": "UTC Meeting",
+                "start": {"dateTime": "2026-02-18T16:00:00", "timeZone": "UTC"},
+                "end": {"dateTime": "2026-02-18T17:00:00", "timeZone": "UTC"},
+                "isAllDay": False,
+                "attendees": [
+                    {
+                        "emailAddress": {"name": "Jason", "address": "jason@example.com"},
+                        "status": {"response": "accepted"},
+                    }
+                ],
+            },
+        ]
+
+        start_date = datetime(2026, 2, 18, tzinfo=ZoneInfo("America/Denver"))
+        end_date = datetime(2026, 2, 18, 23, 59, 59, tzinfo=ZoneInfo("America/Denver"))
+
+        slots = find_available_slots(
+            events=events,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=30,
+            working_hours_start=time(8, 0),
+            working_hours_end=time(18, 0),
+            timezone_name="America/Denver",
+        )
+
+        # 4-5 PM UTC = 9-10 AM Mountain → blocks 9-10 AM
+        assert len(slots) == 2
+        assert slots[0]["duration_minutes"] == 60   # 8-9 AM
+        assert slots[1]["duration_minutes"] == 480   # 10 AM-6 PM
+
+    def test_normalize_preserves_show_as(self):
+        """showAs from input appears as show_as in normalized output."""
+        event = {
+            "uid": "show-1",
+            "title": "Test",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+            "showAs": "tentative",
+        }
+
+        result = normalize_event_for_scheduler(event)
+        assert result["show_as"] == "tentative"
+
+    def test_normalize_preserves_is_cancelled(self):
+        """isCancelled from input appears as is_cancelled in normalized output."""
+        event = {
+            "uid": "cancel-n1",
+            "title": "Cancelled",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+            "isCancelled": True,
+        }
+
+        result = normalize_event_for_scheduler(event)
+        assert result["is_cancelled"] is True
+
+    def test_normalize_response_status_string(self):
+        """responseStatus string mapped to response_status."""
+        event = {
+            "uid": "resp-1",
+            "title": "Declined",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+            "responseStatus": "declined",
+        }
+
+        result = normalize_event_for_scheduler(event)
+        assert result["response_status"] == "declined"
+
+    def test_normalize_response_status_dict(self):
+        """responseStatus dict (M365 format) mapped to response_status string."""
+        event = {
+            "uid": "resp-2",
+            "title": "Declined M365",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+            "responseStatus": {"response": "declined"},
+        }
+
+        result = normalize_event_for_scheduler(event)
+        assert result["response_status"] == "declined"

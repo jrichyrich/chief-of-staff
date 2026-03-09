@@ -186,6 +186,7 @@ class UnifiedCalendarService:
         tag_events: bool = False,
         dedupe_events: bool = False,
         track_ownership: bool = False,
+        require_all_success: bool | None = None,
     ) -> list[dict]:
         """Shared read-loop: iterate providers, collect results, apply policies.
 
@@ -227,8 +228,9 @@ class UnifiedCalendarService:
             rows = self._dedupe_events(rows)
         rows = self._filter_source(rows, source_filter=source_filter)
 
+        enforce_all = require_all_success if require_all_success is not None else self.require_all_read_providers_success
         if (
-            self.require_all_read_providers_success
+            enforce_all
             and len(decision.providers) > 1
             and len(succeeded) < len(decision.providers)
         ):
@@ -278,11 +280,13 @@ class UnifiedCalendarService:
         self,
         provider_preference: str = "auto",
         source_filter: str = "",
+        require_all_success: bool | None = None,
     ) -> list[dict]:
         return self._read_from_providers(
             provider_preference=provider_preference,
             source_filter=source_filter,
             fetch_fn=lambda p: p.list_calendars(),
+            require_all_success=require_all_success,
         )
 
     def get_events(
@@ -292,6 +296,7 @@ class UnifiedCalendarService:
         calendar_names: Optional[list[str]] = None,
         provider_preference: str = "auto",
         source_filter: str = "",
+        require_all_success: bool | None = None,
     ) -> list[dict]:
         return self._read_from_providers(
             provider_preference=provider_preference,
@@ -300,6 +305,7 @@ class UnifiedCalendarService:
             tag_events=True,
             dedupe_events=True,
             track_ownership=True,
+            require_all_success=require_all_success,
         )
 
     def search_events(
@@ -309,6 +315,7 @@ class UnifiedCalendarService:
         end_dt: datetime,
         provider_preference: str = "auto",
         source_filter: str = "",
+        require_all_success: bool | None = None,
     ) -> list[dict]:
         return self._read_from_providers(
             provider_preference=provider_preference,
@@ -317,6 +324,7 @@ class UnifiedCalendarService:
             tag_events=True,
             dedupe_events=True,
             track_ownership=True,
+            require_all_success=require_all_success,
         )
 
     def _resolve_write_provider(
