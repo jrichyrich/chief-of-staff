@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 import time
@@ -8,6 +9,8 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from utils.subprocess import run_with_cleanup
+
+logger = logging.getLogger(__name__)
 
 
 class ClaudeM365Bridge:
@@ -20,6 +23,10 @@ class ClaudeM365Bridge:
             return ""
         # Strip control characters (keep only printable + space)
         sanitized = "".join(c for c in str(text) if c.isprintable() or c == " ")
+        # Escape XML metacharacters to prevent prompt injection via tag breakout
+        sanitized = sanitized.replace("&", "&amp;")
+        sanitized = sanitized.replace("<", "&lt;")
+        sanitized = sanitized.replace(">", "&gt;")
         # Truncate
         if len(sanitized) > max_length:
             sanitized = sanitized[:max_length] + "..."
@@ -95,9 +102,10 @@ class ClaudeM365Bridge:
                         },
                         "required": ["title", "start", "end"],
                     },
-                }
+                },
+                "total_event_count": {"type": "integer"},
             },
-            "required": ["results"],
+            "required": ["results", "total_event_count"],
         }
         filter_clause = (
             "Limit to these calendars when possible: "
@@ -115,7 +123,9 @@ class ClaudeM365Bridge:
             "isCancelled (boolean), responseStatus (the current user's response: accepted/declined/tentative/none), "
             "attendees (list of email strings), location (string). "
             "start and end must be ISO datetime strings WITH timezone offset (e.g., 2026-03-10T09:00:00-06:00). "
-            "If the source provides UTC times, convert to the event's local timezone or include the Z suffix."
+            "If the source provides UTC times, convert to the event's local timezone or include the Z suffix. "
+            "IMPORTANT: Also return total_event_count — the total number of events found before any filtering. "
+            "This helps verify data completeness."
         )
         t0 = time.monotonic()
         data = self._invoke_structured(prompt, schema)
@@ -124,7 +134,17 @@ class ClaudeM365Bridge:
             data["elapsed_ms"] = elapsed_ms
             data["operation"] = "get_events"
             return [data]
-        return [dict(row) for row in data.get("results", []) if isinstance(row, dict)]
+        results = [dict(row) for row in data.get("results", []) if isinstance(row, dict)]
+        total_count = data.get("total_event_count")
+        logger.info("M365 bridge get_events: %d results in %dms", len(results), elapsed_ms)
+        if total_count is not None and total_count > len(results):
+            logger.warning(
+                "M365 bridge get_events: total_event_count=%d but only %d results returned — possible data loss",
+                total_count, len(results),
+            )
+            for row in results:
+                row["_bridge_warning"] = f"Expected {total_count} events but received {len(results)}"
+        return results
 
     def search_events(self, query: str, start_dt: datetime, end_dt: datetime) -> list[dict]:
         schema = {
@@ -149,9 +169,10 @@ class ClaudeM365Bridge:
                         },
                         "required": ["title", "start", "end"],
                     },
-                }
+                },
+                "total_event_count": {"type": "integer"},
             },
-            "required": ["results"],
+            "required": ["results", "total_event_count"],
         }
         prompt = (
             "Use only Microsoft 365 MCP connector tools to search Outlook/Exchange calendar events by title text. "
@@ -163,7 +184,9 @@ class ClaudeM365Bridge:
             "isCancelled (boolean), responseStatus (the current user's response: accepted/declined/tentative/none), "
             "attendees (list of email strings), location (string). "
             "start and end must be ISO datetime strings WITH timezone offset (e.g., 2026-03-10T09:00:00-06:00). "
-            "If the source provides UTC times, convert to the event's local timezone or include the Z suffix."
+            "If the source provides UTC times, convert to the event's local timezone or include the Z suffix. "
+            "IMPORTANT: Also return total_event_count — the total number of events found before any filtering. "
+            "This helps verify data completeness."
         )
         t0 = time.monotonic()
         data = self._invoke_structured(prompt, schema)
@@ -172,7 +195,17 @@ class ClaudeM365Bridge:
             data["elapsed_ms"] = elapsed_ms
             data["operation"] = "search_events"
             return [data]
-        return [dict(row) for row in data.get("results", []) if isinstance(row, dict)]
+        results = [dict(row) for row in data.get("results", []) if isinstance(row, dict)]
+        total_count = data.get("total_event_count")
+        logger.info("M365 bridge search_events: %d results in %dms", len(results), elapsed_ms)
+        if total_count is not None and total_count > len(results):
+            logger.warning(
+                "M365 bridge search_events: total_event_count=%d but only %d results returned — possible data loss",
+                total_count, len(results),
+            )
+            for row in results:
+                row["_bridge_warning"] = f"Expected {total_count} events but received {len(results)}"
+        return results
 
     def create_event(
         self,

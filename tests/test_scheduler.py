@@ -994,3 +994,49 @@ class TestNormalizeTimezoneAndFields:
 
         result = normalize_event_for_scheduler(event)
         assert result["response_status"] == "declined"
+
+
+class TestOofShowAsBlocking:
+    """Tests for showAs='oof' all-day event blocking."""
+
+    def test_find_slots_ooo_show_as_oof_blocks(self):
+        """showAs='oof' all-day event with block_ooo_all_day=True blocks the day."""
+        events = [
+            {
+                "title": "PTO",
+                "start": "2026-02-18",
+                "end": "2026-02-19",
+                "is_all_day": True,
+                "showAs": "oof",
+            }
+        ]
+        result = find_available_slots(
+            events, "2026-02-18", "2026-02-18", 30, block_ooo_all_day=True
+        )
+        assert len(result) == 0
+
+    def test_find_slots_ooo_show_as_oof_no_keyword_blocks(self):
+        """showAs='oof' blocks even when title has no OOO keyword."""
+        events = [
+            {
+                "title": "Personal Day",
+                "start": "2026-02-18",
+                "end": "2026-02-19",
+                "is_all_day": True,
+                "showAs": "oof",
+            }
+        ]
+        result = find_available_slots(
+            events, "2026-02-18", "2026-02-18", 30, block_ooo_all_day=True
+        )
+        assert len(result) == 0
+
+    def test_find_slots_non_dict_event_filtered(self):
+        """Non-dict events (strings, ints, None) are filtered without crashing."""
+        events = [
+            "not a dict", 42, None,
+            {"title": "Real Meeting", "start": "2026-02-18T09:00:00-07:00", "end": "2026-02-18T10:00:00-07:00"},
+        ]
+        result = find_available_slots(events, "2026-02-18", "2026-02-18", 30)
+        # Should not crash, and the real meeting should block 9-10
+        assert len(result) > 0

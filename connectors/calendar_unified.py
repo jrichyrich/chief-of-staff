@@ -252,7 +252,8 @@ class UnifiedCalendarService:
         title = str(event.get("title", "")).strip().lower()
         start = str(event.get("start", "")).strip()
         end = str(event.get("end", "")).strip()
-        return ("fallback", title, start, end)
+        provider = str(event.get("provider", "")).strip().lower()
+        return ("fallback", provider, title, start, end)
 
     def _dedupe_events(self, rows: list[dict]) -> list[dict]:
         seen: dict[tuple, dict] = {}

@@ -76,3 +76,64 @@ def test_get_events_error_includes_timing():
     assert "elapsed_ms" in error_dict
     assert error_dict["operation"] == "get_events"
     assert isinstance(error_dict["elapsed_ms"], int)
+
+
+def _make_bridge_with_events(events, total_count=None):
+    """Helper to create a bridge that returns preset events."""
+    result = {"results": events}
+    if total_count is not None:
+        result["total_event_count"] = total_count
+    payload = {"structured_output": result}
+
+    def fake_runner(args, capture_output, text, timeout, check):
+        if args[:3] == ["claude", "mcp", "list"]:
+            return subprocess.CompletedProcess(args, 0, stdout="microsoft 365: connected\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(payload), stderr="")
+
+    return ClaudeM365Bridge(runner=fake_runner)
+
+
+def test_get_events_count_matches_no_warning():
+    """No _bridge_warning when total_event_count matches results length."""
+    events = [{"title": "Meeting", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T10:00:00-06:00"}]
+    bridge = _make_bridge_with_events(events, total_count=1)
+    rows = bridge.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(rows) == 1
+    assert "_bridge_warning" not in rows[0]
+
+
+def test_get_events_count_mismatch_adds_warning():
+    """_bridge_warning added when total_event_count exceeds results length."""
+    events = [{"title": "Meeting", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T10:00:00-06:00"}]
+    bridge = _make_bridge_with_events(events, total_count=5)
+    rows = bridge.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(rows) == 1
+    assert "_bridge_warning" in rows[0]
+    assert "5" in rows[0]["_bridge_warning"]
+
+
+def test_get_events_no_total_count_no_crash():
+    """Backward compat: no total_event_count field doesn't crash."""
+    events = [{"title": "Meeting", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T10:00:00-06:00"}]
+    bridge = _make_bridge_with_events(events, total_count=None)
+    rows = bridge.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(rows) == 1
+    assert "_bridge_warning" not in rows[0]
+
+
+def test_search_events_count_mismatch_adds_warning():
+    """search_events also tags _bridge_warning on count mismatch."""
+    events = [{"title": "Standup", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T09:30:00-06:00"}]
+    bridge = _make_bridge_with_events(events, total_count=3)
+    rows = bridge.search_events("Standup", datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(rows) == 1
+    assert "_bridge_warning" in rows[0]
+
+
+def test_search_events_count_matches_no_warning():
+    """search_events: no warning when count matches."""
+    events = [{"title": "Standup", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T09:30:00-06:00"}]
+    bridge = _make_bridge_with_events(events, total_count=1)
+    rows = bridge.search_events("Standup", datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(rows) == 1
+    assert "_bridge_warning" not in rows[0]

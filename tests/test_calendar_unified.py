@@ -121,9 +121,12 @@ def test_get_events_auto_merges_and_dedupes(tmp_path: Path):
     ]
     service = _service(tmp_path, apple=apple, m365=m365)
     events = service.get_events(datetime(2026, 2, 16), datetime(2026, 2, 17))
-    assert len(events) == 2
-    standup = next(e for e in events if e["title"] == "Team Standup")
-    assert standup["provider"] == "microsoft_365"
+    # Cross-provider events with same title/time are NOT deduped (provider-aware fallback)
+    assert len(events) == 3
+    standups = [e for e in events if e["title"] == "Team Standup"]
+    assert len(standups) == 2
+    providers = {e["provider"] for e in standups}
+    assert providers == {"microsoft_365", "apple"}
 
 
 def test_create_event_work_fallbacks_to_apple(tmp_path: Path):
@@ -286,3 +289,80 @@ def test_get_events_require_all_success_default_none(tmp_path: Path):
     # Should behave like require_all_success=True (instance default)
     assert len(rows) == 1
     assert "error" in rows[0]
+
+
+# ---------------------------------------------------------------------------
+# _event_dedupe_key provider-aware fallback tests
+# ---------------------------------------------------------------------------
+
+
+def test_dedupe_cross_provider_same_title_kept(tmp_path: Path):
+    """Two events with same title/start/end but different providers are NOT deduped."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    shared = {
+        "title": "1:1",
+        "start": "2026-03-10T10:00:00",
+        "end": "2026-03-10T10:30:00",
+        "calendar": "Work",
+    }
+    m365.events = [{"uid": "m365-1", **shared}]
+    apple.events = [{"uid": "apple-1", **shared}]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    events = service.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(events) == 2
+    providers = {e["provider"] for e in events}
+    assert providers == {"microsoft_365", "apple"}
+
+
+def test_dedupe_same_provider_same_title_deduped(tmp_path: Path):
+    """Two events with same title/start/end AND same provider ARE deduped."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    m365.events = [
+        {
+            "uid": "m365-dup-1",
+            "title": "1:1",
+            "start": "2026-03-10T10:00:00",
+            "end": "2026-03-10T10:30:00",
+            "calendar": "Work",
+        },
+        {
+            "uid": "m365-dup-2",
+            "title": "1:1",
+            "start": "2026-03-10T10:00:00",
+            "end": "2026-03-10T10:30:00",
+            "calendar": "Work",
+        },
+    ]
+    apple.events = []
+    service = _service(tmp_path, apple=apple, m365=m365)
+    events = service.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(events) == 1
+    assert events[0]["provider"] == "microsoft_365"
+
+
+def test_dedupe_ical_uid_ignores_provider(tmp_path: Path):
+    """Events with ical_uid dedup correctly regardless of provider."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    m365.events = [{
+        "uid": "m365-1",
+        "ical_uid": "SHARED-ICAL-UID-123",
+        "title": "Sync Meeting",
+        "start": "2026-03-10T14:00:00",
+        "end": "2026-03-10T15:00:00",
+        "calendar": "Work",
+    }]
+    apple.events = [{
+        "uid": "apple-1",
+        "ical_uid": "shared-ical-uid-123",
+        "title": "Sync Meeting",
+        "start": "2026-03-10T14:00:00",
+        "end": "2026-03-10T15:00:00",
+        "calendar": "Work",
+    }]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    events = service.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+    # ical_uid match (case-insensitive) → deduped to 1
+    assert len(events) == 1

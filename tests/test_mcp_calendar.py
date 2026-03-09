@@ -774,6 +774,92 @@ class TestFindMyOpenSlotsTool:
         assert data["slots"] == []
         assert data["count"] == 0
 
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_passes_user_email(self, calendar_state, monkeypatch):
+        """user_email parameter is forwarded to find_available_slots."""
+        from unittest.mock import patch
+
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        calendar_state.get_events.return_value = []
+
+        with patch("mcp_tools.calendar_tools.find_available_slots", return_value=[]) as mock_fas, \
+             patch("mcp_tools.calendar_tools.format_slots_for_sharing", return_value="No slots"):
+            result = await find_my_open_slots(
+                "2026-02-18", "2026-02-18", user_email="me@example.com"
+            )
+            data = json.loads(result)
+            assert "error" not in data
+            call_kwargs = mock_fas.call_args[1]
+            assert call_kwargs["user_email"] == "me@example.com"
+
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_user_email_from_config(self, calendar_state, monkeypatch):
+        """When user_email is not provided, falls back to config.USER_EMAIL."""
+        from unittest.mock import patch
+
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        monkeypatch.setattr("config.USER_EMAIL", "config@example.com")
+        calendar_state.get_events.return_value = []
+
+        with patch("mcp_tools.calendar_tools.find_available_slots", return_value=[]) as mock_fas, \
+             patch("mcp_tools.calendar_tools.format_slots_for_sharing", return_value="No slots"):
+            await find_my_open_slots("2026-02-18", "2026-02-18")
+            call_kwargs = mock_fas.call_args[1]
+            assert call_kwargs["user_email"] == "config@example.com"
+
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_duration_minutes_zero(self, calendar_state):
+        """duration_minutes < 1 returns error JSON without calling calendar store."""
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        result = await find_my_open_slots("2026-02-18", "2026-02-18", duration_minutes=0)
+        data = json.loads(result)
+
+        assert "error" in data
+        assert data["slots"] == []
+        assert data["count"] == 0
+        calendar_state.get_events.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_duration_minutes_negative(self, calendar_state):
+        """Negative duration_minutes returns error JSON."""
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        result = await find_my_open_slots("2026-02-18", "2026-02-18", duration_minutes=-10)
+        data = json.loads(result)
+
+        assert "error" in data
+        assert "duration_minutes" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_uses_retry_wrapper(self, calendar_state):
+        """get_events is called via _retry_on_transient, not directly."""
+        from unittest.mock import patch
+
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        with patch("mcp_tools.calendar_tools._retry_on_transient", return_value=[]) as mock_retry, \
+             patch("mcp_tools.calendar_tools.find_available_slots", return_value=[]), \
+             patch("mcp_tools.calendar_tools.format_slots_for_sharing", return_value="No slots"):
+            await find_my_open_slots("2026-02-18", "2026-02-18")
+            mock_retry.assert_called_once()
+            # First positional arg should be the get_events method
+            assert mock_retry.call_args[0][0] == calendar_state.get_events
+
+    @pytest.mark.asyncio
+    async def test_find_my_open_slots_response_includes_provider_preference(self, calendar_state):
+        """Response JSON includes provider_preference metadata."""
+        from mcp_tools.calendar_tools import find_my_open_slots
+
+        calendar_state.get_events.return_value = []
+
+        result = await find_my_open_slots("2026-02-18", "2026-02-18")
+        data = json.loads(result)
+
+        assert data["provider_preference"] == "both"
+
     def test_find_my_open_slots_tool_registered(self):
         """Verify find_my_open_slots and find_group_availability are registered."""
         import mcp_server

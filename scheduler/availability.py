@@ -277,7 +277,10 @@ def find_available_slots(
     # Filter out error payloads
     clean_events = []
     for event in events:
-        if isinstance(event, dict) and "error" in event:
+        if not isinstance(event, dict):
+            logger.warning("Filtering out non-dict event: %r", event)
+            continue
+        if "error" in event:
             logger.warning("Filtering out error payload from events: %s", event.get("error"))
             continue
         clean_events.append(event)
@@ -324,7 +327,8 @@ def find_available_slots(
             if normalized.get("is_all_day"):
                 if block_ooo_all_day:
                     title_lower = (normalized.get("title") or "").lower()
-                    if any(kw in title_lower for kw in _OOO_KEYWORDS):
+                    show_as = (normalized.get("show_as") or "").lower()
+                    if show_as == "oof" or any(kw in title_lower for kw in _OOO_KEYWORDS):
                         hard_blocks.append((day_start, day_end))
                         ooo_day_blocked = True
                 continue
@@ -336,7 +340,7 @@ def find_available_slots(
             event_start_str = normalized.get("start")
             event_end_str = normalized.get("end")
             if not event_start_str or not event_end_str:
-                logger.debug(
+                logger.warning(
                     "Skipping event with missing start/end: %s",
                     normalized.get("title") or normalized.get("uid") or "unknown",
                 )
@@ -346,7 +350,7 @@ def find_available_slots(
                 event_start = datetime.fromisoformat(event_start_str)
                 event_end = datetime.fromisoformat(event_end_str)
             except (ValueError, TypeError):
-                logger.debug(
+                logger.warning(
                     "Skipping event with unparseable time: %s",
                     normalized.get("title") or "unknown",
                 )

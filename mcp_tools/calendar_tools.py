@@ -5,6 +5,9 @@ import logging
 import subprocess
 from datetime import datetime
 
+import config
+from scheduler.availability import find_available_slots, format_slots_for_sharing
+
 from .decorators import tool_errors
 from .state import _retry_on_transient
 
@@ -272,6 +275,7 @@ def register(mcp, state):
         working_hours_start: str = "08:00",
         working_hours_end: str = "18:00",
         provider_preference: str = "both",
+        user_email: str = "",
     ) -> str:
         """Find available time slots in your calendar within a date range.
 
@@ -291,15 +295,25 @@ def register(mcp, state):
             working_hours_start: Working hours start time HH:MM (default: 08:00)
             working_hours_end: Working hours end time HH:MM (default: 18:00)
             provider_preference: auto | apple | microsoft_365 | both (default: both)
+            user_email: User's email for tentative classification (default: config.USER_EMAIL)
 
         Returns:
             JSON with raw slots and formatted text for sharing
         """
         from datetime import time
 
-        from scheduler.availability import find_available_slots, format_slots_for_sharing
+        # Validate duration_minutes
+        if duration_minutes < 1:
+            return json.dumps({
+                "error": "duration_minutes must be >= 1",
+                "slots": [],
+                "count": 0,
+            })
 
         calendar_store = state.calendar_store
+
+        # Resolve user_email: explicit param > config > empty
+        resolved_email = user_email or config.USER_EMAIL
 
         # Parse working hours
         start_hour, start_min = map(int, working_hours_start.split(":"))
@@ -319,7 +333,8 @@ def register(mcp, state):
         kwargs = {"calendar_names": calendar_names}
         if provider_preference and provider_preference != "auto":
             kwargs["provider_preference"] = provider_preference
-        events = calendar_store.get_events(
+        events = _retry_on_transient(
+            calendar_store.get_events,
             start_dt, end_dt,
             require_all_success=False,  # Availability uses best-effort — partial data better than no data
             **kwargs,
@@ -359,6 +374,7 @@ def register(mcp, state):
             timezone_name="America/Denver",
             include_soft_blocks=include_soft_blocks,
             soft_keywords=keywords,
+            user_email=resolved_email,
         )
 
         # Format for sharing
@@ -368,6 +384,7 @@ def register(mcp, state):
             "slots": slots,
             "formatted_text": formatted_text,
             "count": len(slots),
+            "provider_preference": provider_preference,
         })
 
     @mcp.tool()
