@@ -64,6 +64,13 @@ def normalize_event_for_scheduler(event: dict) -> dict:
     show_as = event.get("showAs") or event.get("show_as") or ""
     is_cancelled = event.get("isCancelled") or event.get("is_cancelled") or False
 
+    # Title-based cancelled detection — Apple EventKit doesn't set isCancelled,
+    # so fall back to checking title prefix (M365 prepends "Canceled:" to cancelled events)
+    if not is_cancelled and title:
+        title_stripped = title.strip().lower()
+        if title_stripped.startswith("canceled:") or title_stripped.startswith("cancelled:"):
+            is_cancelled = True
+
     # Response status normalization
     response_status = event.get("responseStatus") or event.get("response_status") or ""
     if isinstance(response_status, dict):
@@ -163,6 +170,15 @@ def classify_event_softness(
     title = (event.get("title") or "").lower()
     notes = (event.get("notes") or "").lower()
     attendees = event.get("attendees") or []
+    show_as = (event.get("show_as") or "").lower()
+
+    # showAs=tentative from M365 → treat as soft block
+    if show_as == "tentative":
+        return {
+            "is_soft": True,
+            "reason": "Event marked as tentative (showAs)",
+            "confidence": 0.8,
+        }
 
     # Check title and notes for keywords
     for keyword in soft_keywords:

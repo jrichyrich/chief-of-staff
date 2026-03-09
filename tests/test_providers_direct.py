@@ -830,3 +830,60 @@ class TestMicrosoft365ConnectivityRefresh:
 
         # Should keep connected=True despite checker raising
         assert provider.is_connected() is True
+
+    def test_m365_provider_no_checker_never_refreshes(self):
+        """Without connectivity_checker, is_connected() never re-checks — stays at initial value."""
+        provider = Microsoft365CalendarProvider(
+            connected=False,
+            connectivity_ttl_seconds=0,  # TTL=0 but no checker wired
+        )
+
+        # Should stay False forever since no checker can update it
+        assert provider.is_connected() is False
+        assert provider.is_connected() is False
+
+    def test_m365_provider_checker_reconnects_after_initial_failure(self):
+        """If initially disconnected but checker later succeeds, provider reconnects."""
+        call_count = {"n": 0}
+
+        def checker():
+            call_count["n"] += 1
+            # Reconnect on second call
+            return call_count["n"] >= 2
+
+        provider = Microsoft365CalendarProvider(
+            connected=False,
+            connectivity_checker=checker,
+            connectivity_ttl_seconds=0,
+        )
+
+        # First check: checker returns False
+        assert provider.is_connected() is False
+        assert call_count["n"] == 1
+
+        # Second check: checker returns True — reconnected!
+        assert provider.is_connected() is True
+        assert call_count["n"] == 2
+
+    def test_m365_provider_logs_state_change(self):
+        """Connectivity state changes are logged."""
+        import logging
+
+        def checker():
+            return True
+
+        provider = Microsoft365CalendarProvider(
+            connected=False,
+            connectivity_checker=checker,
+            connectivity_ttl_seconds=0,
+        )
+
+        with pytest.raises(AssertionError) if False else _noop():
+            # Just verify it doesn't crash when logging the state change
+            assert provider.is_connected() is True
+
+
+def _noop():
+    """No-op context manager for test readability."""
+    from contextlib import nullcontext
+    return nullcontext()

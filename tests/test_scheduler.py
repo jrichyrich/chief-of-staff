@@ -1040,3 +1040,354 @@ class TestOofShowAsBlocking:
         result = find_available_slots(events, "2026-02-18", "2026-02-18", 30)
         # Should not crash, and the real meeting should block 9-10
         assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# Title-based cancelled detection tests
+# ---------------------------------------------------------------------------
+
+
+class TestTitleBasedCancelledDetection:
+    def test_normalize_canceled_prefix_sets_is_cancelled(self):
+        """Title starting with 'Canceled:' sets is_cancelled=True in normalized output."""
+        event = {
+            "uid": "cancel-title-1",
+            "title": "Canceled: Security Touchpoint",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+        }
+        result = normalize_event_for_scheduler(event)
+        assert result["is_cancelled"] is True
+
+    def test_normalize_cancelled_prefix_british_spelling(self):
+        """Title starting with 'Cancelled:' (British spelling) sets is_cancelled=True."""
+        event = {
+            "uid": "cancel-title-2",
+            "title": "Cancelled: 1 on 1 with Shawn",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+        }
+        result = normalize_event_for_scheduler(event)
+        assert result["is_cancelled"] is True
+
+    def test_normalize_canceled_prefix_case_insensitive(self):
+        """Title prefix detection is case-insensitive."""
+        event = {
+            "uid": "cancel-title-3",
+            "title": "CANCELED: Team Meeting",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+        }
+        result = normalize_event_for_scheduler(event)
+        assert result["is_cancelled"] is True
+
+    def test_normalize_canceled_no_false_positive(self):
+        """Title containing 'canceled' but not as prefix does NOT set is_cancelled."""
+        event = {
+            "uid": "cancel-title-4",
+            "title": "Meeting about canceled projects",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+        }
+        result = normalize_event_for_scheduler(event)
+        assert result["is_cancelled"] is False
+
+    def test_normalize_is_cancelled_field_takes_precedence(self):
+        """If isCancelled is already True, title check doesn't override."""
+        event = {
+            "uid": "cancel-title-5",
+            "title": "Canceled: Meeting",
+            "start": "2026-02-18T09:00:00-07:00",
+            "end": "2026-02-18T10:00:00-07:00",
+            "isCancelled": True,
+        }
+        result = normalize_event_for_scheduler(event)
+        assert result["is_cancelled"] is True
+
+    def test_find_slots_title_canceled_event_skipped(self):
+        """Apple event with 'Canceled:' title prefix does not block time."""
+        events = [
+            {
+                "uid": "apple-cancel-1",
+                "title": "Canceled: Security Touchpoint",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T10:00:00-07:00",
+                "is_all_day": False,
+                "attendees": [{"status": 2}],
+                # No isCancelled field — simulates Apple EventKit behavior
+            },
+        ]
+
+        slots = find_available_slots(
+            events=events,
+            start_date="2026-02-18",
+            end_date="2026-02-18",
+            duration_minutes=30,
+        )
+
+        # Cancelled event should NOT block time
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+    def test_find_slots_title_cancelled_british_skipped(self):
+        """Apple event with 'Cancelled:' (British) title prefix does not block time."""
+        events = [
+            {
+                "uid": "apple-cancel-2",
+                "title": "Cancelled: 1 on 1 with Shawn",
+                "start": "2026-02-18T09:00:00-07:00",
+                "end": "2026-02-18T11:30:00-07:00",
+                "is_all_day": False,
+                "attendees": [{"status": 2}],
+            },
+        ]
+
+        slots = find_available_slots(
+            events=events,
+            start_date="2026-02-18",
+            end_date="2026-02-18",
+            duration_minutes=30,
+        )
+
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+
+# ---------------------------------------------------------------------------
+# showAs=free exclusion tests (real-world scenarios)
+# ---------------------------------------------------------------------------
+
+
+class TestShowAsFreeRealWorld:
+    def test_find_slots_personal_appointment_free_not_blocking(self):
+        """M365 event with showAs=free (e.g., 'Phil - Personal Appointment') does not block."""
+        events = [
+            {
+                "id": "m365-free-1",
+                "subject": "Phil - Personal Appointment",
+                "start": {"dateTime": "2026-02-18T10:00:00", "timeZone": "America/Denver"},
+                "end": {"dateTime": "2026-02-18T12:30:00", "timeZone": "America/Denver"},
+                "isAllDay": False,
+                "showAs": "free",
+                "attendees": [],
+            },
+        ]
+
+        slots = find_available_slots(
+            events=events,
+            start_date="2026-02-18",
+            end_date="2026-02-18",
+            duration_minutes=30,
+        )
+
+        # showAs=free → should not block any time
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+    def test_find_slots_canceled_with_show_as_free_not_blocking(self):
+        """Cancelled M365 event (isCancelled=True + showAs=free) doesn't block time."""
+        events = [
+            {
+                "id": "m365-cancel-free-1",
+                "subject": "Canceled: Security Touchpoint",
+                "start": {"dateTime": "2026-02-18T14:00:00", "timeZone": "America/Denver"},
+                "end": {"dateTime": "2026-02-18T14:30:00", "timeZone": "America/Denver"},
+                "isAllDay": False,
+                "showAs": "free",
+                "isCancelled": True,
+                "attendees": [
+                    {"emailAddress": {"name": "Jason", "address": "jason@example.com"}, "status": {"response": "accepted"}},
+                ],
+            },
+        ]
+
+        slots = find_available_slots(
+            events=events,
+            start_date="2026-02-18",
+            end_date="2026-02-18",
+            duration_minutes=30,
+        )
+
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+
+# ---------------------------------------------------------------------------
+# showAs=tentative as soft block tests
+# ---------------------------------------------------------------------------
+
+
+class TestShowAsTentativeSoftBlock:
+    def test_classify_show_as_tentative_is_soft(self):
+        """Event with show_as='tentative' classified as soft block."""
+        event = {
+            "uid": "tent-show-1",
+            "title": "Security Touchpoint",
+            "start": "2026-02-18T14:00:00-07:00",
+            "end": "2026-02-18T14:30:00-07:00",
+            "show_as": "tentative",
+            "attendees": [
+                {"name": "Jason", "email": "jason@example.com", "status": 2},
+            ],
+            "is_all_day": False,
+            "notes": "",
+        }
+
+        result = classify_event_softness(event)
+        assert result["is_soft"] is True
+        assert "tentative" in result["reason"].lower()
+        assert result["confidence"] >= 0.7
+
+    def test_classify_show_as_busy_not_soft(self):
+        """Event with show_as='busy' is NOT classified as soft (no other indicators)."""
+        event = {
+            "uid": "busy-show-1",
+            "title": "Security Touchpoint",
+            "start": "2026-02-18T14:00:00-07:00",
+            "end": "2026-02-18T14:30:00-07:00",
+            "show_as": "busy",
+            "attendees": [
+                {"name": "Jason", "email": "jason@example.com", "status": 2},
+            ],
+            "is_all_day": False,
+            "notes": "",
+        }
+
+        result = classify_event_softness(event)
+        assert result["is_soft"] is False
+
+    def test_find_slots_tentative_available_with_soft_blocks(self):
+        """showAs=tentative event available when include_soft_blocks=True."""
+        events = [
+            {
+                "uid": "tent-slot-1",
+                "title": "SentinelOne | CHG Weekly Sync",
+                "start": "2026-02-18T10:00:00-07:00",
+                "end": "2026-02-18T11:00:00-07:00",
+                "is_all_day": False,
+                "showAs": "tentative",
+                "attendees": [
+                    {"name": "Jason", "email": "jason@example.com", "status": 2},
+                ],
+            },
+        ]
+
+        slots = find_available_slots(
+            events=events,
+            start_date="2026-02-18",
+            end_date="2026-02-18",
+            duration_minutes=30,
+            include_soft_blocks=True,  # default
+        )
+
+        # Tentative event treated as soft → entire day available
+        assert len(slots) == 1
+        assert slots[0]["duration_minutes"] == 600
+
+    def test_find_slots_tentative_blocks_without_soft_blocks(self):
+        """showAs=tentative event blocks time when include_soft_blocks=False."""
+        events = [
+            {
+                "uid": "tent-slot-2",
+                "title": "IR Lesson's Learned",
+                "start": "2026-02-18T10:00:00-07:00",
+                "end": "2026-02-18T11:00:00-07:00",
+                "is_all_day": False,
+                "showAs": "tentative",
+                "attendees": [
+                    {"name": "Jason", "email": "jason@example.com", "status": 2},
+                ],
+            },
+        ]
+
+        slots = find_available_slots(
+            events=events,
+            start_date="2026-02-18",
+            end_date="2026-02-18",
+            duration_minutes=30,
+            include_soft_blocks=False,
+        )
+
+        # Tentative is soft but soft blocks are excluded → blocks 10-11 AM
+        assert len(slots) == 2
+        assert slots[0]["duration_minutes"] == 120  # 8-10 AM
+        assert slots[1]["duration_minutes"] == 420  # 11 AM-6 PM
+
+    def test_find_slots_mixed_cancelled_free_tentative_busy(self):
+        """Real-world mix: cancelled, free, tentative, and busy events."""
+        events = [
+            # Cancelled — should NOT block
+            {
+                "uid": "e1",
+                "title": "Canceled: Security Touchpoint",
+                "start": "2026-02-18T08:00:00-07:00",
+                "end": "2026-02-18T08:30:00-07:00",
+                "is_all_day": False,
+                "showAs": "free",
+                "isCancelled": True,
+                "attendees": [],
+            },
+            # Free (informational) — should NOT block
+            {
+                "uid": "e2",
+                "title": "Phil - Personal Appointment",
+                "start": "2026-02-18T10:00:00-07:00",
+                "end": "2026-02-18T12:30:00-07:00",
+                "is_all_day": False,
+                "showAs": "free",
+                "attendees": [],
+            },
+            # Tentative — soft block (available with include_soft_blocks=True)
+            {
+                "uid": "e3",
+                "title": "AI rollout steering committee",
+                "start": "2026-02-18T13:00:00-07:00",
+                "end": "2026-02-18T14:00:00-07:00",
+                "is_all_day": False,
+                "showAs": "tentative",
+                "attendees": [{"name": "Jason", "email": "jason@example.com", "status": 2}],
+            },
+            # Busy — SHOULD block
+            {
+                "uid": "e4",
+                "title": "1:1 with Manager",
+                "start": "2026-02-18T15:00:00-07:00",
+                "end": "2026-02-18T16:00:00-07:00",
+                "is_all_day": False,
+                "showAs": "busy",
+                "attendees": [{"name": "Manager", "email": "manager@example.com", "status": 2}],
+            },
+        ]
+
+        slots = find_available_slots(
+            events=events,
+            start_date="2026-02-18",
+            end_date="2026-02-18",
+            duration_minutes=30,
+            include_soft_blocks=True,
+        )
+
+        # Only the busy 1:1 (15:00-16:00) blocks time
+        # Expected: 8:00-15:00 (420 min) and 16:00-18:00 (120 min)
+        assert len(slots) == 2
+        assert slots[0]["duration_minutes"] == 420  # 8 AM - 3 PM
+        assert slots[1]["duration_minutes"] == 120  # 4 PM - 6 PM
+
+    def test_classify_show_as_tentative_takes_precedence_over_keywords(self):
+        """showAs=tentative is checked before keyword scan — returns tentative reason."""
+        event = {
+            "uid": "tent-kw-1",
+            "title": "Focus Time",
+            "start": "2026-02-18T10:00:00-07:00",
+            "end": "2026-02-18T11:00:00-07:00",
+            "show_as": "tentative",
+            "attendees": [],
+            "is_all_day": False,
+            "notes": "",
+        }
+
+        result = classify_event_softness(event)
+        assert result["is_soft"] is True
+        # Should match on tentative showAs, not keyword
+        assert "tentative" in result["reason"].lower()
+        assert "showas" in result["reason"].lower() or "showAs" in result["reason"]

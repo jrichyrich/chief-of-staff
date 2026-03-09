@@ -326,19 +326,29 @@ def register(mcp, state):
         if soft_keywords:
             keywords = [kw.strip() for kw in soft_keywords.split(",") if kw.strip()]
 
-        # Fetch events from ALL configured calendar providers
+        # Fetch events from ALL configured calendar providers (with routing metadata)
         start_dt = _parse_date(start_date)
         end_dt = _parse_date(end_date)
         calendar_names = [calendar_name] if calendar_name else None
         kwargs = {"calendar_names": calendar_names}
         if provider_preference and provider_preference != "auto":
             kwargs["provider_preference"] = provider_preference
-        events = _retry_on_transient(
-            calendar_store.get_events,
+        events, routing_info = _retry_on_transient(
+            calendar_store.get_events_with_routing,
             start_dt, end_dt,
             require_all_success=False,  # Availability uses best-effort — partial data better than no data
             **kwargs,
         )
+
+        # Log routing fallback warnings
+        if routing_info.get("is_fallback"):
+            logger.warning(
+                "find_my_open_slots: provider routing fallback — requested=%r, "
+                "routed_to=%s, reason=%s",
+                provider_preference,
+                routing_info.get("providers_requested"),
+                routing_info.get("routing_reason"),
+            )
 
         # Check for error payloads from provider failures
         if events and isinstance(events[0], dict) and events[0].get("error"):
@@ -361,6 +371,7 @@ def register(mcp, state):
                         "providers_failed": error_payload.get("providers_failed", []),
                         "providers_succeeded": error_payload.get("providers_succeeded", []),
                     },
+                    "routing": routing_info,
                 })
 
         # Find available slots
@@ -385,6 +396,7 @@ def register(mcp, state):
             "formatted_text": formatted_text,
             "count": len(slots),
             "provider_preference": provider_preference,
+            "routing": routing_info,
         })
 
     @mcp.tool()

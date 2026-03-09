@@ -20,6 +20,13 @@ def mock_calendar_store():
     # By default, methods return sensible empty/success values
     store.list_calendars.return_value = []
     store.get_events.return_value = []
+    store.get_events_with_routing.return_value = ([], {
+        "providers_requested": ["microsoft_365", "apple"],
+        "providers_succeeded": [],
+        "provider_preference": "both",
+        "routing_reason": "auto_both_connected",
+        "is_fallback": False,
+    })
     store.create_event.return_value = {}
     store.update_event.return_value = {}
     store.delete_event.return_value = {"status": "deleted", "event_uid": ""}
@@ -692,7 +699,7 @@ class TestFindMyOpenSlotsTool:
         """find_my_open_slots returns correct slots JSON with count, slots, formatted_text."""
         from mcp_tools.calendar_tools import find_my_open_slots
 
-        calendar_state.get_events.return_value = [
+        events = [
             {
                 "uid": "E1",
                 "title": "Morning Meeting",
@@ -712,6 +719,13 @@ class TestFindMyOpenSlotsTool:
                 "attendees": [{"status": 2}],
             },
         ]
+        calendar_state.get_events_with_routing.return_value = (events, {
+            "providers_requested": ["microsoft_365", "apple"],
+            "providers_succeeded": ["microsoft_365", "apple"],
+            "provider_preference": "both",
+            "routing_reason": "auto_both_connected",
+            "is_fallback": False,
+        })
 
         result = await find_my_open_slots("2026-02-18", "2026-02-18")
         data = json.loads(result)
@@ -721,13 +735,15 @@ class TestFindMyOpenSlotsTool:
         assert "formatted_text" in data
         assert data["count"] == 3  # 8-9, 10-14, 15-18
         assert len(data["slots"]) == 3
+        assert "routing" in data
+        assert data["routing"]["is_fallback"] is False
 
     @pytest.mark.asyncio
     async def test_find_my_open_slots_error_payload_uses_partial(self, calendar_state):
         """Error payload with partial_results → extracts partial results and returns valid slots."""
         from mcp_tools.calendar_tools import find_my_open_slots
 
-        calendar_state.get_events.return_value = [
+        calendar_state.get_events_with_routing.return_value = ([
             {
                 "error": "Dual-read policy requires all connected providers to succeed",
                 "partial_results": [
@@ -744,7 +760,13 @@ class TestFindMyOpenSlotsTool:
                 "providers_succeeded": ["apple"],
                 "providers_failed": ["microsoft_365"],
             }
-        ]
+        ], {
+            "providers_requested": ["microsoft_365", "apple"],
+            "providers_succeeded": ["apple"],
+            "provider_preference": "both",
+            "routing_reason": "auto_both_connected",
+            "is_fallback": False,
+        })
 
         result = await find_my_open_slots("2026-02-18", "2026-02-18")
         data = json.loads(result)
@@ -759,13 +781,19 @@ class TestFindMyOpenSlotsTool:
         """Error payload without partial_results → returns error JSON with empty slots."""
         from mcp_tools.calendar_tools import find_my_open_slots
 
-        calendar_state.get_events.return_value = [
+        calendar_state.get_events_with_routing.return_value = ([
             {
                 "error": "All providers failed",
                 "providers_failed": ["apple", "microsoft_365"],
                 "providers_succeeded": [],
             }
-        ]
+        ], {
+            "providers_requested": ["microsoft_365", "apple"],
+            "providers_succeeded": [],
+            "provider_preference": "both",
+            "routing_reason": "auto_both_connected",
+            "is_fallback": False,
+        })
 
         result = await find_my_open_slots("2026-02-18", "2026-02-18")
         data = json.loads(result)
@@ -773,6 +801,7 @@ class TestFindMyOpenSlotsTool:
         assert "error" in data
         assert data["slots"] == []
         assert data["count"] == 0
+        assert "routing" in data
 
     @pytest.mark.asyncio
     async def test_find_my_open_slots_passes_user_email(self, calendar_state, monkeypatch):
@@ -780,8 +809,6 @@ class TestFindMyOpenSlotsTool:
         from unittest.mock import patch
 
         from mcp_tools.calendar_tools import find_my_open_slots
-
-        calendar_state.get_events.return_value = []
 
         with patch("mcp_tools.calendar_tools.find_available_slots", return_value=[]) as mock_fas, \
              patch("mcp_tools.calendar_tools.format_slots_for_sharing", return_value="No slots"):
@@ -801,7 +828,6 @@ class TestFindMyOpenSlotsTool:
         from mcp_tools.calendar_tools import find_my_open_slots
 
         monkeypatch.setattr("config.USER_EMAIL", "config@example.com")
-        calendar_state.get_events.return_value = []
 
         with patch("mcp_tools.calendar_tools.find_available_slots", return_value=[]) as mock_fas, \
              patch("mcp_tools.calendar_tools.format_slots_for_sharing", return_value="No slots"):
@@ -835,30 +861,37 @@ class TestFindMyOpenSlotsTool:
 
     @pytest.mark.asyncio
     async def test_find_my_open_slots_uses_retry_wrapper(self, calendar_state):
-        """get_events is called via _retry_on_transient, not directly."""
+        """get_events_with_routing is called via _retry_on_transient, not directly."""
         from unittest.mock import patch
 
         from mcp_tools.calendar_tools import find_my_open_slots
 
-        with patch("mcp_tools.calendar_tools._retry_on_transient", return_value=[]) as mock_retry, \
+        mock_routing = {
+            "providers_requested": ["microsoft_365", "apple"],
+            "providers_succeeded": [],
+            "provider_preference": "both",
+            "routing_reason": "auto_both_connected",
+            "is_fallback": False,
+        }
+        with patch("mcp_tools.calendar_tools._retry_on_transient", return_value=([], mock_routing)) as mock_retry, \
              patch("mcp_tools.calendar_tools.find_available_slots", return_value=[]), \
              patch("mcp_tools.calendar_tools.format_slots_for_sharing", return_value="No slots"):
             await find_my_open_slots("2026-02-18", "2026-02-18")
             mock_retry.assert_called_once()
-            # First positional arg should be the get_events method
-            assert mock_retry.call_args[0][0] == calendar_state.get_events
+            # First positional arg should be the get_events_with_routing method
+            assert mock_retry.call_args[0][0] == calendar_state.get_events_with_routing
 
     @pytest.mark.asyncio
     async def test_find_my_open_slots_response_includes_provider_preference(self, calendar_state):
-        """Response JSON includes provider_preference metadata."""
+        """Response JSON includes provider_preference and routing metadata."""
         from mcp_tools.calendar_tools import find_my_open_slots
-
-        calendar_state.get_events.return_value = []
 
         result = await find_my_open_slots("2026-02-18", "2026-02-18")
         data = json.loads(result)
 
         assert data["provider_preference"] == "both"
+        assert "routing" in data
+        assert data["routing"]["provider_preference"] == "both"
 
     def test_find_my_open_slots_tool_registered(self):
         """Verify find_my_open_slots and find_group_availability are registered."""

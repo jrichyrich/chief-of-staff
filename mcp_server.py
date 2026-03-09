@@ -75,14 +75,21 @@ async def app_lifespan(server: FastMCP):
         timeout_seconds=m365_timeout,
         detect_timeout_seconds=m365_detect_timeout,
     )
+    m365_initial_connected = m365_bridge.is_connector_connected()
+    if not m365_initial_connected:
+        logger.warning(
+            "M365 bridge not connected at startup — will re-check periodically. "
+            "Calendar reads may fall back to Apple until M365 reconnects."
+        )
     m365_provider = Microsoft365CalendarProvider(
-        connected=m365_bridge.is_connector_connected(),
+        connected=m365_initial_connected,
         list_calendars_fn=m365_bridge.list_calendars,
         get_events_fn=m365_bridge.get_events,
         create_event_fn=m365_bridge.create_event,
         update_event_fn=m365_bridge.update_event,
         delete_event_fn=m365_bridge.delete_event,
         search_events_fn=m365_bridge.search_events,
+        connectivity_checker=m365_bridge.is_connector_connected,
     )
     calendar_router = ProviderRouter({
         "apple": AppleCalendarProvider(apple_calendar_store),

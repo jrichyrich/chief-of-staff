@@ -101,6 +101,7 @@ def test_get_events_auto_merges_and_dedupes(tmp_path: Path):
         "start": "2026-02-16T09:00:00",
         "end": "2026-02-16T09:30:00",
         "calendar": "Work",
+        "showAs": "busy",
     }]
     apple.events = [
         {
@@ -121,12 +122,11 @@ def test_get_events_auto_merges_and_dedupes(tmp_path: Path):
     ]
     service = _service(tmp_path, apple=apple, m365=m365)
     events = service.get_events(datetime(2026, 2, 16), datetime(2026, 2, 17))
-    # Cross-provider events with same title/time are NOT deduped (provider-aware fallback)
-    assert len(events) == 3
+    # Cross-provider duplicate deduped: M365 version kept (richer metadata)
+    assert len(events) == 2
     standups = [e for e in events if e["title"] == "Team Standup"]
-    assert len(standups) == 2
-    providers = {e["provider"] for e in standups}
-    assert providers == {"microsoft_365", "apple"}
+    assert len(standups) == 1
+    assert standups[0]["provider"] == "microsoft_365"
 
 
 def test_create_event_work_fallbacks_to_apple(tmp_path: Path):
@@ -296,8 +296,8 @@ def test_get_events_require_all_success_default_none(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_dedupe_cross_provider_same_title_kept(tmp_path: Path):
-    """Two events with same title/start/end but different providers are NOT deduped."""
+def test_dedupe_cross_provider_same_title_prefers_m365(tmp_path: Path):
+    """Two events with same title/start/end from different providers ARE deduped; M365 wins."""
     apple = _FakeProvider("apple")
     m365 = _FakeProvider("microsoft_365")
     shared = {
@@ -306,13 +306,12 @@ def test_dedupe_cross_provider_same_title_kept(tmp_path: Path):
         "end": "2026-03-10T10:30:00",
         "calendar": "Work",
     }
-    m365.events = [{"uid": "m365-1", **shared}]
+    m365.events = [{"uid": "m365-1", "showAs": "busy", **shared}]
     apple.events = [{"uid": "apple-1", **shared}]
     service = _service(tmp_path, apple=apple, m365=m365)
     events = service.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
-    assert len(events) == 2
-    providers = {e["provider"] for e in events}
-    assert providers == {"microsoft_365", "apple"}
+    assert len(events) == 1
+    assert events[0]["provider"] == "microsoft_365"
 
 
 def test_dedupe_same_provider_same_title_deduped(tmp_path: Path):
@@ -364,5 +363,258 @@ def test_dedupe_ical_uid_ignores_provider(tmp_path: Path):
     }]
     service = _service(tmp_path, apple=apple, m365=m365)
     events = service.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
-    # ical_uid match (case-insensitive) → deduped to 1
+    # ical_uid match (case-insensitive) → deduped to 1, M365 preferred
     assert len(events) == 1
+    assert events[0]["provider"] == "microsoft_365"
+
+
+# ---------------------------------------------------------------------------
+# M365-preferred dedup tests
+# ---------------------------------------------------------------------------
+
+
+def test_dedupe_ical_uid_prefers_m365_over_apple(tmp_path: Path):
+    """When ical_uid matches, the M365 version is kept (richer metadata)."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    # Apple event is seen first (providers iterate m365 first, but let's test
+    # the case where Apple is first by feeding only via the dedup method).
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = [
+        {
+            "uid": "apple-1",
+            "ical_uid": "SHARED-UID",
+            "title": "Review",
+            "start": "2026-03-10T10:00:00",
+            "end": "2026-03-10T11:00:00",
+            "provider": "apple",
+        },
+        {
+            "uid": "m365-1",
+            "ical_uid": "shared-uid",
+            "title": "Review",
+            "start": "2026-03-10T10:00:00",
+            "end": "2026-03-10T11:00:00",
+            "provider": "microsoft_365",
+            "showAs": "busy",
+            "isCancelled": False,
+        },
+    ]
+    deduped = service._dedupe_events(rows)
+    assert len(deduped) == 1
+    assert deduped[0]["provider"] == "microsoft_365"
+    assert deduped[0].get("showAs") == "busy"
+
+
+def test_dedupe_fallback_prefers_m365_over_apple(tmp_path: Path):
+    """Fallback key (title+start+end) cross-provider dedup prefers M365."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = [
+        {
+            "uid": "apple-1",
+            "title": "Standup",
+            "start": "2026-03-10T09:00:00",
+            "end": "2026-03-10T09:30:00",
+            "provider": "apple",
+        },
+        {
+            "uid": "m365-1",
+            "title": "Standup",
+            "start": "2026-03-10T09:00:00",
+            "end": "2026-03-10T09:30:00",
+            "provider": "microsoft_365",
+            "showAs": "tentative",
+            "responseStatus": "tentativelyAccepted",
+        },
+    ]
+    deduped = service._dedupe_events(rows)
+    assert len(deduped) == 1
+    assert deduped[0]["provider"] == "microsoft_365"
+    assert deduped[0].get("responseStatus") == "tentativelyAccepted"
+
+
+def test_dedupe_unique_events_both_preserved(tmp_path: Path):
+    """Events unique to each provider are both kept."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = [
+        {
+            "uid": "m365-1",
+            "title": "Board Meeting",
+            "start": "2026-03-10T10:00:00",
+            "end": "2026-03-10T11:00:00",
+            "provider": "microsoft_365",
+        },
+        {
+            "uid": "apple-1",
+            "title": "Dentist",
+            "start": "2026-03-10T14:00:00",
+            "end": "2026-03-10T15:00:00",
+            "provider": "apple",
+        },
+    ]
+    deduped = service._dedupe_events(rows)
+    assert len(deduped) == 2
+    titles = {e["title"] for e in deduped}
+    assert titles == {"Board Meeting", "Dentist"}
+
+
+def test_dedupe_m365_first_still_kept(tmp_path: Path):
+    """When M365 is seen first (normal provider order), it is still kept."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = [
+        {
+            "uid": "m365-1",
+            "title": "Sprint Planning",
+            "start": "2026-03-10T10:00:00",
+            "end": "2026-03-10T11:00:00",
+            "provider": "microsoft_365",
+            "showAs": "busy",
+        },
+        {
+            "uid": "apple-1",
+            "title": "Sprint Planning",
+            "start": "2026-03-10T10:00:00",
+            "end": "2026-03-10T11:00:00",
+            "provider": "apple",
+        },
+    ]
+    deduped = service._dedupe_events(rows)
+    assert len(deduped) == 1
+    assert deduped[0]["provider"] == "microsoft_365"
+
+
+def test_dedupe_single_provider_unchanged(tmp_path: Path):
+    """Single-provider queries still work — no regression."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    service = _service(tmp_path, apple=apple, m365=m365)
+    rows = [
+        {
+            "uid": "apple-1",
+            "title": "Lunch",
+            "start": "2026-03-10T12:00:00",
+            "end": "2026-03-10T13:00:00",
+            "provider": "apple",
+        },
+        {
+            "uid": "apple-2",
+            "title": "Gym",
+            "start": "2026-03-10T17:00:00",
+            "end": "2026-03-10T18:00:00",
+            "provider": "apple",
+        },
+    ]
+    deduped = service._dedupe_events(rows)
+    assert len(deduped) == 2
+
+
+# ---------------------------------------------------------------------------
+# get_events_with_routing tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_events_with_routing_returns_metadata(tmp_path: Path):
+    """get_events_with_routing returns events and routing metadata."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    m365.events = [{
+        "uid": "m365-1",
+        "title": "Work Meeting",
+        "start": "2026-03-10T10:00:00",
+        "end": "2026-03-10T11:00:00",
+        "calendar": "Work",
+    }]
+    apple.events = [{
+        "uid": "apple-1",
+        "title": "Personal",
+        "start": "2026-03-10T12:00:00",
+        "end": "2026-03-10T13:00:00",
+        "calendar": "Personal",
+    }]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    events, routing = service.get_events_with_routing(
+        datetime(2026, 3, 10), datetime(2026, 3, 11),
+        provider_preference="both",
+    )
+    assert len(events) == 2
+    assert "microsoft_365" in routing["providers_requested"]
+    assert "apple" in routing["providers_requested"]
+    assert "microsoft_365" in routing["providers_succeeded"]
+    assert "apple" in routing["providers_succeeded"]
+    assert routing["is_fallback"] is False
+    assert routing["provider_preference"] == "both"
+
+
+def test_get_events_with_routing_detects_fallback(tmp_path: Path):
+    """When M365 is disconnected, routing metadata shows fallback."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365", connected=False)
+    apple.events = [{
+        "uid": "apple-1",
+        "title": "Personal",
+        "start": "2026-03-10T12:00:00",
+        "end": "2026-03-10T13:00:00",
+        "calendar": "Personal",
+    }]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    events, routing = service.get_events_with_routing(
+        datetime(2026, 3, 10), datetime(2026, 3, 11),
+        provider_preference="microsoft_365",
+    )
+    assert len(events) == 1
+    assert events[0]["provider"] == "apple"
+    assert routing["is_fallback"] is True
+    assert "fallback" in routing["routing_reason"]
+    assert routing["providers_requested"] == ["apple"]
+    assert routing["providers_succeeded"] == ["apple"]
+    assert routing["provider_preference"] == "microsoft_365"
+
+
+def test_get_events_with_routing_m365_only(tmp_path: Path):
+    """When M365 is connected and requested, no fallback."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365")
+    m365.events = [{
+        "uid": "m365-1",
+        "title": "Work Meeting",
+        "start": "2026-03-10T10:00:00",
+        "end": "2026-03-10T11:00:00",
+        "calendar": "Work",
+    }]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    events, routing = service.get_events_with_routing(
+        datetime(2026, 3, 10), datetime(2026, 3, 11),
+        provider_preference="microsoft_365",
+    )
+    assert len(events) >= 1
+    assert routing["is_fallback"] is False
+    assert "microsoft_365" in routing["providers_requested"]
+    assert "microsoft_365" in routing["providers_succeeded"]
+
+
+def test_get_events_with_routing_both_m365_disconnected(tmp_path: Path):
+    """When both requested but M365 disconnected, only Apple data returned with fallback flag."""
+    apple = _FakeProvider("apple")
+    m365 = _FakeProvider("microsoft_365", connected=False)
+    apple.events = [{
+        "uid": "apple-1",
+        "title": "Personal",
+        "start": "2026-03-10T12:00:00",
+        "end": "2026-03-10T13:00:00",
+        "calendar": "Personal",
+    }]
+    service = _service(tmp_path, apple=apple, m365=m365)
+    events, routing = service.get_events_with_routing(
+        datetime(2026, 3, 10), datetime(2026, 3, 11),
+        provider_preference="both",
+    )
+    assert len(events) == 1
+    assert events[0]["provider"] == "apple"
+    assert routing["providers_succeeded"] == ["apple"]
+    assert "microsoft_365" not in routing["providers_succeeded"]

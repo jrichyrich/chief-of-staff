@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
 from typing import Callable, Optional
 
 from connectors.provider_base import CalendarProvider
+
+logger = logging.getLogger(__name__)
 
 
 class Microsoft365CalendarProvider(CalendarProvider):
@@ -46,10 +49,22 @@ class Microsoft365CalendarProvider(CalendarProvider):
         if self._connectivity_checker and (
             time.monotonic() - self._last_connectivity_check > self._connectivity_ttl
         ):
+            old_state = self._connected
             try:
                 self._connected = self._connectivity_checker()
             except Exception:
-                pass  # Keep last known state on check failure
+                logger.warning(
+                    "M365 connectivity check failed (keeping state=%s)",
+                    self._connected,
+                    exc_info=True,
+                )
+            else:
+                if old_state != self._connected:
+                    logger.info(
+                        "M365 connectivity changed: %s -> %s",
+                        old_state,
+                        self._connected,
+                    )
             self._last_connectivity_check = time.monotonic()
         return self._connected
 

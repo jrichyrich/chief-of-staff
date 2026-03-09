@@ -202,6 +202,22 @@ class UnifiedCalendarService:
         if not decision.providers:
             return [{"error": "No connected calendar providers available"}]
 
+        # Log routing decisions, especially fallbacks
+        if "fallback" in decision.reason or "unavailable" in decision.reason:
+            logger.warning(
+                "Calendar read routing fallback: preference=%r -> providers=%s (reason=%s)",
+                provider_preference,
+                decision.providers,
+                decision.reason,
+            )
+        else:
+            logger.debug(
+                "Calendar read routing: preference=%r -> providers=%s (reason=%s)",
+                provider_preference,
+                decision.providers,
+                decision.reason,
+            )
+
         rows: list[dict] = []
         errors: list[dict] = []
         succeeded: set[str] = set()
@@ -244,6 +260,10 @@ class UnifiedCalendarService:
             return errors
         return []
 
+    # Providers whose metadata is richer (showAs, isCancelled, responseStatus).
+    # Lower score = higher preference when deduplicating.
+    _PROVIDER_PRIORITY: dict[str, int] = {"microsoft_365": 0, "apple": 1}
+
     @staticmethod
     def _event_dedupe_key(event: dict) -> tuple:
         ical_uid = str(event.get("ical_uid", "")).strip()
@@ -252,16 +272,26 @@ class UnifiedCalendarService:
         title = str(event.get("title", "")).strip().lower()
         start = str(event.get("start", "")).strip()
         end = str(event.get("end", "")).strip()
+        # Cross-provider dedup: do NOT include provider in the key so that
+        # the same event from Apple and M365 is recognised as a duplicate.
+        return ("fallback", title, start, end)
+
+    @classmethod
+    def _provider_score(cls, event: dict) -> int:
+        """Return a sort score for provider preference (lower = preferred)."""
         provider = str(event.get("provider", "")).strip().lower()
-        return ("fallback", provider, title, start, end)
+        return cls._PROVIDER_PRIORITY.get(provider, 99)
 
     def _dedupe_events(self, rows: list[dict]) -> list[dict]:
         seen: dict[tuple, dict] = {}
         for row in rows:
             key = self._event_dedupe_key(row)
-            if key in seen:
-                continue
-            seen[key] = row
+            existing = seen.get(key)
+            if existing is None:
+                seen[key] = row
+            elif self._provider_score(row) < self._provider_score(existing):
+                # New row comes from a higher-priority provider — replace.
+                seen[key] = row
         deduped = list(seen.values())
         deduped.sort(key=lambda r: str(r.get("start", "")))
         return deduped
@@ -308,6 +338,52 @@ class UnifiedCalendarService:
             track_ownership=True,
             require_all_success=require_all_success,
         )
+
+    def get_events_with_routing(
+        self,
+        start_dt: datetime,
+        end_dt: datetime,
+        calendar_names: Optional[list[str]] = None,
+        provider_preference: str = "auto",
+        source_filter: str = "",
+        require_all_success: bool | None = None,
+    ) -> tuple[list[dict], dict]:
+        """Like get_events but also returns routing metadata.
+
+        Returns:
+            Tuple of (events, routing_info) where routing_info contains:
+                - providers_requested: list of providers the router selected
+                - providers_succeeded: list of providers that returned data
+                - provider_preference: the original preference
+                - routing_reason: why the router chose these providers
+                - is_fallback: True if the actual providers differ from what was requested
+        """
+        decision = self.router.decide_read(provider_preference=provider_preference)
+        events = self._read_from_providers(
+            provider_preference=provider_preference,
+            source_filter=source_filter,
+            fetch_fn=lambda p: p.get_events(start_dt, end_dt, calendar_names=calendar_names),
+            tag_events=True,
+            dedupe_events=True,
+            track_ownership=True,
+            require_all_success=require_all_success,
+        )
+        # Determine which providers actually contributed data
+        providers_in_results = set()
+        for event in events:
+            if isinstance(event, dict) and not event.get("error"):
+                prov = event.get("provider", "")
+                if prov:
+                    providers_in_results.add(prov)
+        is_fallback = "fallback" in decision.reason or "unavailable" in decision.reason
+        routing_info = {
+            "providers_requested": decision.providers,
+            "providers_succeeded": sorted(providers_in_results),
+            "provider_preference": provider_preference,
+            "routing_reason": decision.reason,
+            "is_fallback": is_fallback,
+        }
+        return events, routing_info
 
     def search_events(
         self,
