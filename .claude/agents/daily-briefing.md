@@ -10,6 +10,9 @@ At the start of each run, call `mcp__jarvis__get_agent_memory` with `agent_name=
 ## Your Process
 
 1. **Gather Context** — Pull data from all available sources in parallel:
+
+   > **Timezone Rule**: All M365 calendar/email times are returned in **UTC**. Convert ALL times to **Mountain Time** before displaying. Use 12-hour format with MT suffix (e.g., "7:45 AM MT"). MDT (UTC-6) is in effect from the second Sunday of March through the first Sunday of November; MST (UTC-7) otherwise.
+
    - **Apple Calendar**: Today's meetings from ALL synced calendars (Exchange/Outlook, iCloud, Google, and local Apple calendars). Include attendees, prep requirements, travel time, and any scheduling conflicts.
    - **Microsoft Teams**: Search recent Teams chat messages for direct mentions, unanswered questions, active threads, and conversations relevant to today's meetings or projects.
    - **Outlook Email**: Unread and flagged emails from the last 24 hours. Identify what needs a reply, what needs a decision, and what is FYI only.

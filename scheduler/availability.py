@@ -5,6 +5,8 @@ from datetime import datetime, time, timedelta
 from typing import Union
 from zoneinfo import ZoneInfo
 
+from config import USER_TIMEZONE
+
 logger = logging.getLogger(__name__)
 
 _OOO_KEYWORDS = ("pto", "ooo", "out of office", "vacation", "holiday", "day off")
@@ -239,7 +241,7 @@ def find_available_slots(
     duration_minutes: int,
     working_hours_start: time = time(8, 0),
     working_hours_end: time = time(18, 0),
-    timezone_name: str = "America/Denver",
+    timezone_name: str = USER_TIMEZONE,
     include_soft_blocks: bool = True,
     soft_keywords: list[str] | None = None,
     user_email: str | None = None,
@@ -460,7 +462,7 @@ def find_available_slots(
 
 
 def format_slots_for_sharing(
-    slots: list[dict], timezone_name: str = "America/Denver"
+    slots: list[dict], timezone_name: str = USER_TIMEZONE
 ) -> str:
     """Format available slots as human-readable text for sharing.
 

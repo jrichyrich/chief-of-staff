@@ -20,6 +20,7 @@ MODEL_TIERS = {
 DEFAULT_MODEL_TIER = "sonnet"
 
 AGENT_TIMEOUT_SECONDS = 60
+USER_TIMEZONE = os.environ.get("JARVIS_TIMEZONE", "America/Denver")
 MAX_TOOL_ROUNDS = 25
 from memory.models import FactCategory
 VALID_FACT_CATEGORIES = frozenset(FactCategory)

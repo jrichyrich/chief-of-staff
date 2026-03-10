@@ -7,7 +7,9 @@ modules (brief, tables, cards).
 
 from datetime import datetime
 from typing import Sequence
+from zoneinfo import ZoneInfo
 
+from config import USER_TIMEZONE
 from formatter.types import CalendarEntry
 
 
@@ -15,6 +17,8 @@ def _format_time(iso_str: str) -> str:
     """Convert ISO datetime string to human-readable time like '8:30 AM'."""
     try:
         dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(ZoneInfo(USER_TIMEZONE))
         try:
             return dt.strftime("%-I:%M %p")
         except ValueError:

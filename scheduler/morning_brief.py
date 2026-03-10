@@ -30,6 +30,9 @@ _BRIEF_PROMPT = """\
 Generate my morning brief for today.  Follow these rules exactly:
 
 1. Query ALL of these sources IN PARALLEL:
+   **IMPORTANT**: M365 returns all times in UTC.  Convert every time to Mountain Time
+   before displaying.  Use 12-hour format with MT suffix (e.g. "7:45 AM MT").
+   MDT = UTC-6 (second Sunday of March → first Sunday of November); MST = UTC-7 otherwise.
    - M365 Calendar (outlook_calendar_search) — today's meetings, start/end/attendees
    - Apple Calendar (get_calendar_events) — today, provider_preference="both"
    - M365 Email (outlook_email_search) — last 24h, unread/flagged

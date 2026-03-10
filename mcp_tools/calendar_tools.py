@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import config
 from scheduler.availability import find_available_slots, format_slots_for_sharing
@@ -252,7 +253,7 @@ def register(mcp, state):
         from datetime import timedelta
 
         calendar_store = state.calendar_store
-        now = datetime.now()
+        now = datetime.now(tz=ZoneInfo(config.USER_TIMEZONE))
         start_dt = _parse_date(start_date) if start_date else now - timedelta(days=30)
         end_dt = _parse_date(end_date) if end_date else now + timedelta(days=30)
         kwargs = {}
@@ -382,14 +383,14 @@ def register(mcp, state):
             duration_minutes=duration_minutes,
             working_hours_start=working_start,
             working_hours_end=working_end,
-            timezone_name="America/Denver",
+            timezone_name=config.USER_TIMEZONE,
             include_soft_blocks=include_soft_blocks,
             soft_keywords=keywords,
             user_email=resolved_email,
         )
 
         # Format for sharing
-        formatted_text = format_slots_for_sharing(slots, timezone_name="America/Denver")
+        formatted_text = format_slots_for_sharing(slots, timezone_name=config.USER_TIMEZONE)
 
         return json.dumps({
             "slots": slots,

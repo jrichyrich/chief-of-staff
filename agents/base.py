@@ -456,11 +456,11 @@ class BaseExpertAgent(
             duration_minutes=duration_minutes,
             working_hours_start=working_start,
             working_hours_end=working_end,
-            timezone_name="America/Denver",
+            timezone_name=app_config.USER_TIMEZONE,
             include_soft_blocks=include_soft_blocks,
             soft_keywords=keywords,
         )
-        formatted_text = format_slots_for_sharing(slots, timezone_name="America/Denver")
+        formatted_text = format_slots_for_sharing(slots, timezone_name=app_config.USER_TIMEZONE)
         return {"slots": slots, "formatted_text": formatted_text, "count": len(slots)}
 
     def _handle_find_group_availability(self, tool_input: dict) -> Any:
