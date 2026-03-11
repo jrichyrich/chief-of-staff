@@ -207,6 +207,24 @@ class TestIngestion:
             results = doc_store.search("report", top_k=1)
             assert len(results) > 0
 
+    def test_ingest_pdf_import_error_graceful_skip(self, tmp_path, doc_store):
+        """Test that ingest_path gracefully skips PDF files when pypdf is unavailable."""
+        test_file = tmp_path / "report.pdf"
+        test_file.write_bytes(b"%PDF-1.4")
+
+        with patch.dict("sys.modules", {"pypdf": None}):
+            result = ingest_path(test_file, doc_store)
+            assert "Skipped 1" in result
+
+    def test_ingest_docx_import_error_graceful_skip(self, tmp_path, doc_store):
+        """Test that ingest_path gracefully skips DOCX files when python-docx is unavailable."""
+        test_file = tmp_path / "document.docx"
+        test_file.write_bytes(b"PK")
+
+        with patch.dict("sys.modules", {"docx": None}):
+            result = ingest_path(test_file, doc_store)
+            assert "Skipped 1" in result
+
     def test_ingest_docx_end_to_end(self, tmp_path, doc_store):
         """Test ingesting a DOCX file into document store."""
         test_file = tmp_path / "document.docx"

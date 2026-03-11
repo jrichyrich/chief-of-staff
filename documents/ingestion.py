@@ -125,7 +125,8 @@ def ingest_path(path: Path, document_store: "DocumentStore") -> str:
     for file in files:
         try:
             text = load_text_file(file)
-        except ValueError:
+        except (ValueError, ImportError) as e:
+            logger.warning("Skipping file: %s (%s)", file, e)
             skipped += 1
             continue
         except UnicodeDecodeError:

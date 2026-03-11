@@ -38,7 +38,7 @@ def register(mcp, state):
     @tool_errors("Document ingestion error", expected=_EXPECTED)
     async def ingest_documents(path: str) -> str:
         """Ingest documents from a file or directory into the knowledge base for semantic search.
-        Supports .txt, .md, .py, .json, .yaml files.
+        Supports .txt, .md, .py, .json, .yaml, .pdf, .docx files.
 
         Args:
             path: Absolute path to a file or directory to ingest
