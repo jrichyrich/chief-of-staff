@@ -28,7 +28,7 @@ class TestOpenTeamsBrowserPlaywright:
         mock_mgr = MagicMock()
         mock_mgr.launch.return_value = {"status": "launched", "pid": 123, "cdp_port": 9222}
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="playwright"):
             with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
                 with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
                     raw = await open_teams_browser()
@@ -41,7 +41,7 @@ class TestOpenTeamsBrowserPlaywright:
         mock_mgr = MagicMock()
         mock_mgr.launch.return_value = {"status": "already_running", "pid": 123}
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="playwright"):
             with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
                 with patch.object(teams_browser_tools, "_wait_for_teams", new_callable=AsyncMock, return_value={"ok": True}):
                     raw = await open_teams_browser()
@@ -53,7 +53,7 @@ class TestOpenTeamsBrowserPlaywright:
         mock_mgr = MagicMock()
         mock_mgr.launch.return_value = {"status": "error", "error": "Chromium not found"}
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="playwright"):
             with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
                 raw = await open_teams_browser()
 
@@ -70,7 +70,7 @@ class TestOpenTeamsBrowserAgentBrowser:
         mock_ab = AsyncMock()
         mock_ab.open.return_value = {"ok": True}
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="agent-browser"):
             with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
                 raw = await open_teams_browser()
 
@@ -83,7 +83,7 @@ class TestOpenTeamsBrowserAgentBrowser:
         mock_ab = AsyncMock()
         mock_ab.open.side_effect = Exception("binary not found")
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="agent-browser"):
             with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
                 raw = await open_teams_browser()
 
@@ -100,7 +100,7 @@ class TestCloseTeamsBrowserPlaywright:
         mock_mgr = MagicMock()
         mock_mgr.close.return_value = {"status": "closed"}
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="playwright"):
             with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
                 raw = await close_teams_browser()
 
@@ -117,7 +117,7 @@ class TestCloseTeamsBrowserAgentBrowser:
         mock_ab = AsyncMock()
         mock_ab.close.return_value = {"ok": True}
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="agent-browser"):
             with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
                 raw = await close_teams_browser()
 
@@ -130,7 +130,7 @@ class TestCloseTeamsBrowserAgentBrowser:
         mock_ab = AsyncMock()
         mock_ab.close.side_effect = Exception("already closed")
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="agent-browser"):
             with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
                 raw = await close_teams_browser()
 
@@ -147,7 +147,7 @@ class TestBackendSelection:
         teams_browser_tools._poster = None  # reset singleton
         mock_ab = MagicMock()
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="agent-browser"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="agent-browser"):
             with patch.object(teams_browser_tools, "_get_ab", return_value=mock_ab):
                 with patch("browser.ab_poster.ABTeamsPoster") as MockAB:
                     MockAB.return_value = MagicMock()
@@ -161,7 +161,7 @@ class TestBackendSelection:
         teams_browser_tools._poster = None  # reset singleton
         mock_mgr = MagicMock()
 
-        with patch.object(teams_browser_tools, "_get_backend", return_value="playwright"):
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="playwright"):
             with patch.object(teams_browser_tools, "_get_manager", return_value=mock_mgr):
                 with patch("browser.teams_poster.PlaywrightTeamsPoster") as MockPW:
                     MockPW.return_value = MagicMock()

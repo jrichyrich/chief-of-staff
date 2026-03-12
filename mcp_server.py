@@ -197,6 +197,22 @@ async def app_lifespan(server: FastMCP):
         except Exception:
             logger.exception("Failed to load session context (non-fatal)")
 
+    # Initialize Graph API client if credentials are available
+    if app_config.M365_GRAPH_ENABLED:
+        try:
+            from connectors.graph_client import GraphClient
+            _state.graph_client = GraphClient(
+                client_id=app_config.M365_CLIENT_ID,
+                tenant_id=app_config.M365_TENANT_ID,
+                scopes=app_config.M365_GRAPH_SCOPES,
+                interactive=False,  # MCP server runs headless over stdio
+            )
+            logger.info("Graph API client initialized")
+        except ImportError:
+            logger.warning("msal/httpx not installed — Graph API disabled")
+        except Exception:
+            logger.warning("Graph API client initialization failed", exc_info=True)
+
     logger.info("Jarvis MCP server initialized")
 
     # Fire session_start hooks
@@ -208,7 +224,15 @@ async def app_lifespan(server: FastMCP):
         # Fire session_end hooks
         hook_registry.fire_hooks("session_end", {"event": "session_end"})
 
+        # Close Graph API client
+        if _state.graph_client:
+            try:
+                await _state.graph_client.close()
+            except Exception:
+                logger.warning("Failed to close Graph API client", exc_info=True)
+
         # Reset all state attributes
+        _state.graph_client = None
         _state.hook_registry = None
         _state.memory_store = None
         _state.document_store = None

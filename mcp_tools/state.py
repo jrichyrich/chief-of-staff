@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from apple_reminders.eventkit import ReminderStore
     from connectors.calendar_unified import UnifiedCalendarService
     from connectors.claude_m365_bridge import ClaudeM365Bridge
+    from connectors.graph_client import GraphClient
     from documents.store import DocumentStore
     from hooks.registry import HookRegistry
     from memory.store import MemoryStore
@@ -78,6 +79,7 @@ class ServerState:
     session_brain: Optional[SessionBrain] = None
     agent_browser: Optional[Any] = None  # browser.agent_browser.AgentBrowser
     session_context: Optional[SessionContext] = None
+    graph_client: Optional[GraphClient] = None  # initialized in lifespan if M365_GRAPH_ENABLED
 
     @staticmethod
     @cache
@@ -111,6 +113,7 @@ class ServerState:
         self.session_brain = None
         self.agent_browser = None
         self.session_context = None
+        self.graph_client = None
 
     def __setitem__(self, key: str, value: Any) -> None:
         """Dict-style assignment (for backward compatibility with tests)."""

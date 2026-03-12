@@ -1,6 +1,12 @@
 import os
 from pathlib import Path
 
+try:
+    from vault.keychain import get_secret
+except ImportError:
+    def get_secret(key):
+        return os.environ.get(key)
+
 BASE_DIR = Path(__file__).parent
 AGENT_CONFIGS_DIR = BASE_DIR / "agent_configs"
 PLAYBOOKS_DIR = BASE_DIR / "playbooks"
@@ -9,7 +15,7 @@ MEMORY_DB_PATH = DATA_DIR / "memory.db"
 SESSION_BRAIN_PATH = DATA_DIR / "session_brain.md"
 CHROMA_PERSIST_DIR = DATA_DIR / "chroma"
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY = get_secret("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
 USER_EMAIL = os.environ.get("JARVIS_USER_EMAIL", "")
 DEFAULT_MODEL = "claude-sonnet-4-6"
 MODEL_TIERS = {
@@ -153,7 +159,21 @@ AGENT_BROWSER_DATA_DIR = DATA_DIR / "agent-browser"
 AGENT_BROWSER_TIMEOUT = int(os.environ.get("AGENT_BROWSER_TIMEOUT", "30"))
 AGENT_BROWSER_HEADED = os.environ.get("AGENT_BROWSER_HEADED", "").lower() in ("1", "true", "yes")
 
-# Teams poster backend: "agent-browser" (default, accessibility-tree-based) or "playwright" (CSS-selector-based)
+# Microsoft Graph API (direct)
+M365_CLIENT_ID = get_secret("m365_client_id") or ""
+M365_TENANT_ID = get_secret("m365_tenant_id") or ""
+M365_GRAPH_ENABLED = bool(M365_CLIENT_ID)
+M365_GRAPH_SCOPES = ["Chat.Read", "ChatMessage.Send", "Mail.Send", "User.Read"]
+
+# Backend routing (TEAMS_POSTER_BACKEND deprecated in favor of TEAMS_SEND_BACKEND)
+TEAMS_SEND_BACKEND = os.environ.get(
+    "TEAMS_SEND_BACKEND",
+    os.environ.get("TEAMS_POSTER_BACKEND", "graph" if M365_GRAPH_ENABLED else "agent-browser")
+)
+TEAMS_READ_BACKEND = os.environ.get("TEAMS_READ_BACKEND", "graph" if M365_GRAPH_ENABLED else "m365-bridge")
+EMAIL_SEND_BACKEND = os.environ.get("EMAIL_SEND_BACKEND", "graph" if M365_GRAPH_ENABLED else "apple")
+
+# Teams poster backend (DEPRECATED — use TEAMS_SEND_BACKEND instead)
 TEAMS_POSTER_BACKEND = os.environ.get("TEAMS_POSTER_BACKEND", "agent-browser")
 
 # iMessage daemon settings

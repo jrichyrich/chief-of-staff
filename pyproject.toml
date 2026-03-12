@@ -21,6 +21,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+graph = [
+    "msal>=1.28.0",
+    "msal-extensions>=1.1.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
@@ -30,7 +34,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["memory*", "agents*", "documents*", "chief*", "tools*", "utils*", "apple_calendar*", "apple_notifications*", "apple_reminders*", "apple_mail*", "apple_messages*", "connectors*", "okr*", "browser*", "mcp_tools*", "channels*", "playbooks*", "session*", "scheduler*", "hooks*", "proactive*", "webhook*", "skills*", "capabilities*", "humanizer*", "formatter*"]
+include = ["memory*", "agents*", "documents*", "chief*", "tools*", "utils*", "apple_calendar*", "apple_notifications*", "apple_reminders*", "apple_mail*", "apple_messages*", "connectors*", "okr*", "browser*", "mcp_tools*", "channels*", "playbooks*", "session*", "scheduler*", "hooks*", "proactive*", "webhook*", "skills*", "capabilities*", "humanizer*", "formatter*", "vault*"]
 
 [tool.setuptools.package-data]
 "agent_configs" = ["*.yaml"]

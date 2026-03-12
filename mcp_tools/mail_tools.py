@@ -13,7 +13,21 @@ logger = logging.getLogger(__name__)
 
 from utils.text import split_addresses as _split_addresses
 
+try:
+    from connectors.graph_client import GraphAPIError, GraphAuthError, GraphTransientError
+except ImportError:
+    GraphAPIError = None  # type: ignore[assignment,misc]
+    GraphTransientError = None  # type: ignore[assignment,misc]
+    GraphAuthError = None  # type: ignore[assignment,misc]
+
 _MAIL_EXPECTED = (OSError, subprocess.SubprocessError, TimeoutError)
+
+
+def _is_graph_backend(state) -> bool:
+    """Check if Graph API is the configured email backend and available."""
+    import config
+    backend = getattr(config, "EMAIL_SEND_BACKEND", "apple")
+    return backend == "graph" and state.graph_client is not None and GraphTransientError is not None
 
 
 def register(mcp, state):
@@ -161,9 +175,29 @@ def register(mcp, state):
             html_body: HTML body for rich formatting (optional — creates multipart/alternative email with plain text fallback)
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
-        mail_store = state.mail_store
+        # confirm_send gate BEFORE any backend routing
+        if not confirm_send:
+            return json.dumps({"error": "confirm_send must be True. Please confirm with the user before sending."})
+
         cc_list = _split_addresses(cc) or None if cc else None
         bcc_list = _split_addresses(bcc) or None if bcc else None
+
+        # Graph API backend routing
+        if _is_graph_backend(state):
+            try:
+                await state.graph_client.reply_mail(
+                    message_id=message_id,
+                    body=html_body or body,
+                    reply_all=reply_all,
+                    cc=cc_list,
+                    bcc=bcc_list,
+                )
+                return json.dumps({"status": "replied", "backend": "graph", "message_id": message_id})
+            except Exception as e:
+                logger.warning("Graph reply_mail failed (%s: %s), falling back to Apple Mail", type(e).__name__, e)
+
+        # Apple Mail fallback (or primary if backend != "graph")
+        mail_store = state.mail_store
         result = mail_store.reply_message(
             message_id=message_id,
             body=body,
@@ -171,7 +205,7 @@ def register(mcp, state):
             cc=cc_list,
             bcc=bcc_list,
             html_body=html_body or None,
-            confirm_send=confirm_send,
+            confirm_send=True,  # already gated above
         )
         return json.dumps(result)
 
@@ -191,10 +225,31 @@ def register(mcp, state):
             html_body: HTML body for rich formatting (optional — creates multipart/alternative email with plain text fallback)
             confirm_send: Must be True to actually send. Set to False to preview only. (default: False)
         """
-        mail_store = state.mail_store
+        # confirm_send gate BEFORE any backend routing
+        if not confirm_send:
+            return json.dumps({"error": "confirm_send must be True. Please confirm with the user before sending."})
+
         to_list = _split_addresses(to)
         cc_list = _split_addresses(cc) or None if cc else None
         bcc_list = _split_addresses(bcc) or None if bcc else None
+
+        # Graph API backend routing
+        if _is_graph_backend(state):
+            try:
+                await state.graph_client.send_mail(
+                    to=to_list,
+                    subject=subject,
+                    body=html_body or body,
+                    cc=cc_list,
+                    bcc=bcc_list,
+                    content_type="HTML" if html_body else "Text",
+                )
+                return json.dumps({"status": "sent", "backend": "graph", "to": to_list, "subject": subject})
+            except Exception as e:
+                logger.warning("Graph send_mail failed (%s: %s), falling back to Apple Mail", type(e).__name__, e)
+
+        # Apple Mail fallback (or primary if backend != "graph")
+        mail_store = state.mail_store
         result = mail_store.send_message(
             to=to_list,
             subject=subject,
@@ -202,7 +257,7 @@ def register(mcp, state):
             cc=cc_list,
             bcc=bcc_list,
             html_body=html_body or None,
-            confirm_send=confirm_send,
+            confirm_send=True,  # already gated above
         )
         return json.dumps(result)
 

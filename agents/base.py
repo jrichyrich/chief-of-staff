@@ -518,8 +518,8 @@ class BaseExpertAgent(
     # ------------------------------------------------------------------
 
     async def _handle_open_teams_browser(self, tool_input: dict = None) -> Any:
-        from mcp_tools.teams_browser_tools import _get_backend, _get_ab, _get_manager, _wait_for_teams
-        backend = _get_backend()
+        from mcp_tools.teams_browser_tools import _get_send_backend, _get_ab, _get_manager, _wait_for_teams
+        backend = _get_send_backend()
         if backend == "agent-browser":
             ab = _get_ab()
             try:
@@ -563,8 +563,8 @@ class BaseExpertAgent(
         return await poster.cancel_prepared_message()
 
     async def _handle_close_teams_browser(self, tool_input: dict = None) -> Any:
-        from mcp_tools.teams_browser_tools import _get_backend, _get_ab, _get_manager
-        backend = _get_backend()
+        from mcp_tools.teams_browser_tools import _get_send_backend, _get_ab, _get_manager
+        backend = _get_send_backend()
         if backend == "agent-browser":
             ab = _get_ab()
             try:
