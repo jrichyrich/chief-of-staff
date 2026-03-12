@@ -381,6 +381,16 @@ class GraphClient:
         )
         return result
 
+    async def get_authenticated_email(self) -> str | None:
+        """Return the authenticated user's email from MSAL account cache.
+
+        Returns None if no account is cached (not yet authenticated).
+        """
+        accounts = self._app.get_accounts()
+        if accounts:
+            return accounts[0].get("username")
+        return None
+
     @staticmethod
     def _check_token_age(result: dict) -> None:
         """Log a warning if the token is approaching expiry."""
@@ -574,10 +584,11 @@ class GraphClient:
         """Create a new Teams chat with the given members.
 
         Uses oneOnOne for a single member, group for multiple.
+        For group chats, the authenticated user is explicitly added as an owner
+        (required by Graph API). For oneOnOne, Graph auto-includes the caller.
         """
         chat_type = "oneOnOne" if len(member_emails) == 1 else "group"
 
-        # The authenticated user is automatically included
         members = [
             {
                 "@odata.type": "#microsoft.graph.aadUserConversationMember",
@@ -586,6 +597,16 @@ class GraphClient:
             }
             for email in member_emails
         ]
+
+        # Group chats require the caller to be explicitly listed as a member
+        if chat_type == "group":
+            my_email = await self.get_authenticated_email()
+            if my_email and my_email.lower() not in {e.lower() for e in member_emails}:
+                members.insert(0, {
+                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                    "roles": ["owner"],
+                    "user@odata.bind": f"https://graph.microsoft.com/v1.0/users/{my_email}",
+                })
 
         body: dict[str, Any] = {
             "chatType": chat_type,

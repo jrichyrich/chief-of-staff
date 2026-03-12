@@ -402,6 +402,63 @@ async def test_request_retry_after_parse_failure(client):
 
 
 # ---------------------------------------------------------------------------
+# get_authenticated_email tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_authenticated_email(client, mock_msal_app):
+    """get_authenticated_email returns the cached account username."""
+    result = await client.get_authenticated_email()
+    assert result == "user@example.com"
+
+
+@pytest.mark.asyncio
+async def test_get_authenticated_email_no_accounts(client, mock_msal_app):
+    """get_authenticated_email returns None when no accounts cached."""
+    mock_msal_app.get_accounts.return_value = []
+    result = await client.get_authenticated_email()
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# create_chat group/oneOnOne tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_chat_group_includes_self(client):
+    """create_chat for group (2+ members) includes authenticated user."""
+    client._http.request.return_value = _make_response(201, {"id": "chat-group-1"})
+    client._app.get_accounts.return_value = [{"username": "me@example.com"}]
+
+    result = await client.create_chat(["alice@example.com", "bob@example.com"])
+    assert result == {"id": "chat-group-1"}
+
+    call_args = client._http.request.call_args
+    payload = call_args[1]["json"]
+    assert payload["chatType"] == "group"
+    member_bindings = [m["user@odata.bind"] for m in payload["members"]]
+    assert "https://graph.microsoft.com/v1.0/users/me@example.com" in member_bindings
+    assert "https://graph.microsoft.com/v1.0/users/alice@example.com" in member_bindings
+    assert "https://graph.microsoft.com/v1.0/users/bob@example.com" in member_bindings
+
+
+@pytest.mark.asyncio
+async def test_create_chat_oneOnOne_does_not_duplicate_self(client):
+    """create_chat for 1:1 does NOT add self - Graph handles it automatically."""
+    client._http.request.return_value = _make_response(201, {"id": "chat-1on1"})
+
+    result = await client.create_chat(["alice@example.com"])
+    assert result == {"id": "chat-1on1"}
+
+    call_args = client._http.request.call_args
+    payload = call_args[1]["json"]
+    assert payload["chatType"] == "oneOnOne"
+    assert len(payload["members"]) == 1  # Only Alice, not self
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle test
 # ---------------------------------------------------------------------------
 
