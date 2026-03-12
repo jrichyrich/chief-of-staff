@@ -548,6 +548,24 @@ class GraphClient:
 
         return None
 
+    async def resolve_user_email(self, display_name: str) -> str | None:
+        """Resolve a display name to an email via Graph /users endpoint.
+
+        Returns the user's email if exactly one match is found, None otherwise.
+        """
+        try:
+            safe_name = display_name.replace("'", "''")
+            data = await self._request(
+                "GET",
+                f"/users?$filter=displayName eq '{safe_name}'&$select=mail,userPrincipalName",
+            )
+            users = data.get("value", [])
+            if len(users) == 1:
+                return users[0].get("mail") or users[0].get("userPrincipalName")
+            return None
+        except Exception:
+            return None
+
     async def create_chat(
         self,
         member_emails: list[str],

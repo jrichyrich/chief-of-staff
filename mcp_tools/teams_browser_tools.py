@@ -38,6 +38,17 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def _chat_type_from_id(chat_id: str) -> str:
+    """Derive the chat type from a Teams chat ID string."""
+    if "@unq.gbl.spaces" in chat_id:
+        return "oneOnOne"
+    elif "@thread.tacv2" in chat_id:
+        return "channel"
+    elif "@thread.v2" in chat_id:
+        return "group"
+    return "unknown"
+
 # Pre-compute Graph exception tuple once at import time (avoids per-call rebuild)
 _GRAPH_FALLBACK_EXCEPTIONS: tuple = tuple(
     exc for exc in (GraphTransientError, GraphAuthError) if exc is not None
@@ -151,56 +162,77 @@ async def _graph_send_message(graph_client, target: str, message: str) -> dict:
 
     chat_id = None
 
-    # Strategy 1: Find chat by member email(s)
-    if target_emails:
-        chat_id = await graph_client.find_chat_by_members(target_emails)
+    # Priority 0: Direct chat ID — skip all resolution
+    if target.startswith("19:"):
+        chat_id = target
+    else:
+        # Strategy 1: Find chat by member email(s)
+        if target_emails:
+            chat_id = await graph_client.find_chat_by_members(target_emails)
 
-    # Strategy 2: Search through chats by display name match
-    # Prefer exact match, then substring; error on ambiguous substring matches
-    if chat_id is None:
-        target_lower = target.lower().strip()
-        chats = await graph_client.list_chats(limit=50)
-        substring_matches: list[tuple[str, str]] = []  # (chat_id, matched_name)
+        # Strategy 1.5: Resolve display name to email via Graph /users
+        if chat_id is None and "@" not in target and "," not in target:
+            resolved_email = await graph_client.resolve_user_email(target)
+            if resolved_email:
+                chat_id = await graph_client.find_chat_by_members([resolved_email])
 
-        # Pass 1: exact match on topic or displayName
-        for chat in chats:
-            topic = (chat.get("topic") or "").lower()
-            if topic and target_lower == topic:
-                chat_id = chat.get("id")
-                break
-            members = chat.get("members", [])
-            for m in members:
-                display = (m.get("displayName") or "").lower()
-                if target_lower == display:
-                    chat_id = chat.get("id")
-                    break
-            if chat_id:
-                break
-
-        # Pass 2: substring match (only if no exact match found)
+        # Strategy 2: Search through chats by display name match
+        # Prefer exact match, then substring; error on ambiguous substring matches
         if chat_id is None:
+            target_lower = target.lower().strip()
+            chats = await graph_client.list_chats(limit=50)
+            substring_matches: list[tuple[str, str, int]] = []  # (chat_id, matched_name, member_count)
+
+            # Pass 1: exact match on topic or displayName
+            exact_matches: list[tuple[str, int]] = []  # (chat_id, member_count)
             for chat in chats:
                 topic = (chat.get("topic") or "").lower()
-                if topic and target_lower in topic:
-                    substring_matches.append((chat.get("id", ""), chat.get("topic") or ""))
-                    continue
                 members = chat.get("members", [])
+                member_count = len(members)
+                if topic and target_lower == topic:
+                    exact_matches.append((chat.get("id", ""), member_count))
+                    continue
                 for m in members:
                     display = (m.get("displayName") or "").lower()
-                    if target_lower in display:
-                        substring_matches.append((chat.get("id", ""), m.get("displayName") or ""))
+                    if target_lower == display:
+                        exact_matches.append((chat.get("id", ""), member_count))
                         break
 
-            if len(substring_matches) == 1:
-                chat_id = substring_matches[0][0]
-            elif len(substring_matches) > 1:
-                match_names = [name for _, name in substring_matches]
-                return {
-                    "status": "error",
-                    "backend": "graph",
-                    "error": f"Ambiguous target '{target}' matched multiple chats: {match_names}. "
-                             "Please use a more specific name or an email address.",
-                }
+            if exact_matches:
+                # Pick the chat with the fewest members (most specific)
+                exact_matches.sort(key=lambda x: x[1])
+                chat_id = exact_matches[0][0]
+
+            # Pass 2: substring match (only if no exact match found)
+            if chat_id is None:
+                for chat in chats:
+                    topic = (chat.get("topic") or "").lower()
+                    members = chat.get("members", [])
+                    member_count = len(members)
+                    if topic and target_lower in topic:
+                        substring_matches.append((chat.get("id", ""), chat.get("topic") or "", member_count))
+                        continue
+                    for m in members:
+                        display = (m.get("displayName") or "").lower()
+                        if target_lower in display:
+                            substring_matches.append((chat.get("id", ""), m.get("displayName") or "", member_count))
+                            break
+
+                if len(substring_matches) == 1:
+                    chat_id = substring_matches[0][0]
+                elif len(substring_matches) > 1:
+                    # Sort by member count; pick smallest unless there's a tie at the top
+                    substring_matches.sort(key=lambda x: x[2])
+                    if substring_matches[0][2] < substring_matches[1][2]:
+                        chat_id = substring_matches[0][0]
+                    else:
+                        match_names = [name for _, name, _ in substring_matches]
+                        return {
+                            "status": "error",
+                            "backend": "graph",
+                            "error": f"Ambiguous target '{target}' matched multiple chats: {match_names}. "
+                                     "Please use a more specific name or an email address.",
+                        }
 
     # Strategy 3: If target is email(s), create a new chat
     if chat_id is None and target_emails:
@@ -470,10 +502,15 @@ def register(mcp, state):
                         if isinstance(chat_result, BaseException):
                             logger.warning("Failed to fetch messages for chat %s: %s", chat.get("id"), chat_result)
                             continue
-                        chat_id = chat.get("id")
-                        chat_name = chat.get("topic") or ", ".join(
-                            m.get("displayName", "") for m in chat.get("members", [])
-                        )
+                        chat_id = chat.get("id", "")
+                        chat_topic = chat.get("topic") or None
+                        chat_members_list = [
+                            m.get("displayName", "")
+                            for m in chat.get("members", [])
+                            if m.get("displayName")
+                        ]
+                        chat_name = chat_topic or ", ".join(chat_members_list)
+                        chat_type = _chat_type_from_id(chat_id)
                         for msg in chat_result:
                             body = msg.get("body", {})
                             content = body.get("content", "") if isinstance(body, dict) else str(body)
@@ -497,6 +534,9 @@ def register(mcp, state):
 
                             messages.append({
                                 "chat_id": chat_id,
+                                "chat_type": chat_type,
+                                "chat_topic": chat_topic,
+                                "chat_members": chat_members_list,
                                 "chat_name": chat_name,
                                 "sender": sender,
                                 "content": content,
