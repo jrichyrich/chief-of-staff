@@ -31,8 +31,9 @@ from .decorators import tool_errors
 
 # Guarded import for Graph exceptions
 try:
-    from connectors.graph_client import GraphAuthError, GraphTransientError
+    from connectors.graph_client import GraphAPIError, GraphAuthError, GraphTransientError
 except ImportError:
+    GraphAPIError = None  # type: ignore[assignment,misc]
     GraphAuthError = None  # type: ignore[assignment,misc]
     GraphTransientError = None  # type: ignore[assignment,misc]
 
@@ -51,7 +52,7 @@ def _chat_type_from_id(chat_id: str) -> str:
 
 # Pre-compute Graph exception tuple once at import time (avoids per-call rebuild)
 _GRAPH_FALLBACK_EXCEPTIONS: tuple = tuple(
-    exc for exc in (GraphTransientError, GraphAuthError) if exc is not None
+    exc for exc in (GraphAPIError, GraphTransientError, GraphAuthError) if exc is not None
 )
 
 _manager = None
@@ -146,19 +147,28 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> dict:
 async def _graph_send_message(graph_client, target: str, message: str) -> dict:
     """Send a Teams message via Graph API, resolving target to a chat.
 
-    Tries to find an existing chat by member email, then falls back to
-    searching chats by display name, and finally creates a new chat if needed.
+    Resolution strategies (in order):
+    0. Direct chat ID (starts with ``19:``)
+    0.5. Comma-separated names -> resolve each via /users, create group chat
+    1. Email target(s) -> find existing chat by member emails
+    1.5. Single display name -> resolve to email via /users -> find chat
+    2. Display name search across chat list (exact then substring)
+    3. Create new chat if target is email(s) and no chat found
 
-    Returns a dict with status and details.
+    Raises ``GraphAPIError`` on resolution failure so the caller can
+    fall back to the browser poster.
     """
-    # If target looks like an email, try direct member lookup
-    target_emails = []
-    if "@" in target:
-        target_emails = [target.strip()]
-    else:
-        # Try comma-separated names as emails (group chat)
+    # --- Parse target into emails and/or names ---
+    target_emails: list[str] = []
+    target_names: list[str] = []
+    if "," in target:
         parts = [t.strip() for t in target.split(",") if t.strip()]
         target_emails = [p for p in parts if "@" in p]
+        target_names = [p for p in parts if "@" not in p]
+    elif "@" in target:
+        target_emails = [target.strip()]
+    else:
+        target_names = [target.strip()]
 
     chat_id = None
 
@@ -166,25 +176,37 @@ async def _graph_send_message(graph_client, target: str, message: str) -> dict:
     if target.startswith("19:"):
         chat_id = target
     else:
+        # Strategy 0.5: Resolve display names to emails
+        if target_names:
+            resolved_emails: list[str | None] = []
+            for name in target_names:
+                email = await graph_client.resolve_user_email(name)
+                resolved_emails.append(email)
+
+            if all(resolved_emails):
+                # All names resolved — merge with any email targets
+                target_emails = target_emails + [e for e in resolved_emails if e]
+            elif len(target_names) > 1:
+                # Group chat requires all names resolved — raise to trigger fallback
+                failed = [n for n, e in zip(target_names, resolved_emails) if e is None]
+                raise GraphAPIError(
+                    f"Could not resolve group chat members: {', '.join(failed)}"
+                )
+            # Single unresolved name: fall through to Strategy 2 (display name search)
+
         # Strategy 1: Find chat by member email(s)
         if target_emails:
             chat_id = await graph_client.find_chat_by_members(target_emails)
 
-        # Strategy 1.5: Resolve display name to email via Graph /users
-        if chat_id is None and "@" not in target and "," not in target:
-            resolved_email = await graph_client.resolve_user_email(target)
-            if resolved_email:
-                chat_id = await graph_client.find_chat_by_members([resolved_email])
-
         # Strategy 2: Search through chats by display name match
-        # Prefer exact match, then substring; error on ambiguous substring matches
-        if chat_id is None:
-            target_lower = target.lower().strip()
+        # Only for single-name targets where email resolution failed
+        if chat_id is None and len(target_names) == 1 and not target_emails:
+            target_lower = target_names[0].lower()
             chats = await graph_client.list_chats(limit=50)
-            substring_matches: list[tuple[str, str, int]] = []  # (chat_id, matched_name, member_count)
+            substring_matches: list[tuple[str, str, int]] = []
 
             # Pass 1: exact match on topic or displayName
-            exact_matches: list[tuple[str, int]] = []  # (chat_id, member_count)
+            exact_matches: list[tuple[str, int]] = []
             for chat in chats:
                 topic = (chat.get("topic") or "").lower()
                 members = chat.get("members", [])
@@ -199,7 +221,6 @@ async def _graph_send_message(graph_client, target: str, message: str) -> dict:
                         break
 
             if exact_matches:
-                # Pick the chat with the fewest members (most specific)
                 exact_matches.sort(key=lambda x: x[1])
                 chat_id = exact_matches[0][0]
 
@@ -221,18 +242,15 @@ async def _graph_send_message(graph_client, target: str, message: str) -> dict:
                 if len(substring_matches) == 1:
                     chat_id = substring_matches[0][0]
                 elif len(substring_matches) > 1:
-                    # Sort by member count; pick smallest unless there's a tie at the top
                     substring_matches.sort(key=lambda x: x[2])
                     if substring_matches[0][2] < substring_matches[1][2]:
                         chat_id = substring_matches[0][0]
                     else:
                         match_names = [name for _, name, _ in substring_matches]
-                        return {
-                            "status": "error",
-                            "backend": "graph",
-                            "error": f"Ambiguous target '{target}' matched multiple chats: {match_names}. "
-                                     "Please use a more specific name or an email address.",
-                        }
+                        raise GraphAPIError(
+                            f"Ambiguous target '{target}' matched multiple chats: {match_names}. "
+                            "Please use a more specific name or an email address."
+                        )
 
     # Strategy 3: If target is email(s), create a new chat
     if chat_id is None and target_emails:
@@ -245,12 +263,10 @@ async def _graph_send_message(graph_client, target: str, message: str) -> dict:
         }
 
     if chat_id is None:
-        return {
-            "status": "error",
-            "backend": "graph",
-            "error": f"Could not resolve target '{target}' to a Teams chat. "
-                     "Try using an email address instead of a display name.",
-        }
+        raise GraphAPIError(
+            f"Could not resolve target '{target}' to a Teams chat. "
+            "Try using an email address instead of a display name."
+        )
 
     # Send to the resolved chat
     result = await graph_client.send_chat_message(chat_id, message)
@@ -488,7 +504,7 @@ def register(mcp, state):
                     # Fetch messages from all chats in parallel
                     tasks = []
                     chat_index = []
-                    for chat in chats[:limit]:
+                    for chat in chats:
                         cid = chat.get("id")
                         if cid:
                             tasks.append(graph_client.get_chat_messages(cid, limit=25))

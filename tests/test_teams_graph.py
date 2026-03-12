@@ -44,6 +44,7 @@ def _make_graph_client(**overrides) -> AsyncMock:
     ])
     gc.send_chat_message = AsyncMock(return_value={"id": "msg-new-001"})
     gc.find_chat_by_members = AsyncMock(return_value="chat-001")
+    gc.resolve_user_email = AsyncMock(return_value=None)
     gc.create_chat = AsyncMock(return_value={"id": "chat-new-001"})
     for k, v in overrides.items():
         setattr(gc, k, v)
@@ -129,37 +130,6 @@ class TestPostTeamsMessageGraphBackend:
 
         mcp_server._state.graph_client = None
 
-    async def test_post_teams_message_graph_ambiguous_display_name(self):
-        """Multiple substring matches return an ambiguous error."""
-        gc = _make_graph_client(
-            find_chat_by_members=AsyncMock(return_value=None),
-            list_chats=AsyncMock(return_value=[
-                {
-                    "id": "chat-a",
-                    "topic": None,
-                    "members": [{"displayName": "Alice Smith-Jones", "email": "asj@example.com"}],
-                },
-                {
-                    "id": "chat-b",
-                    "topic": None,
-                    "members": [{"displayName": "Alice Smith-Brown", "email": "asb@example.com"}],
-                },
-            ]),
-        )
-        mcp_server._state.graph_client = gc
-
-        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
-            raw = await post_teams_message(target="Alice Smith", message="Who?")
-
-        result = json.loads(raw)
-        assert result["status"] == "error"
-        assert "Ambiguous" in result["error"]
-        assert "Alice Smith-Jones" in result["error"]
-        assert "Alice Smith-Brown" in result["error"]
-        gc.send_chat_message.assert_not_awaited()
-
-        mcp_server._state.graph_client = None
-
     async def test_post_teams_message_graph_creates_new_chat(self):
         """Graph creates a new chat when no existing chat matches."""
         gc = _make_graph_client(
@@ -183,6 +153,66 @@ class TestPostTeamsMessageGraphBackend:
 
         mcp_server._state.graph_client = None
 
+    async def test_post_teams_message_graph_comma_separated_names_resolved(self):
+        """Comma-separated display names are resolved to emails and used for group chat."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(side_effect=lambda name: {
+                "Shawn Farnworth": "shawn@example.com",
+                "Phil Chandler": "phil@example.com",
+            }.get(name)),
+            list_chats=AsyncMock(return_value=[]),
+            create_chat=AsyncMock(return_value={"id": "chat-group-new"}),
+        )
+        gc.get_authenticated_email = AsyncMock(return_value="me@example.com")
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="Shawn Farnworth, Phil Chandler",
+                message="How did the Lumos meetings go?",
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["backend"] == "graph"
+        gc.create_chat.assert_awaited_once()
+        # Verify both resolved emails were passed
+        call_args = gc.create_chat.call_args
+        assert set(call_args[0][0]) == {"shawn@example.com", "phil@example.com"}
+
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_graph_comma_names_partial_resolve_falls_back(self):
+        """If any comma-separated name can't be resolved, fall back to browser."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(side_effect=lambda name: {
+                "Shawn Farnworth": "shawn@example.com",
+            }.get(name)),  # Phil not found
+            list_chats=AsyncMock(return_value=[]),
+        )
+        mcp_server._state.graph_client = gc
+
+        mock_poster = AsyncMock()
+        mock_poster.prepare_message.return_value = {
+            "status": "confirm_required",
+        }
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(
+                    target="Shawn Farnworth, Phil Chandler",
+                    message="Test",
+                )
+
+        result = json.loads(raw)
+        # Should fall back to browser since we can't resolve all names
+        assert result["status"] == "confirm_required"
+        mock_poster.prepare_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
 
 # ---------------------------------------------------------------------------
 # post_teams_message: Graph fails, falls back to browser
@@ -198,6 +228,7 @@ class TestPostTeamsMessageGraphFallback:
         from connectors.graph_client import GraphTransientError as RealGTE
 
         gc = AsyncMock()
+        gc.resolve_user_email = AsyncMock(return_value=None)
         # list_chats is called for non-email targets — make it raise
         gc.list_chats = AsyncMock(side_effect=RealGTE("503 Service Unavailable"))
         mcp_server._state.graph_client = gc
@@ -225,6 +256,7 @@ class TestPostTeamsMessageGraphFallback:
         from connectors.graph_client import GraphAuthError as RealGAE
 
         gc = AsyncMock()
+        gc.resolve_user_email = AsyncMock(return_value=None)
         # list_chats is called for non-email targets — make it raise auth error
         gc.list_chats = AsyncMock(side_effect=RealGAE("Token expired"))
         mcp_server._state.graph_client = gc
@@ -272,6 +304,85 @@ class TestPostTeamsMessageGraphFallback:
         # Browser poster should NOT have been called
         mock_poster.prepare_message.assert_not_awaited()
         mock_poster.send_message.assert_not_awaited()
+
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_graph_api_error_triggers_fallback(self):
+        """GraphAPIError (4xx like 400/403) triggers fallback to browser."""
+        from connectors.graph_client import GraphAPIError as RealGAE
+
+        gc = AsyncMock()
+        gc.find_chat_by_members = AsyncMock(side_effect=RealGAE("400 Bad Request"))
+        mcp_server._state.graph_client = gc
+
+        mock_poster = AsyncMock()
+        mock_poster.send_message = AsyncMock(return_value={
+            "status": "sent",
+            "detected_channel": "Shawn Farnworth",
+        })
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(
+                    target="shawn@example.com", message="Test", auto_send=True
+                )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        mock_poster.send_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_graph_unresolvable_target_falls_back(self):
+        """When Graph can't resolve a display name, fall back to browser instead of returning error dict."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[]),  # no chats
+        )
+        mcp_server._state.graph_client = gc
+
+        mock_poster = AsyncMock()
+        mock_poster.prepare_message.return_value = {
+            "status": "confirm_required",
+            "detected_channel": "Jonas",
+        }
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(target="Jonas", message="Hello")
+
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+        mock_poster.prepare_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_graph_ambiguous_target_falls_back(self):
+        """When Graph finds ambiguous matches, fall back to browser."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[
+                {"id": "c1", "topic": None, "members": [{"displayName": "Alice Smith-Jones", "email": "asj@ex.com"}]},
+                {"id": "c2", "topic": None, "members": [{"displayName": "Alice Smith-Brown", "email": "asb@ex.com"}]},
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        mock_poster = AsyncMock()
+        mock_poster.prepare_message.return_value = {
+            "status": "confirm_required",
+            "detected_channel": "Alice Smith",
+        }
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(target="Alice Smith", message="Hi")
+
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+        mock_poster.prepare_message.assert_awaited_once()
 
         mcp_server._state.graph_client = None
 
@@ -391,6 +502,33 @@ class TestReadTeamsMessagesGraphBackend:
         result = json.loads(raw)
         assert result["backend"] == "graph"
         assert result["count"] == 1
+
+        mcp_server._state.graph_client = None
+
+    async def test_read_teams_messages_scans_all_chats_not_limited_by_message_limit(self):
+        """Message limit should not cap the number of chats scanned."""
+        gc = _make_graph_client(
+            list_chats=AsyncMock(return_value=[
+                {"id": f"chat-{i}", "topic": f"Chat {i}", "members": []} for i in range(10)
+            ]),
+            get_chat_messages=AsyncMock(return_value=[
+                {
+                    "id": "msg-1",
+                    "body": {"content": "Message from Alice", "contentType": "text"},
+                    "createdDateTime": "2026-03-12T10:00:00Z",
+                    "from": {"user": {"displayName": "Alice"}},
+                }
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_read_backend", return_value="graph"):
+            raw = await read_teams_messages(limit=3)
+
+        result = json.loads(raw)
+        assert result["count"] == 3  # Only 3 messages returned
+        # But all 10 chats should have been scanned
+        assert gc.get_chat_messages.await_count == 10
 
         mcp_server._state.graph_client = None
 
