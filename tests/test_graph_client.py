@@ -14,7 +14,23 @@ from connectors.graph_client import (
     GraphAuthError,
     GraphClient,
     GraphTransientError,
+    _DEFAULT_SCOPES,
 )
+
+
+# ---------------------------------------------------------------------------
+# Scope tests
+# ---------------------------------------------------------------------------
+
+
+def test_default_scopes_include_chat_readwrite():
+    """_DEFAULT_SCOPES must include Chat.ReadWrite for chat creation."""
+    assert "Chat.ReadWrite" in _DEFAULT_SCOPES
+
+
+def test_default_scopes_include_user_read_basic_all():
+    """_DEFAULT_SCOPES must include User.ReadBasic.All for user resolution."""
+    assert "User.ReadBasic.All" in _DEFAULT_SCOPES
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +64,7 @@ def client(mock_msal_app):
     gc = GraphClient.__new__(GraphClient)
     gc._client_id = "test-client-id"
     gc._tenant_id = "test-tenant-id"
-    gc._scopes = ["Chat.Read", "ChatMessage.Send", "Mail.Send", "User.Read"]
+    gc._scopes = ["Chat.ReadWrite", "ChatMessage.Send", "Mail.Send", "User.Read", "User.ReadBasic.All"]
     gc._interactive = True
     gc._is_confidential = False
     gc._app = mock_msal_app

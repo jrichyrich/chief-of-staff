@@ -77,7 +77,7 @@ class GraphAuthError(GraphAPIError):
 # GraphClient
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SCOPES = ["Chat.Read", "ChatMessage.Send", "Mail.Send", "User.Read"]
+_DEFAULT_SCOPES = ["Chat.ReadWrite", "ChatMessage.Send", "Mail.Send", "User.Read", "User.ReadBasic.All"]
 
 # Token age (seconds) at which we start warning about approaching expiry.
 _TOKEN_AGE_WARNING_SECONDS = 60 * 60 * 24 * 60  # 60 days
