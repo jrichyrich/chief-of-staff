@@ -163,7 +163,7 @@ AGENT_BROWSER_HEADED = os.environ.get("AGENT_BROWSER_HEADED", "").lower() in ("1
 M365_CLIENT_ID = get_secret("m365_client_id") or ""
 M365_TENANT_ID = get_secret("m365_tenant_id") or ""
 M365_GRAPH_ENABLED = bool(M365_CLIENT_ID)
-M365_GRAPH_SCOPES = ["Chat.Read", "ChatMessage.Send", "Mail.Send", "User.Read"]
+M365_GRAPH_SCOPES = ["Chat.ReadWrite", "ChatMessage.Send", "Mail.Send", "User.Read", "User.ReadBasic.All"]
 
 # Backend routing (TEAMS_POSTER_BACKEND deprecated in favor of TEAMS_SEND_BACKEND)
 TEAMS_SEND_BACKEND = os.environ.get(

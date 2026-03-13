@@ -674,3 +674,149 @@ class TestReadTeamsMessagesFallback:
         result = json.loads(raw)
         assert "error" in result
         assert result["messages"] == []
+
+
+# ---------------------------------------------------------------------------
+# GraphClient new methods — unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestGraphClientNewMethods:
+    """Tests for new GraphClient methods added for Teams enhancement."""
+
+    async def test_get_user_by_email_found(self):
+        """get_user_by_email returns user dict when found."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={
+                "value": [{
+                    "id": "aad-001",
+                    "displayName": "Alice Smith",
+                    "mail": "alice@example.com",
+                    "userPrincipalName": "alice@example.com",
+                }]
+            })
+            result = await gc.get_user_by_email("alice@example.com")
+            assert result is not None
+            assert result["id"] == "aad-001"
+            assert result["displayName"] == "Alice Smith"
+
+    async def test_get_user_by_email_not_found(self):
+        """get_user_by_email returns None when no user matches."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"value": []})
+            result = await gc.get_user_by_email("nobody@example.com")
+            assert result is None
+
+    async def test_get_user_by_email_handles_error(self):
+        """get_user_by_email returns None on API error."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(side_effect=Exception("API error"))
+            result = await gc.get_user_by_email("alice@example.com")
+            assert result is None
+
+    async def test_send_chat_message_with_content_type(self):
+        """send_chat_message passes content_type to Graph API."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"id": "msg-001"})
+            await gc.send_chat_message("chat-1", "<b>Bold</b>", content_type="html")
+            gc._request.assert_awaited_once()
+            call_kwargs = gc._request.call_args
+            assert call_kwargs.kwargs["json"]["body"]["contentType"] == "html"
+
+    async def test_send_chat_message_with_mentions(self):
+        """send_chat_message includes mentions array in request body."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"id": "msg-001"})
+            mentions = [{"id": 0, "mentionText": "Alice", "mentioned": {"user": {"id": "u1", "displayName": "Alice", "userIdentityType": "aadUser"}}}]
+            await gc.send_chat_message("chat-1", '<at id="0">Alice</at> hi', content_type="html", mentions=mentions)
+            call_kwargs = gc._request.call_args
+            assert "mentions" in call_kwargs.kwargs["json"]
+
+    async def test_send_chat_message_no_mentions_omits_key(self):
+        """send_chat_message without mentions does not include mentions key."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"id": "msg-001"})
+            await gc.send_chat_message("chat-1", "hello")
+            call_kwargs = gc._request.call_args
+            assert "mentions" not in call_kwargs.kwargs["json"]
+
+    async def test_reply_to_chat_message_basic(self):
+        """reply_to_chat_message posts to correct endpoint."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"id": "reply-001"})
+            result = await gc.reply_to_chat_message("chat-1", "msg-1", "Thanks!")
+            assert result["id"] == "reply-001"
+            call_args = gc._request.call_args
+            assert "/replies" in call_args[0][1]
+            assert "msg-1" in call_args[0][1]
+
+    async def test_reply_to_chat_message_with_html_and_mentions(self):
+        """reply_to_chat_message passes content_type and mentions."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"id": "reply-002"})
+            mentions = [{"id": 0, "mentionText": "Bob", "mentioned": {"user": {"id": "u1", "displayName": "Bob", "userIdentityType": "aadUser"}}}]
+            await gc.reply_to_chat_message("chat-1", "msg-1", '<at id="0">Bob</at> done!', content_type="html", mentions=mentions)
+            call_kwargs = gc._request.call_args
+            assert call_kwargs.kwargs["json"]["body"]["contentType"] == "html"
+            assert "mentions" in call_kwargs.kwargs["json"]
+
+    async def test_update_chat_topic(self):
+        """update_chat_topic sends PATCH with topic."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"status": "success"})
+            await gc.update_chat_topic("chat-1", "New Name")
+            call_args = gc._request.call_args
+            assert call_args[0][0] == "PATCH"
+            assert call_args.kwargs["json"]["topic"] == "New Name"
+
+    async def test_list_chat_members(self):
+        """list_chat_members returns member list."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"value": [{"id": "m1", "displayName": "Alice"}]})
+            members = await gc.list_chat_members("chat-1")
+            assert len(members) == 1
+            assert members[0]["displayName"] == "Alice"
+
+    async def test_add_chat_member(self):
+        """add_chat_member sends POST with member details."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"id": "m-new"})
+            result = await gc.add_chat_member("chat-1", "new@example.com")
+            assert result["id"] == "m-new"
+            call_args = gc._request.call_args
+            assert call_args[0][0] == "POST"
+            assert "members" in call_args[0][1]
+
+    async def test_remove_chat_member(self):
+        """remove_chat_member sends DELETE."""
+        from connectors.graph_client import GraphClient
+        with patch.object(GraphClient, '__init__', lambda self, **kw: None):
+            gc = GraphClient.__new__(GraphClient)
+            gc._request = AsyncMock(return_value={"status": "success"})
+            await gc.remove_chat_member("chat-1", "member-001")
+            call_args = gc._request.call_args
+            assert call_args[0][0] == "DELETE"
+            assert "member-001" in call_args[0][1]

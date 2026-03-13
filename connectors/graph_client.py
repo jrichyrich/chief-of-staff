@@ -526,13 +526,63 @@ class GraphClient:
         data = await self._request("GET", f"/me/chats/{safe_id}/messages?$top={limit}")
         return data.get("value", [])
 
-    async def send_chat_message(self, chat_id: str, content: str) -> dict:
-        """Send a message to a Teams chat."""
+    async def send_chat_message(
+        self,
+        chat_id: str,
+        content: str,
+        content_type: str = "text",
+        mentions: list[dict] | None = None,
+    ) -> dict:
+        """Send a message to a Teams chat.
+
+        Args:
+            chat_id: The Teams chat ID.
+            content: Message body text (plain text or HTML).
+            content_type: ``"text"`` (default) or ``"html"``.
+            mentions: Optional list of mention objects for @mentions.
+                Each must have ``id``, ``mentionText``, and ``mentioned.user``
+                with ``id``, ``displayName``, ``userIdentityType``.
+        """
         safe_id = urllib.parse.quote(chat_id, safe="")
+        body: dict[str, Any] = {
+            "body": {"content": content, "contentType": content_type},
+        }
+        if mentions:
+            body["mentions"] = mentions
         return await self._request(
             "POST",
             f"/me/chats/{safe_id}/messages",
-            json={"body": {"content": content, "contentType": "text"}},
+            json=body,
+        )
+
+    async def reply_to_chat_message(
+        self,
+        chat_id: str,
+        message_id: str,
+        content: str,
+        content_type: str = "text",
+        mentions: list[dict] | None = None,
+    ) -> dict:
+        """Reply to a specific message in a Teams chat (threading).
+
+        Args:
+            chat_id: The Teams chat ID.
+            message_id: The ID of the message to reply to.
+            content: Reply body (plain text or HTML).
+            content_type: ``"text"`` (default) or ``"html"``.
+            mentions: Optional list of mention objects for @mentions.
+        """
+        safe_chat = urllib.parse.quote(chat_id, safe="")
+        safe_msg = urllib.parse.quote(message_id, safe="")
+        body: dict[str, Any] = {
+            "body": {"content": content, "contentType": content_type},
+        }
+        if mentions:
+            body["mentions"] = mentions
+        return await self._request(
+            "POST",
+            f"/me/chats/{safe_chat}/messages/{safe_msg}/replies",
+            json=body,
         )
 
     async def find_chat_by_members(self, member_emails: list[str]) -> str | None:
@@ -572,6 +622,32 @@ class GraphClient:
             users = data.get("value", [])
             if len(users) == 1:
                 return users[0].get("mail") or users[0].get("userPrincipalName")
+            return None
+        except Exception:
+            return None
+
+    async def get_user_by_email(self, email: str) -> dict | None:
+        """Look up an Azure AD user by email address.
+
+        Returns a dict with ``id``, ``displayName``, and ``mail`` fields,
+        or None if the user is not found.  The ``id`` is the Azure AD
+        object ID needed for @mentions in Teams messages.
+        """
+        try:
+            safe_email = email.replace("'", "''")
+            data = await self._request(
+                "GET",
+                f"/users?$filter=mail eq '{safe_email}' or userPrincipalName eq '{safe_email}'"
+                f"&$select=id,displayName,mail,userPrincipalName",
+            )
+            users = data.get("value", [])
+            if len(users) >= 1:
+                u = users[0]
+                return {
+                    "id": u.get("id"),
+                    "displayName": u.get("displayName"),
+                    "mail": u.get("mail") or u.get("userPrincipalName"),
+                }
             return None
         except Exception:
             return None
@@ -620,6 +696,43 @@ class GraphClient:
             await self.send_chat_message(result["id"], message)
 
         return result
+
+    async def update_chat_topic(self, chat_id: str, topic: str) -> dict:
+        """Rename a group chat's topic/display name."""
+        safe_id = urllib.parse.quote(chat_id, safe="")
+        return await self._request(
+            "PATCH",
+            f"/me/chats/{safe_id}",
+            json={"topic": topic},
+        )
+
+    async def list_chat_members(self, chat_id: str) -> list[dict]:
+        """List members of a Teams chat."""
+        safe_id = urllib.parse.quote(chat_id, safe="")
+        data = await self._request("GET", f"/me/chats/{safe_id}/members")
+        return data.get("value", [])
+
+    async def add_chat_member(self, chat_id: str, user_email: str, roles: list[str] | None = None) -> dict:
+        """Add a member to a group chat."""
+        safe_id = urllib.parse.quote(chat_id, safe="")
+        return await self._request(
+            "POST",
+            f"/me/chats/{safe_id}/members",
+            json={
+                "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                "roles": roles or ["guest"],
+                "user@odata.bind": f"https://graph.microsoft.com/v1.0/users/{user_email}",
+            },
+        )
+
+    async def remove_chat_member(self, chat_id: str, membership_id: str) -> dict:
+        """Remove a member from a group chat by their membership ID."""
+        safe_chat = urllib.parse.quote(chat_id, safe="")
+        safe_member = urllib.parse.quote(membership_id, safe="")
+        return await self._request(
+            "DELETE",
+            f"/me/chats/{safe_chat}/members/{safe_member}",
+        )
 
     # ------------------------------------------------------------------
     # Email methods
