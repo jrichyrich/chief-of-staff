@@ -14,6 +14,7 @@ from mcp_tools import teams_browser_tools
 
 teams_browser_tools.register(mcp_server.mcp, mcp_server._state)
 from mcp_tools.teams_browser_tools import post_teams_message, read_teams_messages
+from mcp_tools.teams_browser_tools import reply_to_teams_message, manage_teams_chat
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ class TestPostTeamsMessageGraphBackend:
         assert result["backend"] == "graph"
         assert result["chat_id"] == "chat-001"
         gc.find_chat_by_members.assert_awaited_once_with(["alice@example.com"])
-        gc.send_chat_message.assert_awaited_once_with("chat-001", "Hello via Graph!")
+        gc.send_chat_message.assert_awaited_once_with("chat-001", "Hello via Graph!", content_type="text", mentions=None)
 
         mcp_server._state.graph_client = None  # cleanup
 
@@ -97,7 +98,7 @@ class TestPostTeamsMessageGraphBackend:
         assert result["status"] == "sent"
         assert result["backend"] == "graph"
         assert result["chat_id"] == "chat-001"
-        gc.send_chat_message.assert_awaited_once_with("chat-001", "Hey Alice!")
+        gc.send_chat_message.assert_awaited_once_with("chat-001", "Hey Alice!", content_type="text", mentions=None)
 
         mcp_server._state.graph_client = None
 
@@ -126,7 +127,7 @@ class TestPostTeamsMessageGraphBackend:
         result = json.loads(raw)
         assert result["status"] == "sent"
         assert result["chat_id"] == "chat-exact"
-        gc.send_chat_message.assert_awaited_once_with("chat-exact", "Hi exact!")
+        gc.send_chat_message.assert_awaited_once_with("chat-exact", "Hi exact!", content_type="text", mentions=None)
 
         mcp_server._state.graph_client = None
 
@@ -147,8 +148,9 @@ class TestPostTeamsMessageGraphBackend:
         result = json.loads(raw)
         assert result["status"] == "sent"
         assert result["backend"] == "graph"
-        gc.create_chat.assert_awaited_once_with(
-            ["newperson@example.com"], message="First message!"
+        gc.create_chat.assert_awaited_once_with(["newperson@example.com"])
+        gc.send_chat_message.assert_awaited_once_with(
+            "chat-new-001", "First message!", content_type="text", mentions=None
         )
 
         mcp_server._state.graph_client = None
@@ -820,3 +822,235 @@ class TestGraphClientNewMethods:
             call_args = gc._request.call_args
             assert call_args[0][0] == "DELETE"
             assert "member-001" in call_args[0][1]
+
+
+# ---------------------------------------------------------------------------
+# reply_to_teams_message
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestReplyToTeamsMessage:
+    """Tests for reply_to_teams_message MCP tool."""
+
+    async def test_reply_basic_text(self):
+        """Reply to a message with plain text via Graph API."""
+        gc = _make_graph_client(
+            reply_to_chat_message=AsyncMock(return_value={"id": "reply-001"}),
+        )
+        mcp_server._state.graph_client = gc
+
+        raw = await reply_to_teams_message(
+            chat_id="chat-001",
+            message_id="msg-001",
+            message="Got it, thanks!",
+        )
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["reply_id"] == "reply-001"
+        assert result["parent_message_id"] == "msg-001"
+        gc.reply_to_chat_message.assert_awaited_once_with(
+            "chat-001", "msg-001", "Got it, thanks!",
+            content_type="text", mentions=None,
+        )
+        mcp_server._state.graph_client = None
+
+    async def test_reply_with_html(self):
+        """Reply with HTML formatted content."""
+        gc = _make_graph_client(
+            reply_to_chat_message=AsyncMock(return_value={"id": "reply-002"}),
+        )
+        mcp_server._state.graph_client = gc
+
+        raw = await reply_to_teams_message(
+            chat_id="chat-001",
+            message_id="msg-001",
+            message="<b>Important:</b> Updated the doc.",
+            content_type="html",
+        )
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        mcp_server._state.graph_client = None
+
+    async def test_reply_with_mention(self):
+        """Reply with an @mention resolves user and embeds mention markup."""
+        gc = _make_graph_client(
+            reply_to_chat_message=AsyncMock(return_value={"id": "reply-003"}),
+            get_user_by_email=AsyncMock(return_value={
+                "id": "user-aad-001",
+                "displayName": "Alice Smith",
+                "mail": "alice@example.com",
+            }),
+        )
+        mcp_server._state.graph_client = gc
+
+        raw = await reply_to_teams_message(
+            chat_id="chat-001",
+            message_id="msg-001",
+            message="Please review this",
+            mention_emails=["alice@example.com"],
+        )
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        call_kwargs = gc.reply_to_chat_message.call_args
+        assert call_kwargs.kwargs.get("mentions") is not None
+        assert call_kwargs.kwargs.get("content_type") == "html"
+        mcp_server._state.graph_client = None
+
+    async def test_reply_no_graph_client_returns_error(self):
+        """Reply fails gracefully when Graph client is not configured."""
+        mcp_server._state.graph_client = None
+
+        raw = await reply_to_teams_message(
+            chat_id="chat-001",
+            message_id="msg-001",
+            message="Test",
+        )
+        result = json.loads(raw)
+        assert "error" in result
+        assert "Graph API" in result["error"]
+
+    async def test_reply_graph_error_returns_error(self):
+        """Graph API errors are returned as error dict."""
+        from connectors.graph_client import GraphAPIError as RealGAE
+
+        gc = _make_graph_client(
+            reply_to_chat_message=AsyncMock(side_effect=RealGAE("404 Not Found")),
+        )
+        mcp_server._state.graph_client = gc
+
+        raw = await reply_to_teams_message(
+            chat_id="chat-001",
+            message_id="msg-001",
+            message="Test",
+        )
+        result = json.loads(raw)
+        assert "error" in result
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
+# post_teams_message: content_type and mention_emails enhancements
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessageContentType:
+    """Tests for content_type and mention_emails in post_teams_message."""
+
+    async def test_post_teams_message_html_content(self):
+        """HTML content_type is passed through to Graph API."""
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="<b>Important</b> update",
+                content_type="html",
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        gc.send_chat_message.assert_awaited_once()
+        call_args = gc.send_chat_message.call_args
+        # content_type should be passed through
+        assert call_args.kwargs.get("content_type") == "html" or (len(call_args.args) > 2 and call_args.args[2] == "html")
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_with_mentions(self):
+        """mention_emails resolves users and passes mentions to send."""
+        gc = _make_graph_client(
+            get_user_by_email=AsyncMock(return_value={
+                "id": "user-aad-001",
+                "displayName": "Alice Smith",
+                "mail": "alice@example.com",
+            }),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="bob@example.com",
+                message="Hey check this out",
+                mention_emails=["alice@example.com"],
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        gc.send_chat_message.assert_awaited_once()
+        call_args = gc.send_chat_message.call_args
+        assert call_args.kwargs.get("mentions") is not None
+        assert call_args.kwargs.get("content_type") == "html"
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
+# manage_teams_chat
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestManageTeamsChat:
+    """Tests for manage_teams_chat MCP tool."""
+
+    async def test_rename_chat(self):
+        gc = _make_graph_client(
+            update_chat_topic=AsyncMock(return_value={"status": "success"}),
+        )
+        mcp_server._state.graph_client = gc
+        raw = await manage_teams_chat(chat_id="chat-001", action="rename", topic="New Name")
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["action"] == "rename"
+        gc.update_chat_topic.assert_awaited_once_with("chat-001", "New Name")
+        mcp_server._state.graph_client = None
+
+    async def test_list_members(self):
+        gc = _make_graph_client(
+            list_chat_members=AsyncMock(return_value=[
+                {"id": "m1", "displayName": "Alice", "email": "alice@ex.com"},
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+        raw = await manage_teams_chat(chat_id="chat-001", action="list_members")
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert len(result["members"]) == 1
+        mcp_server._state.graph_client = None
+
+    async def test_add_member(self):
+        gc = _make_graph_client(
+            add_chat_member=AsyncMock(return_value={"id": "m-new"}),
+        )
+        mcp_server._state.graph_client = gc
+        raw = await manage_teams_chat(chat_id="chat-001", action="add_member", user_email="new@example.com")
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        gc.add_chat_member.assert_awaited_once_with("chat-001", "new@example.com")
+        mcp_server._state.graph_client = None
+
+    async def test_remove_member(self):
+        gc = _make_graph_client(
+            remove_chat_member=AsyncMock(return_value={"status": "success"}),
+        )
+        mcp_server._state.graph_client = gc
+        raw = await manage_teams_chat(chat_id="chat-001", action="remove_member", membership_id="member-001")
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        gc.remove_chat_member.assert_awaited_once_with("chat-001", "member-001")
+        mcp_server._state.graph_client = None
+
+    async def test_invalid_action(self):
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+        raw = await manage_teams_chat(chat_id="chat-001", action="delete")
+        result = json.loads(raw)
+        assert "error" in result
+        mcp_server._state.graph_client = None
+
+    async def test_no_graph_client(self):
+        mcp_server._state.graph_client = None
+        raw = await manage_teams_chat(chat_id="chat-001", action="rename", topic="X")
+        result = json.loads(raw)
+        assert "error" in result

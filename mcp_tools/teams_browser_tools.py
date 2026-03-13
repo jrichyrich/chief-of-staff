@@ -144,7 +144,10 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> dict:
             await pw.stop()
 
 
-async def _graph_send_message(graph_client, target: str, message: str) -> dict:
+async def _graph_send_message(
+    graph_client, target: str, message: str,
+    content_type: str = "text", mentions: list[dict] | None = None,
+) -> dict:
     """Send a Teams message via Graph API, resolving target to a chat.
 
     Resolution strategies (in order):
@@ -254,11 +257,14 @@ async def _graph_send_message(graph_client, target: str, message: str) -> dict:
 
     # Strategy 3: If target is email(s), create a new chat
     if chat_id is None and target_emails:
-        result = await graph_client.create_chat(target_emails, message=message)
+        result = await graph_client.create_chat(target_emails)
+        new_chat_id = result.get("id")
+        if new_chat_id:
+            await graph_client.send_chat_message(new_chat_id, message, content_type=content_type, mentions=mentions)
         return {
             "status": "sent",
             "backend": "graph",
-            "chat_id": result.get("id"),
+            "chat_id": new_chat_id,
             "detail": f"Created new chat and sent message to {', '.join(target_emails)}",
         }
 
@@ -269,7 +275,7 @@ async def _graph_send_message(graph_client, target: str, message: str) -> dict:
         )
 
     # Send to the resolved chat
-    result = await graph_client.send_chat_message(chat_id, message)
+    result = await graph_client.send_chat_message(chat_id, message, content_type=content_type, mentions=mentions)
     return {
         "status": "sent",
         "backend": "graph",
@@ -358,7 +364,10 @@ def register(mcp, state):
 
     @mcp.tool()
     @tool_errors("Teams browser error")
-    async def post_teams_message(target: str, message: str, auto_send: bool = False) -> str:
+    async def post_teams_message(
+        target: str, message: str, auto_send: bool = False,
+        content_type: str = "text", mention_emails: list[str] | None = None,
+    ) -> str:
         """Prepare a message for posting to a Teams channel, person, or group.
 
         Connects to the running browser, uses the Teams search bar to
@@ -375,10 +384,15 @@ def register(mcp, state):
         (e.g. "Alice, Bob, Charlie"). This creates a new group chat
         with all recipients.
 
+        When mention_emails are provided, users are @mentioned in the message.
+        The content_type is automatically set to 'html' when mentions are used.
+
         Args:
             target: Channel name, person name, email, or comma-separated names for group chat
             message: The message text to post
             auto_send: If True, send immediately without confirmation step
+            content_type: 'text' (default) or 'html' for rich formatting
+            mention_emails: Optional list of email addresses to @mention
         """
         send_backend = _get_send_backend()
 
@@ -386,9 +400,31 @@ def register(mcp, state):
         if send_backend == "graph":
             graph_client = state.graph_client
             if graph_client is not None:
+                # --- Resolve @mentions if requested ---
+                mentions = None
+                if mention_emails and graph_client is not None:
+                    content_type = "html"
+                    mentions = []
+                    for idx, email in enumerate(mention_emails):
+                        user = await graph_client.get_user_by_email(email)
+                        if user:
+                            display_name = user["displayName"]
+                            mentions.append({
+                                "id": idx,
+                                "mentionText": display_name,
+                                "mentioned": {
+                                    "user": {
+                                        "id": user["id"],
+                                        "displayName": display_name,
+                                        "userIdentityType": "aadUser",
+                                    }
+                                },
+                            })
+                            message = f'<at id="{idx}">{display_name}</at> ' + message
+
                 _graph_exceptions = _GRAPH_FALLBACK_EXCEPTIONS
                 try:
-                    result = await _graph_send_message(graph_client, target, message)
+                    result = await _graph_send_message(graph_client, target, message, content_type=content_type, mentions=mentions)
                     return json.dumps(result)
                 except Exception as exc:
                     if _graph_exceptions and isinstance(exc, _graph_exceptions):
@@ -589,6 +625,116 @@ def register(mcp, state):
         )
         return json.dumps(result)
 
+    @mcp.tool()
+    @tool_errors("Teams reply error")
+    async def reply_to_teams_message(
+        chat_id: str,
+        message_id: str,
+        message: str,
+        content_type: str = "text",
+        mention_emails: list[str] | None = None,
+    ) -> str:
+        """Reply to a specific message in a Teams chat (creates a threaded reply).
+
+        The chat_id and message_id can be obtained from read_teams_messages results.
+
+        When mention_emails are provided, users are @mentioned in the reply.
+        The content_type is automatically set to 'html' when mentions are used.
+
+        Args:
+            chat_id: The Teams chat ID (from read_teams_messages results)
+            message_id: The message ID to reply to (from read_teams_messages results)
+            message: The reply text
+            content_type: 'text' (default) or 'html' for rich formatting
+            mention_emails: Optional list of email addresses to @mention
+        """
+        graph_client = state.graph_client
+        if graph_client is None:
+            return json.dumps({"error": "Graph API not configured — reply requires Graph API"})
+
+        mentions = None
+        if mention_emails:
+            content_type = "html"
+            mentions = []
+            for idx, email in enumerate(mention_emails):
+                user = await graph_client.get_user_by_email(email)
+                if user:
+                    display_name = user["displayName"]
+                    mentions.append({
+                        "id": idx,
+                        "mentionText": display_name,
+                        "mentioned": {
+                            "user": {
+                                "id": user["id"],
+                                "displayName": display_name,
+                                "userIdentityType": "aadUser",
+                            }
+                        },
+                    })
+                    message = f'<at id="{idx}">{display_name}</at> ' + message
+
+        try:
+            result = await graph_client.reply_to_chat_message(
+                chat_id, message_id, message,
+                content_type=content_type,
+                mentions=mentions,
+            )
+            return json.dumps({
+                "status": "sent",
+                "backend": "graph",
+                "chat_id": chat_id,
+                "parent_message_id": message_id,
+                "reply_id": result.get("id"),
+            })
+        except Exception as exc:
+            return json.dumps({"error": f"Reply failed: {exc}"})
+
+    @mcp.tool()
+    @tool_errors("Teams chat management error")
+    async def manage_teams_chat(
+        chat_id: str,
+        action: str,
+        topic: str = "",
+        user_email: str = "",
+        membership_id: str = "",
+    ) -> str:
+        """Manage a Teams group chat — rename, list/add/remove members.
+
+        Actions:
+        - ``rename``: Set the chat topic (requires ``topic`` param)
+        - ``list_members``: List all members with their IDs and emails
+        - ``add_member``: Add a user to the chat (requires ``user_email`` param)
+        - ``remove_member``: Remove a member (requires ``membership_id`` from list_members)
+
+        Args:
+            chat_id: The Teams chat ID
+            action: One of: rename, list_members, add_member, remove_member
+            topic: New topic name (for rename action)
+            user_email: Email of user to add (for add_member action)
+            membership_id: Member ID to remove (for remove_member action)
+        """
+        graph_client = state.graph_client
+        if graph_client is None:
+            return json.dumps({"error": "Graph API not configured — chat management requires Graph API"})
+
+        try:
+            if action == "rename":
+                await graph_client.update_chat_topic(chat_id, topic)
+                return json.dumps({"status": "success", "action": "rename", "topic": topic})
+            elif action == "list_members":
+                members = await graph_client.list_chat_members(chat_id)
+                return json.dumps({"status": "success", "action": "list_members", "members": members})
+            elif action == "add_member":
+                result = await graph_client.add_chat_member(chat_id, user_email)
+                return json.dumps({"status": "success", "action": "add_member", "user_email": user_email, "result": result})
+            elif action == "remove_member":
+                await graph_client.remove_chat_member(chat_id, membership_id)
+                return json.dumps({"status": "success", "action": "remove_member", "membership_id": membership_id})
+            else:
+                return json.dumps({"error": f"Unknown action '{action}'. Valid: rename, list_members, add_member, remove_member"})
+        except Exception as exc:
+            return json.dumps({"error": f"Chat management failed: {exc}"})
+
     # Expose at module level for test imports
     mod = sys.modules[__name__]
     mod.open_teams_browser = open_teams_browser
@@ -597,3 +743,5 @@ def register(mcp, state):
     mod.cancel_teams_post = cancel_teams_post
     mod.close_teams_browser = close_teams_browser
     mod.read_teams_messages = read_teams_messages
+    mod.reply_to_teams_message = reply_to_teams_message
+    mod.manage_teams_chat = manage_teams_chat
