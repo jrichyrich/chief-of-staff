@@ -463,6 +463,134 @@ class TestPostTeamsMessageBrowserBackend:
 
 
 # ---------------------------------------------------------------------------
+# post_teams_message: prefer_backend parameter & error surfacing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessagePreferBackend:
+    """Tests for prefer_backend parameter and Graph error surfacing."""
+
+    async def test_prefer_backend_graph_returns_error_on_failure(self):
+        """prefer_backend='graph' returns error instead of falling back."""
+        from connectors.graph_client import GraphTransientError as RealGTE
+
+        gc = AsyncMock()
+        gc.resolve_user_email = AsyncMock(return_value=None)
+        gc.list_chats = AsyncMock(side_effect=RealGTE("503 Service Unavailable"))
+        mcp_server._state.graph_client = gc
+
+        mock_poster = AsyncMock()
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(
+                    target="Engineering", message="Hello",
+                    prefer_backend="graph",
+                )
+
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert result["backend"] == "graph"
+        assert "503" in result["error"]
+        # Browser should NOT have been called
+        mock_poster.prepare_message.assert_not_awaited()
+        mock_poster.send_message.assert_not_awaited()
+
+        mcp_server._state.graph_client = None
+
+    async def test_prefer_backend_graph_client_none_returns_error(self):
+        """prefer_backend='graph' with no graph_client returns error, not fallback."""
+        mcp_server._state.graph_client = None
+
+        mock_poster = AsyncMock()
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(
+                    target="General", message="Hi",
+                    prefer_backend="graph",
+                )
+
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert result["backend"] == "graph"
+        assert "not configured" in result["error"]
+        mock_poster.prepare_message.assert_not_awaited()
+
+    async def test_prefer_backend_browser_skips_graph(self):
+        """prefer_backend='browser' bypasses Graph even when Graph is configured."""
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        mock_poster = AsyncMock()
+        mock_poster.send_message = AsyncMock(return_value={
+            "status": "sent",
+            "detected_channel": "Alice Smith",
+        })
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(
+                    target="Alice Smith", message="Hello",
+                    auto_send=True, prefer_backend="browser",
+                )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        gc.find_chat_by_members.assert_not_awaited()
+        gc.send_chat_message.assert_not_awaited()
+        mock_poster.send_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+    async def test_default_fallback_includes_graph_error(self):
+        """Default fallback (no prefer_backend) includes graph_error in result."""
+        from connectors.graph_client import GraphAPIError as RealGAE
+
+        gc = AsyncMock()
+        gc.find_chat_by_members = AsyncMock(side_effect=RealGAE("400 Bad Request"))
+        mcp_server._state.graph_client = gc
+
+        mock_poster = AsyncMock()
+        mock_poster.send_message = AsyncMock(return_value={
+            "status": "sent",
+            "detected_channel": "someone",
+        })
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            with patch.object(teams_browser_tools, "_get_poster", return_value=mock_poster):
+                raw = await post_teams_message(
+                    target="someone@example.com", message="Hi",
+                    auto_send=True,
+                )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert "graph_error" in result
+        assert "400 Bad Request" in result["graph_error"]
+        mock_poster.send_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+    async def test_graph_success_no_graph_error_in_result(self):
+        """Successful Graph send does not include graph_error field."""
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com", message="Hello",
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert "graph_error" not in result
+
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
 # read_teams_messages: Graph backend succeeds
 # ---------------------------------------------------------------------------
 

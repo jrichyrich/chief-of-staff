@@ -367,6 +367,7 @@ def register(mcp, state):
     async def post_teams_message(
         target: str, message: str, auto_send: bool = False,
         content_type: str = "text", mention_emails: list[str] | None = None,
+        prefer_backend: str = "",
     ) -> str:
         """Prepare a message for posting to a Teams channel, person, or group.
 
@@ -393,11 +394,17 @@ def register(mcp, state):
             auto_send: If True, send immediately without confirmation step
             content_type: 'text' (default) or 'html' for rich formatting
             mention_emails: Optional list of email addresses to @mention
+            prefer_backend: Force a specific backend: 'graph' (no browser fallback),
+                'browser' (skip Graph), or '' (default: Graph with browser fallback)
         """
         send_backend = _get_send_backend()
+        # Allow caller to override the backend selection
+        use_graph = (prefer_backend == "graph") or (send_backend == "graph" and prefer_backend != "browser")
+        graph_only = prefer_backend == "graph"
+        graph_error_msg = ""
 
         # --- Graph API path ---
-        if send_backend == "graph":
+        if use_graph:
             graph_client = state.graph_client
             if graph_client is not None:
                 # --- Resolve @mentions if requested ---
@@ -428,14 +435,27 @@ def register(mcp, state):
                     return json.dumps(result)
                 except Exception as exc:
                     if _graph_exceptions and isinstance(exc, _graph_exceptions):
+                        graph_error_msg = f"{type(exc).__name__}: {exc}"
+                        if graph_only:
+                            return json.dumps({
+                                "status": "error",
+                                "backend": "graph",
+                                "error": graph_error_msg,
+                            })
                         logger.warning(
-                            "Graph API send failed (%s: %s), falling back to browser",
-                            type(exc).__name__,
-                            exc,
+                            "Graph API send failed (%s), falling back to browser",
+                            graph_error_msg,
                         )
                     else:
                         raise  # Don't mask programming bugs
             else:
+                graph_error_msg = "Graph client not configured"
+                if graph_only:
+                    return json.dumps({
+                        "status": "error",
+                        "backend": "graph",
+                        "error": graph_error_msg,
+                    })
                 logger.warning("Graph client not configured, falling back to browser")
 
         # --- Browser path (agent-browser or playwright) ---
@@ -452,6 +472,10 @@ def register(mcp, state):
             result = await poster.send_message(parsed_target, message)
         else:
             result = await poster.prepare_message(parsed_target, message)
+
+        # Surface any Graph error that triggered the fallback
+        if graph_error_msg and isinstance(result, dict):
+            result["graph_error"] = graph_error_msg
         return json.dumps(result)
 
     @mcp.tool()
