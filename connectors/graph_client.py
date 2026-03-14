@@ -109,28 +109,38 @@ class GraphClient:
         self._scopes = scopes or list(_DEFAULT_SCOPES)
         self._interactive = interactive
 
-        # Build MSAL application with persistent token cache.
-        # Interactive (CLI) → PublicClientApplication + device code flow.
-        # Headless (daemon) → ConfidentialClientApplication + client credentials
-        #   if a client_secret is available, else PublicClientApplication + silent only.
+        # Build MSAL application(s) with persistent token cache.
+        # Always create a PublicClientApplication so we can use cached
+        # delegated tokens from prior interactive sessions.  When a
+        # client_secret is available, also create a
+        # ConfidentialClientApplication as a fallback for app-only
+        # operations (no user context).
         cache = self._build_token_cache()
         authority = f"https://login.microsoftonline.com/{self._tenant_id}"
         client_secret = get_secret("m365_client_secret")
-        if not interactive and client_secret:
-            self._app: Any = msal.ConfidentialClientApplication(
+
+        # Public app — used for delegated auth (device code + silent refresh)
+        self._public_app: Any = msal.PublicClientApplication(
+            client_id=self._client_id,
+            authority=authority,
+            token_cache=cache,
+        )
+
+        # Confidential app — used for app-only client credentials fallback
+        if client_secret:
+            self._confidential_app: Any = msal.ConfidentialClientApplication(
                 client_id=self._client_id,
                 client_credential=client_secret,
                 authority=authority,
                 token_cache=cache,
             )
-            self._is_confidential = True
         else:
-            self._app: Any = msal.PublicClientApplication(
-                client_id=self._client_id,
-                authority=authority,
-                token_cache=cache,
-            )
-            self._is_confidential = False
+            self._confidential_app = None
+
+        # Primary app used by most code paths — always the public app
+        # so that /me endpoints work with cached delegated tokens.
+        self._app: Any = self._public_app
+        self._is_confidential = False
 
         self._http = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0),
@@ -235,27 +245,39 @@ class GraphClient:
         Returns the access token string.
         Raises ``GraphAuthError`` if authentication cannot be completed.
         """
-        accounts = self._app.get_accounts()
+        # 1. Try delegated token (public app) — supports /me endpoints.
+        #    This works even in headless mode if a prior interactive session
+        #    cached a user token that can be silently refreshed.
+        accounts = self._public_app.get_accounts()
         if accounts:
-            result = self._app.acquire_token_silent(
+            result = self._public_app.acquire_token_silent(
                 scopes=self._scopes,
                 account=accounts[0],
             )
             if result and "access_token" in result:
-                # Warn if token is getting old
                 self._check_token_age(result)
                 return result["access_token"]
 
-        # Silent acquisition failed — try client credentials for confidential apps
-        # in headless mode (app-only permissions only, no user context).
-        if not self._interactive and self._is_confidential:
-            result = self._app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+        # 2. Fall back to client credentials (app-only, no user context).
+        #    Only works for endpoints that don't require /me.
+        if not self._interactive and self._confidential_app:
+            result = self._confidential_app.acquire_token_for_client(
+                scopes=["https://graph.microsoft.com/.default"],
+            )
             if result and "access_token" in result:
+                logger.warning(
+                    "Using app-only token (client credentials). "
+                    "/me endpoints will fail. Re-authenticate interactively "
+                    "to restore delegated access."
+                )
                 return result["access_token"]
 
         if not self._interactive:
             raise GraphAuthError(
-                "Token refresh failed and interactive auth is disabled (headless mode)"
+                "Token refresh failed and interactive auth is disabled (headless mode). "
+                "Run: python -c 'import asyncio; from connectors.graph_client import GraphClient; "
+                "from config import *; gc = GraphClient(M365_CLIENT_ID, M365_TENANT_ID, "
+                "M365_GRAPH_SCOPES, interactive=True); asyncio.run(gc.ensure_authenticated())'"
             )
 
         if self._is_confidential:
@@ -386,7 +408,7 @@ class GraphClient:
 
         Returns None if no account is cached (not yet authenticated).
         """
-        accounts = self._app.get_accounts()
+        accounts = self._public_app.get_accounts()
         if accounts:
             return accounts[0].get("username")
         return None

@@ -68,6 +68,8 @@ def client(mock_msal_app):
     gc._interactive = True
     gc._is_confidential = False
     gc._app = mock_msal_app
+    gc._public_app = mock_msal_app
+    gc._confidential_app = None
     gc._http = _make_http_client()
     return gc
 
@@ -155,14 +157,18 @@ async def test_ensure_authenticated_confidential_headless(client, mock_msal_app)
     """Confidential client in headless mode uses client credentials grant."""
     client._interactive = False
     client._is_confidential = True
-    mock_msal_app.acquire_token_silent.return_value = None
-    mock_msal_app.acquire_token_for_client.return_value = {
+    # No cached delegated accounts
+    mock_msal_app.get_accounts.return_value = []
+    # Set up a separate confidential app mock for client credentials
+    confidential_mock = MagicMock()
+    confidential_mock.acquire_token_for_client.return_value = {
         "access_token": "client-creds-token",
     }
+    client._confidential_app = confidential_mock
 
     token = await client.ensure_authenticated()
     assert token == "client-creds-token"
-    mock_msal_app.acquire_token_for_client.assert_called_once()
+    confidential_mock.acquire_token_for_client.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -359,14 +365,15 @@ async def test_confidential_headless_uses_default_scope(client, mock_msal_app):
     client._interactive = False
     client._is_confidential = True
     mock_msal_app.get_accounts.return_value = []
-    mock_msal_app.acquire_token_silent.return_value = None
-    mock_msal_app.acquire_token_for_client.return_value = {
+    confidential_mock = MagicMock()
+    confidential_mock.acquire_token_for_client.return_value = {
         "access_token": "client-creds-token",
     }
+    client._confidential_app = confidential_mock
 
     token = await client.ensure_authenticated()
     assert token == "client-creds-token"
-    mock_msal_app.acquire_token_for_client.assert_called_once_with(
+    confidential_mock.acquire_token_for_client.assert_called_once_with(
         scopes=["https://graph.microsoft.com/.default"]
     )
 
