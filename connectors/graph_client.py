@@ -202,10 +202,12 @@ class GraphClient:
         # Prefer KeychainPersistence on macOS
         if sys.platform == "darwin" and KeychainPersistence is not None:
             try:
+                from config import MSAL_KEYCHAIN_ACCOUNT, MSAL_KEYCHAIN_SERVICE
+
                 persistence = KeychainPersistence(
                     signal_location=str(Path.home() / ".jarvis" / "token_cache.lock"),
-                    service_name="jarvis",
-                    account_name="msal_token_cache",
+                    service_name=MSAL_KEYCHAIN_SERVICE,
+                    account_name=MSAL_KEYCHAIN_ACCOUNT,
                 )
                 logger.debug("Using macOS Keychain for MSAL token cache")
                 return PersistedTokenCache(persistence)

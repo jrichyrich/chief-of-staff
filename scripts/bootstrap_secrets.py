@@ -16,6 +16,7 @@ import sys
 # Allow running from repo root
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
 
+from config import MSAL_KEYCHAIN_ACCOUNT, MSAL_KEYCHAIN_SERVICE
 from vault.keychain import delete_secret, get_secret, set_secret
 
 FIELDS = ["client_id", "tenant_id"]
@@ -25,10 +26,6 @@ SECRET_KEYS = {
 }
 
 DEFAULT_ITEM = "Jarvis - Entra Enterprise App"
-
-# MSAL token cache keychain entries (managed by msal-extensions)
-MSAL_KEYCHAIN_SERVICE = "jarvis-m365"
-MSAL_KEYCHAIN_ACCOUNT = "default"
 
 
 def check_op_cli() -> bool:

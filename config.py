@@ -162,6 +162,10 @@ AGENT_BROWSER_HEADED = os.environ.get("AGENT_BROWSER_HEADED", "").lower() in ("1
 # Microsoft Graph API (direct)
 M365_CLIENT_ID = get_secret("m365_client_id") or ""
 M365_TENANT_ID = get_secret("m365_tenant_id") or ""
+
+# MSAL token cache Keychain identifiers (shared between graph_client and bootstrap_secrets)
+MSAL_KEYCHAIN_SERVICE = "jarvis"
+MSAL_KEYCHAIN_ACCOUNT = "msal_token_cache"
 M365_GRAPH_ENABLED = bool(M365_CLIENT_ID)
 M365_GRAPH_SCOPES = ["Chat.ReadWrite", "ChatMessage.Send", "Mail.Send", "User.Read", "User.ReadBasic.All"]
 

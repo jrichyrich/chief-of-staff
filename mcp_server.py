@@ -208,6 +208,37 @@ async def app_lifespan(server: FastMCP):
                 interactive=False,  # MCP server runs headless over stdio
             )
             logger.info("Graph API client initialized")
+            # Proactively validate the delegated token on startup
+            try:
+                refresh_result = await _state.graph_client.proactive_token_refresh()
+                status = refresh_result["status"]
+                if status == "expired":
+                    logger.warning("Graph delegated token EXPIRED: %s", refresh_result["message"])
+                elif status == "warning":
+                    logger.warning("Graph token nearing expiry: %s", refresh_result["message"])
+                else:
+                    logger.info("Graph token OK: %s", refresh_result["message"])
+                # Send macOS notification for warning/expired
+                if status in ("warning", "expired"):
+                    try:
+                        from apple_notifications.notifier import Notifier
+
+                        if status == "warning":
+                            days = refresh_result.get("days_until_expiry", "?")
+                            Notifier.send(
+                                title="Jarvis: Graph Token Expiring",
+                                message=f"Graph API token expires in ~{days} days. Re-authenticate soon.",
+                            )
+                        else:
+                            Notifier.send(
+                                title="Jarvis: Graph Token Expired",
+                                message="Graph API token has expired. Re-authenticate to restore access.",
+                                sound="Basso",
+                            )
+                    except Exception:
+                        logger.warning("Failed to send token notification", exc_info=True)
+            except Exception:
+                logger.warning("Graph token refresh check failed", exc_info=True)
         except ImportError:
             logger.warning("msal/httpx not installed — Graph API disabled")
         except Exception:

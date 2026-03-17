@@ -47,6 +47,10 @@ class JarvisDaemon:
         self._shutdown = False
         self._sleep_task: Optional[asyncio.Task] = None
         self.imessage_daemon = imessage_daemon
+        self._graph_client = None
+        self._token_refresh_interval = 3600  # Refresh token every hour
+        self._last_token_refresh = 0.0
+        self._last_token_notification_status: Optional[str] = None
 
     def shutdown(self):
         """Request graceful shutdown after the current tick completes."""
@@ -83,6 +87,40 @@ class JarvisDaemon:
                     logger.info("iMessage poll: %s", imsg_result)
             except Exception as e:
                 logger.error("iMessage poll failed: %s", e)
+
+        # Proactive Graph token refresh (hourly)
+        import time as _time
+        if self._graph_client and (_time.time() - self._last_token_refresh) >= self._token_refresh_interval:
+            try:
+                refresh_result = await self._graph_client.proactive_token_refresh()
+                self._last_token_refresh = _time.time()
+                status = refresh_result["status"]
+                if status == "expired":
+                    logger.warning("Graph delegated token EXPIRED: %s", refresh_result["message"])
+                elif status == "warning":
+                    logger.warning("Graph token nearing expiry: %s", refresh_result["message"])
+                # Notify on status change only (avoid spamming every hour)
+                if status in ("warning", "expired") and status != self._last_token_notification_status:
+                    try:
+                        from apple_notifications.notifier import Notifier
+
+                        if status == "warning":
+                            days = refresh_result.get("days_until_expiry", "?")
+                            Notifier.send(
+                                title="Jarvis: Graph Token Expiring",
+                                message=f"Graph API token expires in ~{days} days. Re-authenticate soon.",
+                            )
+                        else:
+                            Notifier.send(
+                                title="Jarvis: Graph Token Expired",
+                                message="Graph API token has expired. Re-authenticate to restore access.",
+                                sound="Basso",
+                            )
+                    except Exception as e:
+                        logger.warning("Failed to send token notification: %s", e)
+                self._last_token_notification_status = status
+            except Exception as e:
+                logger.error("Graph token refresh failed: %s", e)
 
         # Proactive action pass — act on high-priority suggestions autonomously
         try:
@@ -227,6 +265,21 @@ if __name__ == "__main__":
         tick_interval=DAEMON_TICK_INTERVAL_SECONDS,
         imessage_daemon=imessage,
     )
+
+    # Attach Graph client for proactive token refresh
+    try:
+        from config import M365_CLIENT_ID, M365_GRAPH_ENABLED, M365_GRAPH_SCOPES, M365_TENANT_ID
+        if M365_GRAPH_ENABLED:
+            from connectors.graph_client import GraphClient
+            daemon._graph_client = GraphClient(
+                client_id=M365_CLIENT_ID,
+                tenant_id=M365_TENANT_ID,
+                scopes=M365_GRAPH_SCOPES,
+                interactive=False,
+            )
+            logger.info("Graph client attached to daemon for proactive token refresh")
+    except Exception:
+        logger.warning("Graph client not available for daemon token refresh", exc_info=True)
 
     try:
         asyncio.run(daemon.run())
