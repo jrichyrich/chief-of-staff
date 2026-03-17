@@ -167,7 +167,18 @@ M365_TENANT_ID = get_secret("m365_tenant_id") or ""
 MSAL_KEYCHAIN_SERVICE = "jarvis"
 MSAL_KEYCHAIN_ACCOUNT = "msal_token_cache"
 M365_GRAPH_ENABLED = bool(M365_CLIENT_ID)
-M365_GRAPH_SCOPES = ["Chat.ReadWrite", "ChatMessage.Send", "Mail.Send", "User.Read", "User.ReadBasic.All"]
+M365_GRAPH_SCOPES = [
+    "Channel.ReadBasic.All",
+    "ChannelMessage.Send",
+    "Chat.Create",
+    "Chat.Read",
+    "Chat.ReadWrite",
+    "ChatMessage.Send",
+    "Mail.Send",
+    "Team.ReadBasic.All",
+    "User.Read",
+    "User.ReadBasic.All",
+]
 
 # Backend routing (TEAMS_POSTER_BACKEND deprecated in favor of TEAMS_SEND_BACKEND)
 TEAMS_SEND_BACKEND = os.environ.get(
