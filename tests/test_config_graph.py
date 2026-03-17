@@ -204,7 +204,7 @@ class TestGraphScopes:
         import config
         importlib.reload(config)
         assert config.M365_GRAPH_SCOPES == [
-            "Chat.Read", "ChatMessage.Send", "Mail.Send", "User.Read"
+            "Chat.ReadWrite", "ChatMessage.Send", "Mail.Send", "User.Read", "User.ReadBasic.All"
         ]
 
 
