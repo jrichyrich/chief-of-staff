@@ -7,7 +7,6 @@ device-code auth flow and silent token refresh.
 from __future__ import annotations
 
 import asyncio
-import html
 import logging
 import os
 import sys
@@ -140,7 +139,6 @@ class GraphClient:
         # Primary app used by most code paths — always the public app
         # so that /me endpoints work with cached delegated tokens.
         self._app: Any = self._public_app
-        self._is_confidential = False
 
         self._http = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0),
@@ -280,12 +278,7 @@ class GraphClient:
                 "M365_GRAPH_SCOPES, interactive=True); asyncio.run(gc.ensure_authenticated())'"
             )
 
-        if self._is_confidential:
-            # Confidential clients use auth code flow with local redirect
-            result = await self._auth_code_flow()
-        else:
-            # Public clients use device code flow
-            result = await self._device_code_flow()
+        result = await self._device_code_flow()
 
         if "access_token" not in result:
             error_desc = result.get("error_description", result.get("error", "unknown error"))
@@ -316,93 +309,6 @@ class GraphClient:
             self._app.acquire_token_by_device_flow, flow
         )
 
-    async def _auth_code_flow(self) -> dict:
-        """Run MSAL authorization code flow with local redirect (confidential clients).
-
-        Starts a temporary local HTTP server on port 8400 to receive the OAuth
-        redirect, then opens the browser for user consent.
-        """
-        import http.server
-        import threading
-        import urllib.parse
-        import webbrowser
-
-        auth_code_result: dict = {}
-        server_ready = threading.Event()
-
-        class _CallbackHandler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                nonlocal auth_code_result
-                qs = urllib.parse.urlparse(self.path).query
-                params = urllib.parse.parse_qs(qs)
-                if "code" in params:
-                    auth_code_result["code"] = params["code"][0]
-                    if "state" in params:
-                        auth_code_result["state"] = params["state"][0]
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(b"<html><body><h2>Authentication successful.</h2>"
-                                    b"<p>You can close this window.</p></body></html>")
-                else:
-                    error = params.get("error", ["unknown"])[0]
-                    desc = params.get("error_description", [""])[0]
-                    auth_code_result["error"] = error
-                    auth_code_result["error_description"] = desc
-                    self.send_response(400)
-                    self.end_headers()
-                    self.wfile.write(f"<html><body><h2>Error: {html.escape(error)}</h2>"
-                                    f"<p>{html.escape(desc)}</p></body></html>".encode())
-
-            def log_message(self, format, *args):
-                pass  # Suppress request logging
-
-        redirect_uri = "http://localhost:8400"
-        flow = self._app.initiate_auth_code_flow(
-            scopes=self._scopes,
-            redirect_uri=redirect_uri,
-        )
-        if "auth_uri" not in flow:
-            raise GraphAuthError(
-                f"Auth code flow initiation failed: {flow.get('error_description', 'unknown error')}"
-            )
-
-        # Start local server in background thread
-        server = http.server.HTTPServer(("127.0.0.1", 8400), _CallbackHandler)
-        server.timeout = 300  # 5 minute timeout
-
-        def serve():
-            server_ready.set()
-            server.handle_request()  # Handle exactly one request
-
-        thread = threading.Thread(target=serve, daemon=True)
-        thread.start()
-        server_ready.wait()
-
-        auth_uri = flow["auth_uri"]
-        logger.info("Opening browser for auth code flow: %s", auth_uri)
-        print(f"\nOpening browser for authentication...\nIf it doesn't open, visit: {auth_uri}\n", file=sys.stderr)
-        webbrowser.open(auth_uri)
-
-        # Wait for the callback
-        try:
-            thread.join(timeout=300)
-        finally:
-            server.server_close()
-
-        if "error" in auth_code_result:
-            raise GraphAuthError(
-                f"Auth code flow failed: {auth_code_result.get('error_description', auth_code_result['error'])}"
-            )
-        if "code" not in auth_code_result:
-            raise GraphAuthError("Auth code flow timed out — no callback received")
-
-        # Exchange auth code for tokens
-        result = self._app.acquire_token_by_auth_code_flow(
-            flow,
-            auth_code_result,
-        )
-        return result
-
     async def get_authenticated_email(self) -> str | None:
         """Return the authenticated user's email from MSAL account cache.
 
@@ -429,6 +335,77 @@ class GraphClient:
                     "Run bootstrap_secrets.py to re-authenticate.",
                     days,
                 )
+
+    async def proactive_token_refresh(self) -> dict:
+        """Proactively refresh the delegated token to prevent expiry.
+
+        Returns a status dict with keys:
+            status: "ok" | "warning" | "expired"
+            message: Human-readable description
+            account: The authenticated username (if available)
+            days_until_expiry: Estimated days remaining (if determinable)
+
+        This should be called periodically (e.g. daily) to keep the
+        refresh token alive and warn before the 90-day window expires.
+        """
+        accounts = self._public_app.get_accounts()
+        if not accounts:
+            return {
+                "status": "expired",
+                "message": "No cached accounts. Interactive re-authentication required.",
+                "account": None,
+            }
+
+        account = accounts[0]
+        username = account.get("username", "unknown")
+
+        result = self._public_app.acquire_token_silent(
+            scopes=self._scopes,
+            account=account,
+        )
+
+        if not result or "access_token" not in result:
+            error = "unknown"
+            if result:
+                error = result.get("error_description", result.get("error", "unknown"))
+            return {
+                "status": "expired",
+                "message": f"Silent refresh failed for {username}: {error}. "
+                           "Interactive re-authentication required.",
+                "account": username,
+            }
+
+        # Token refreshed successfully — check age
+        claims = result.get("id_token_claims") or {}
+        iat = claims.get("iat")
+        days_remaining = None
+        status = "ok"
+        message = f"Token refreshed successfully for {username}."
+
+        if iat:
+            age_seconds = time.time() - float(iat)
+            age_days = int(age_seconds / (60 * 60 * 24))
+            # Refresh tokens typically last 90 days
+            days_remaining = max(0, 90 - age_days)
+            if days_remaining <= 14:
+                status = "warning"
+                message = (
+                    f"Token for {username} expires in ~{days_remaining} days. "
+                    "Re-authenticate soon to avoid disruption."
+                )
+            else:
+                message = (
+                    f"Token refreshed for {username}. "
+                    f"~{days_remaining} days until re-authentication needed."
+                )
+
+        logger.info("Proactive token refresh: %s — %s", status, message)
+        return {
+            "status": status,
+            "message": message,
+            "account": username,
+            "days_until_expiry": days_remaining,
+        }
 
     # ------------------------------------------------------------------
     # HTTP request helper
@@ -603,7 +580,7 @@ class GraphClient:
             body["mentions"] = mentions
         return await self._request(
             "POST",
-            f"/me/chats/{safe_chat}/messages/{safe_msg}/replies",
+            f"/chats/{safe_chat}/messages/{safe_msg}/replies",
             json=body,
         )
 
@@ -639,7 +616,8 @@ class GraphClient:
             safe_name = display_name.replace("'", "''")
             data = await self._request(
                 "GET",
-                f"/users?$filter=displayName eq '{safe_name}'&$select=mail,userPrincipalName",
+                "/users",
+                params={"$filter": f"displayName eq '{safe_name}'", "$select": "mail,userPrincipalName"},
             )
             users = data.get("value", [])
             if len(users) == 1:
@@ -659,8 +637,11 @@ class GraphClient:
             safe_email = email.replace("'", "''")
             data = await self._request(
                 "GET",
-                f"/users?$filter=mail eq '{safe_email}' or userPrincipalName eq '{safe_email}'"
-                f"&$select=id,displayName,mail,userPrincipalName",
+                "/users",
+                params={
+                    "$filter": f"mail eq '{safe_email}' or userPrincipalName eq '{safe_email}'",
+                    "$select": "id,displayName,mail,userPrincipalName",
+                },
             )
             users = data.get("value", [])
             if len(users) >= 1:
@@ -724,7 +705,7 @@ class GraphClient:
         safe_id = urllib.parse.quote(chat_id, safe="")
         return await self._request(
             "PATCH",
-            f"/me/chats/{safe_id}",
+            f"/chats/{safe_id}",
             json={"topic": topic},
         )
 

@@ -259,8 +259,9 @@ async def _graph_send_message(
     if chat_id is None and target_emails:
         result = await graph_client.create_chat(target_emails)
         new_chat_id = result.get("id")
-        if new_chat_id:
-            await graph_client.send_chat_message(new_chat_id, message, content_type=content_type, mentions=mentions)
+        if not new_chat_id:
+            raise GraphAPIError("create_chat returned no id — message not sent")
+        await graph_client.send_chat_message(new_chat_id, message, content_type=content_type, mentions=mentions)
         return {
             "status": "sent",
             "backend": "graph",
@@ -409,9 +410,11 @@ def register(mcp, state):
             if graph_client is not None:
                 # --- Resolve @mentions if requested ---
                 mentions = None
+                failed_mention_emails: list[str] = []
                 if mention_emails and graph_client is not None:
                     content_type = "html"
                     mentions = []
+                    mention_tags: list[str] = []
                     for idx, email in enumerate(mention_emails):
                         user = await graph_client.get_user_by_email(email)
                         if user:
@@ -427,11 +430,17 @@ def register(mcp, state):
                                     }
                                 },
                             })
-                            message = f'<at id="{idx}">{display_name}</at> ' + message
+                            mention_tags.append(f'<at id="{idx}">{display_name}</at>')
+                        else:
+                            failed_mention_emails.append(email)
+                    if mention_tags:
+                        message = " ".join(mention_tags) + " " + message
 
                 _graph_exceptions = _GRAPH_FALLBACK_EXCEPTIONS
                 try:
                     result = await _graph_send_message(graph_client, target, message, content_type=content_type, mentions=mentions)
+                    if failed_mention_emails:
+                        result["unresolved_mentions"] = failed_mention_emails
                     return json.dumps(result)
                 except Exception as exc:
                     if _graph_exceptions and isinstance(exc, _graph_exceptions):
@@ -561,15 +570,15 @@ def register(mcp, state):
                         except ValueError:
                             pass
 
-                    # Fetch messages from all chats in parallel
-                    tasks = []
-                    chat_index = []
-                    for chat in chats:
-                        cid = chat.get("id")
-                        if cid:
-                            tasks.append(graph_client.get_chat_messages(cid, limit=25))
-                            chat_index.append(chat)
+                    # Fetch messages from all chats in parallel (max 10 concurrent)
+                    sem = asyncio.Semaphore(10)
 
+                    async def _fetch(cid):
+                        async with sem:
+                            return await graph_client.get_chat_messages(cid, limit=25)
+
+                    chat_index = [chat for chat in chats if chat.get("id")]
+                    tasks = [_fetch(chat["id"]) for chat in chat_index]
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
                     for chat, chat_result in zip(chat_index, results):
@@ -677,9 +686,11 @@ def register(mcp, state):
             return json.dumps({"error": "Graph API not configured — reply requires Graph API"})
 
         mentions = None
+        failed_mention_emails: list[str] = []
         if mention_emails:
             content_type = "html"
             mentions = []
+            mention_tags: list[str] = []
             for idx, email in enumerate(mention_emails):
                 user = await graph_client.get_user_by_email(email)
                 if user:
@@ -695,7 +706,11 @@ def register(mcp, state):
                             }
                         },
                     })
-                    message = f'<at id="{idx}">{display_name}</at> ' + message
+                    mention_tags.append(f'<at id="{idx}">{display_name}</at>')
+                else:
+                    failed_mention_emails.append(email)
+            if mention_tags:
+                message = " ".join(mention_tags) + " " + message
 
         try:
             result = await graph_client.reply_to_chat_message(
@@ -703,13 +718,16 @@ def register(mcp, state):
                 content_type=content_type,
                 mentions=mentions,
             )
-            return json.dumps({
+            reply_result: dict = {
                 "status": "sent",
                 "backend": "graph",
                 "chat_id": chat_id,
                 "parent_message_id": message_id,
                 "reply_id": result.get("id"),
-            })
+            }
+            if failed_mention_emails:
+                reply_result["unresolved_mentions"] = failed_mention_emails
+            return json.dumps(reply_result)
         except Exception as exc:
             return json.dumps({"error": f"Reply failed: {exc}"})
 

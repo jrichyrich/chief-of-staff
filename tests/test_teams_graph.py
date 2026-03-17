@@ -884,7 +884,7 @@ class TestGraphClientNewMethods:
             assert "mentions" not in call_kwargs.kwargs["json"]
 
     async def test_reply_to_chat_message_basic(self):
-        """reply_to_chat_message posts to correct endpoint."""
+        """reply_to_chat_message posts to correct endpoint (no /me prefix)."""
         from connectors.graph_client import GraphClient
         with patch.object(GraphClient, '__init__', lambda self, **kw: None):
             gc = GraphClient.__new__(GraphClient)
@@ -894,9 +894,11 @@ class TestGraphClientNewMethods:
             call_args = gc._request.call_args
             assert "/replies" in call_args[0][1]
             assert "msg-1" in call_args[0][1]
+            assert "/chats/" in call_args[0][1]
+            assert "/me/chats/" not in call_args[0][1]
 
     async def test_reply_to_chat_message_with_html_and_mentions(self):
-        """reply_to_chat_message passes content_type and mentions."""
+        """reply_to_chat_message passes content_type and mentions (no /me prefix)."""
         from connectors.graph_client import GraphClient
         with patch.object(GraphClient, '__init__', lambda self, **kw: None):
             gc = GraphClient.__new__(GraphClient)
@@ -906,6 +908,8 @@ class TestGraphClientNewMethods:
             call_kwargs = gc._request.call_args
             assert call_kwargs.kwargs["json"]["body"]["contentType"] == "html"
             assert "mentions" in call_kwargs.kwargs["json"]
+            assert "/chats/" in call_kwargs.args[1]
+            assert "/me/chats/" not in call_kwargs.args[1]
 
     async def test_update_chat_topic(self):
         """update_chat_topic sends PATCH with topic."""
@@ -1110,6 +1114,124 @@ class TestPostTeamsMessageContentType:
         call_args = gc.send_chat_message.call_args
         assert call_args.kwargs.get("mentions") is not None
         assert call_args.kwargs.get("content_type") == "html"
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
+# FIX-1: create_chat returns no id → GraphAPIError raised
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestGraphSendMessageCreateChatNoId:
+    """FIX-1: create_chat returning {} raises GraphAPIError — no silent data loss."""
+
+    async def test_graph_send_message_create_chat_no_id_raises_and_falls_back(self):
+        """When create_chat returns no id, GraphAPIError is raised.
+
+        With prefer_backend='graph', the error is surfaced directly without
+        browser fallback so we get a clean error response.
+        """
+        from connectors.graph_client import GraphAPIError as RealGAE
+
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[]),
+            create_chat=AsyncMock(return_value={}),  # no "id"
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="new@example.com",
+                message="Hello",
+                prefer_backend="graph",
+            )
+
+        result = json.loads(raw)
+        # Should NOT be "sent" — create_chat returned no id
+        assert result.get("status") != "sent"
+        assert result.get("status") == "error"
+        assert result.get("backend") == "graph"
+        # send_chat_message must NOT have been called
+        gc.send_chat_message.assert_not_awaited()
+
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
+# FIX-2: Multiple @mentions render in correct (forward) order
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessageMentionOrder:
+    """FIX-2: @mentions appear in input order, not reversed."""
+
+    async def test_post_teams_message_mentions_in_correct_order(self):
+        """Two @mentions: alice (idx=0) must appear before bob (idx=1) in message."""
+        gc = _make_graph_client(
+            get_user_by_email=AsyncMock(side_effect=lambda email: {
+                "alice@example.com": {"id": "uid-alice", "displayName": "Alice Smith"},
+                "bob@example.com": {"id": "uid-bob", "displayName": "Bob Jones"},
+            }.get(email)),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="19:chat-001",
+                message="please review",
+                mention_emails=["alice@example.com", "bob@example.com"],
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+
+        call_args = gc.send_chat_message.call_args
+        sent_message = call_args[0][1] if call_args[0] else call_args.args[1]
+        # Alice (id=0) must appear before Bob (id=1)
+        idx_alice = sent_message.index('<at id="0">')
+        idx_bob = sent_message.index('<at id="1">')
+        assert idx_alice < idx_bob, (
+            f"Expected Alice (<at id='0'>) before Bob (<at id='1'>) in: {sent_message!r}"
+        )
+
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
+# FIX-4: Unknown @mention email surfaced in result
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessageUnresolvedMention:
+    """FIX-4: Unresolved @mention emails appear in result under 'unresolved_mentions'."""
+
+    async def test_post_teams_message_unresolved_mention_surfaced(self):
+        """When one mention email can't be resolved, it appears in unresolved_mentions."""
+        gc = _make_graph_client(
+            get_user_by_email=AsyncMock(side_effect=lambda email: {
+                "known@example.com": {"id": "uid-known", "displayName": "Known User"},
+            }.get(email)),  # unknown@example.com returns None
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="hey check this",
+                mention_emails=["known@example.com", "unknown@example.com"],
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert "unresolved_mentions" in result, (
+            f"Expected 'unresolved_mentions' in result but got: {result}"
+        )
+        assert result["unresolved_mentions"] == ["unknown@example.com"]
+
         mcp_server._state.graph_client = None
 
 

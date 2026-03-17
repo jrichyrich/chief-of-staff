@@ -66,7 +66,6 @@ def client(mock_msal_app):
     gc._tenant_id = "test-tenant-id"
     gc._scopes = ["Chat.ReadWrite", "ChatMessage.Send", "Mail.Send", "User.Read", "User.ReadBasic.All"]
     gc._interactive = True
-    gc._is_confidential = False
     gc._app = mock_msal_app
     gc._public_app = mock_msal_app
     gc._confidential_app = None
@@ -107,7 +106,6 @@ async def test_ensure_authenticated_silent_success(client, mock_msal_app):
 @pytest.mark.asyncio
 async def test_ensure_authenticated_device_code_fallback(client, mock_msal_app):
     """When silent fails, public client uses device code flow."""
-    client._is_confidential = False
     mock_msal_app.acquire_token_silent.return_value = None
     mock_msal_app.initiate_device_flow.return_value = {
         "user_code": "ABC123",
@@ -129,20 +127,6 @@ async def test_ensure_authenticated_device_code_fallback(client, mock_msal_app):
 
 
 @pytest.mark.asyncio
-async def test_ensure_authenticated_auth_code_flow(client, mock_msal_app):
-    """When silent fails, confidential client uses auth code flow."""
-    client._is_confidential = True
-    mock_msal_app.acquire_token_silent.return_value = None
-
-    with patch.object(client, "_auth_code_flow", new_callable=AsyncMock) as mock_flow:
-        mock_flow.return_value = {"access_token": "auth-code-token"}
-        token = await client.ensure_authenticated()
-
-    assert token == "auth-code-token"
-    mock_flow.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_ensure_authenticated_headless_raises(client, mock_msal_app):
     """In headless mode (interactive=False), auth failure raises GraphAuthError."""
     client._interactive = False
@@ -154,9 +138,8 @@ async def test_ensure_authenticated_headless_raises(client, mock_msal_app):
 
 @pytest.mark.asyncio
 async def test_ensure_authenticated_confidential_headless(client, mock_msal_app):
-    """Confidential client in headless mode uses client credentials grant."""
+    """Headless mode with confidential app uses client credentials grant."""
     client._interactive = False
-    client._is_confidential = True
     # No cached delegated accounts
     mock_msal_app.get_accounts.return_value = []
     # Set up a separate confidential app mock for client credentials
@@ -361,9 +344,8 @@ async def test_reply_mail_reply_all(client):
 
 @pytest.mark.asyncio
 async def test_confidential_headless_uses_default_scope(client, mock_msal_app):
-    """Confidential client in headless mode uses .default scope for client credentials."""
+    """Headless mode with confidential app uses .default scope for client credentials."""
     client._interactive = False
-    client._is_confidential = True
     mock_msal_app.get_accounts.return_value = []
     confidential_mock = MagicMock()
     confidential_mock.acquire_token_for_client.return_value = {
@@ -463,6 +445,67 @@ async def test_create_chat_oneOnOne_does_not_duplicate_self(client):
     payload = call_args[1]["json"]
     assert payload["chatType"] == "oneOnOne"
     assert len(payload["members"]) == 1  # Only Alice, not self
+
+
+# ---------------------------------------------------------------------------
+# FIX-1: update_chat_topic endpoint test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_chat_topic_uses_correct_endpoint(client):
+    """update_chat_topic uses /chats/ (not /me/chats/) per Graph v1.0 spec."""
+    client._http.request.return_value = _make_response(200, {"status": "success"})
+
+    await client.update_chat_topic("chat-abc", "New Topic")
+
+    call_args = client._http.request.call_args
+    assert call_args[0][0] == "PATCH"
+    url = call_args[0][1]
+    assert "/chats/chat-abc" in url
+    assert "/me/chats/" not in url
+    assert call_args[1]["json"] == {"topic": "New Topic"}
+
+
+# ---------------------------------------------------------------------------
+# FIX-3: OData filter URL encoding tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_email_with_ampersand_in_name(client):
+    """resolve_user_email passes $filter via params dict so & in name doesn't break URL."""
+    client._http.request.return_value = _make_response(
+        200,
+        {"value": [{"mail": "devops@example.com", "userPrincipalName": "devops@example.com"}]},
+    )
+
+    result = await client.resolve_user_email("Dev & Ops")
+    assert result == "devops@example.com"
+
+    call_args = client._http.request.call_args
+    # params kwarg should be passed to httpx — not encoded into the URL path
+    params = call_args[1].get("params", {})
+    assert "$filter" in params
+    assert "Dev & Ops" in params["$filter"]
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_email_url_encoding(client):
+    """get_user_by_email passes $filter via params dict so + in email doesn't break URL."""
+    client._http.request.return_value = _make_response(
+        200,
+        {"value": [{"id": "u-1", "displayName": "User Plus", "mail": "user+name@example.com", "userPrincipalName": "user+name@example.com"}]},
+    )
+
+    result = await client.get_user_by_email("user+name@example.com")
+    assert result is not None
+    assert result["mail"] == "user+name@example.com"
+
+    call_args = client._http.request.call_args
+    params = call_args[1].get("params", {})
+    assert "$filter" in params
+    assert "user+name@example.com" in params["$filter"]
 
 
 # ---------------------------------------------------------------------------
