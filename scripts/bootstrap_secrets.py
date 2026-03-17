@@ -19,10 +19,11 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 from config import MSAL_KEYCHAIN_ACCOUNT, MSAL_KEYCHAIN_SERVICE
 from vault.keychain import delete_secret, get_secret, set_secret
 
-FIELDS = ["client_id", "tenant_id"]
+FIELDS = ["client_id", "tenant_id", "client_secret"]
 SECRET_KEYS = {
     "client_id": "m365_client_id",
     "tenant_id": "m365_tenant_id",
+    "client_secret": "m365_client_secret",
 }
 
 DEFAULT_ITEM = "Jarvis - Entra Enterprise App"
