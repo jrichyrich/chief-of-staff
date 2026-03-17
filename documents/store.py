@@ -37,6 +37,29 @@ class DocumentStore:
     ) -> None:
         self.collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
 
+    def delete_by_source(self, source: str) -> None:
+        """Delete all chunks whose metadata 'source' matches the given filename."""
+        self.collection.delete(where={"source": source})
+
+    def delete_by_ids(self, ids: list[str]) -> None:
+        """Delete specific chunks by their IDs."""
+        self.collection.delete(ids=ids)
+
+    def list_sources(self) -> list[dict]:
+        """Return unique source filenames with chunk counts."""
+        if self.collection.count() == 0:
+            return []
+        all_meta = self.collection.get()["metadatas"]
+        counts: dict[str, int] = {}
+        for meta in all_meta:
+            src = meta.get("source", "unknown")
+            counts[src] = counts.get(src, 0) + 1
+        return [{"source": src, "chunks": n} for src, n in sorted(counts.items())]
+
+    def count(self) -> int:
+        """Return total number of chunks in the collection."""
+        return self.collection.count()
+
     def search(self, query: str, top_k: int = 5) -> list[dict]:
         if self.collection.count() == 0:
             return []

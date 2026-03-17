@@ -1,5 +1,7 @@
 import hashlib
 import logging
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,6 +11,17 @@ if TYPE_CHECKING:
     from documents.store import DocumentStore
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".pdf", ".docx"}
+
+EXTENSION_TO_DOC_TYPE = {
+    ".md": "markdown",
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".py": "code",
+    ".json": "config",
+    ".yaml": "config",
+    ".yml": "config",
+    ".txt": "text",
+}
 
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
@@ -136,12 +149,28 @@ def ingest_path(path: Path, document_store: "DocumentStore") -> str:
         chunks = chunk_text(text)
         file_hash = content_hash(text)
 
+        # Lifecycle metadata for retention policies
+        stat = file.stat()
+        ingested_at = datetime.now(timezone.utc).isoformat()
+        file_modified_at = datetime.fromtimestamp(
+            os.path.getmtime(file), tz=timezone.utc
+        ).isoformat()
+        file_size_bytes = stat.st_size
+        document_type = EXTENSION_TO_DOC_TYPE.get(file.suffix.lower(), "text")
+
         texts = []
         metadatas = []
         ids = []
         for i, chunk in enumerate(chunks):
             texts.append(chunk)
-            metadatas.append({"source": str(file.name), "chunk_index": i})
+            metadatas.append({
+                "source": str(file.name),
+                "chunk_index": i,
+                "created_at": ingested_at,
+                "file_modified_at": file_modified_at,
+                "file_size_bytes": file_size_bytes,
+                "document_type": document_type,
+            })
             ids.append(f"{file_hash}_{i}")
 
         document_store.add_documents(texts=texts, metadatas=metadatas, ids=ids)

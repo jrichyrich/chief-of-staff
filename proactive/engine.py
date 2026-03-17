@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from memory.models import (
@@ -15,6 +17,15 @@ logger = logging.getLogger(__name__)
 
 # Priority ordering used for filtering and sorting
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+# Jarvis output directory and per-folder retention thresholds (days)
+JARVIS_OUTPUT_DIR = "/Users/jasricha/Library/CloudStorage/OneDrive-CHGHealthcare/Jarvis"
+DOCUMENT_RETENTION_DAYS: dict[str, int] = {
+    "Weekly_Briefs": 30,
+    "Weekly_Plans": 30,
+    "Meeting_Prep": 14,
+}
+DOCUMENT_RETENTION_DEFAULT = 90
 
 
 class ProactiveSuggestionEngine:
@@ -35,6 +46,7 @@ class ProactiveSuggestionEngine:
         suggestions.extend(self._check_session_token_limit())
         suggestions.extend(self._check_session_unflushed_items())
         suggestions.extend(self._check_session_brain_items())
+        suggestions.extend(self._check_stale_documents())
         # Sort by priority: high first, then medium, then low
         suggestions.sort(key=lambda s: PRIORITY_ORDER.get(s.priority, 3))
         return suggestions
@@ -214,6 +226,66 @@ class ProactiveSuggestionEngine:
                 title=f"{len(active_ws)} active workstream(s)",
                 description=f"Workstreams: {ws_list}",
                 action="get_session_brain",
+            ))
+        return results
+
+    def _check_stale_documents(self) -> list[Suggestion]:
+        """Flag documents in the Jarvis output directory that exceed retention thresholds."""
+        if not os.path.isdir(JARVIS_OUTPUT_DIR):
+            return []
+
+        now = datetime.now()
+        # Collect stale file counts per top-level subdirectory
+        stale_by_dir: dict[str, dict] = defaultdict(lambda: {"count": 0, "threshold": 0})
+
+        for entry in os.scandir(JARVIS_OUTPUT_DIR):
+            if not entry.is_dir():
+                # Top-level files use the default threshold
+                threshold = DOCUMENT_RETENTION_DEFAULT
+                try:
+                    mtime = datetime.fromtimestamp(os.path.getmtime(entry.path))
+                except OSError:
+                    continue
+                age_days = (now - mtime).days
+                if age_days > threshold:
+                    bucket = stale_by_dir["(root)"]
+                    bucket["count"] += 1
+                    bucket["threshold"] = threshold
+                continue
+
+            dirname = entry.name
+            if dirname == "_archive":
+                continue
+
+            threshold = DOCUMENT_RETENTION_DAYS.get(dirname, DOCUMENT_RETENTION_DEFAULT)
+
+            for root, _dirs, files in os.walk(entry.path):
+                for fname in files:
+                    fpath = os.path.join(root, fname)
+                    try:
+                        mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+                    except OSError:
+                        continue
+                    age_days = (now - mtime).days
+                    if age_days > threshold:
+                        bucket = stale_by_dir[dirname]
+                        bucket["count"] += 1
+                        bucket["threshold"] = threshold
+
+        results: list[Suggestion] = []
+        for dirname, info in sorted(stale_by_dir.items()):
+            if info["count"] == 0:
+                continue
+            display = JARVIS_OUTPUT_DIR if dirname == "(root)" else dirname
+            results.append(Suggestion(
+                category="document",
+                priority="low",
+                title=f"{info['count']} stale document(s) in {display}",
+                description=(
+                    f"{info['count']} documents in {display} are older than "
+                    f"{info['threshold']} days. Consider archiving to _archive/."
+                ),
+                action="search_documents",
             ))
         return results
 
