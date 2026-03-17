@@ -275,9 +275,7 @@ class GraphClient:
         if not self._interactive:
             raise GraphAuthError(
                 "Token refresh failed and interactive auth is disabled (headless mode). "
-                "Run: python -c 'import asyncio; from connectors.graph_client import GraphClient; "
-                "from config import *; gc = GraphClient(M365_CLIENT_ID, M365_TENANT_ID, "
-                "M365_GRAPH_SCOPES, interactive=True); asyncio.run(gc.ensure_authenticated())'"
+                "Run: python scripts/bootstrap_secrets.py --reauth"
             )
 
         result = await self._device_code_flow()

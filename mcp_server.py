@@ -227,12 +227,12 @@ async def app_lifespan(server: FastMCP):
                             days = refresh_result.get("days_until_expiry", "?")
                             Notifier.send(
                                 title="Jarvis: Graph Token Expiring",
-                                message=f"Graph API token expires in ~{days} days. Re-authenticate soon.",
+                                message=f"Token expires in ~{days} days. Run: python scripts/bootstrap_secrets.py --reauth",
                             )
                         else:
                             Notifier.send(
                                 title="Jarvis: Graph Token Expired",
-                                message="Graph API token has expired. Re-authenticate to restore access.",
+                                message="Run: python scripts/bootstrap_secrets.py --reauth",
                                 sound="Basso",
                             )
                     except Exception:
