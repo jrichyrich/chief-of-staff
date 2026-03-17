@@ -6,6 +6,7 @@ Usage:
     python scripts/bootstrap_secrets.py --vault "Personal" --item "Jarvis - Entra Enterprise App"
     python scripts/bootstrap_secrets.py --verify
     python scripts/bootstrap_secrets.py --clear-tokens
+    python scripts/bootstrap_secrets.py --reauth
 """
 
 import argparse
@@ -146,6 +147,45 @@ def clear_tokens() -> None:
     print("\nToken and credential cleanup complete. Re-run bootstrap to re-authenticate.")
 
 
+def reauth() -> None:
+    """Run interactive device code flow to refresh the MSAL token cache."""
+    try:
+        import asyncio
+        from config import M365_CLIENT_ID, M365_GRAPH_SCOPES, M365_TENANT_ID
+        from connectors.graph_client import GraphClient
+    except ImportError as e:
+        print(f"ERROR: Missing dependency: {e}")
+        print("Run: pip install -e '.[dev]'")
+        sys.exit(1)
+
+    if not M365_CLIENT_ID:
+        print("ERROR: m365_client_id not found in Keychain or environment.")
+        print("Run: python scripts/bootstrap_secrets.py  (to bootstrap from 1Password first)")
+        sys.exit(1)
+
+    print("Starting interactive Graph API re-authentication...")
+    print("A browser window will open for you to sign in.\n")
+
+    gc = GraphClient(
+        client_id=M365_CLIENT_ID,
+        tenant_id=M365_TENANT_ID,
+        scopes=M365_GRAPH_SCOPES,
+        interactive=True,
+    )
+    try:
+        token = asyncio.run(gc.ensure_authenticated())
+        if token:
+            print("\nRe-authentication successful. Token cached in Keychain.")
+        else:
+            print("\nRe-authentication failed.")
+            sys.exit(1)
+    except Exception as e:
+        print(f"\nRe-authentication failed: {e}")
+        sys.exit(1)
+    finally:
+        asyncio.run(gc.close())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Bootstrap Jarvis secrets from 1Password into macOS Keychain",
@@ -170,10 +210,19 @@ def main() -> None:
         action="store_true",
         help="Remove MSAL token cache and credentials from Keychain",
     )
+    parser.add_argument(
+        "--reauth",
+        action="store_true",
+        help="Re-authenticate interactively (device code flow) to refresh tokens",
+    )
     args = parser.parse_args()
 
     if args.clear_tokens:
         clear_tokens()
+        return
+
+    if args.reauth:
+        reauth()
         return
 
     if args.verify:
