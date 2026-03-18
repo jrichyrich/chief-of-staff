@@ -70,6 +70,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="alice@example.com",
                 message="Hello via Graph!",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -92,6 +93,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="Alice Smith",
                 message="Hey Alice!",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -122,7 +124,7 @@ class TestPostTeamsMessageGraphBackend:
         mcp_server._state.graph_client = gc
 
         with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
-            raw = await post_teams_message(target="Alice Smith", message="Hi exact!")
+            raw = await post_teams_message(target="Alice Smith", message="Hi exact!", auto_send=True)
 
         result = json.loads(raw)
         assert result["status"] == "sent"
@@ -143,6 +145,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="newperson@example.com",
                 message="First message!",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -173,6 +176,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="Shawn Farnworth, Phil Chandler",
                 message="How did the Lumos meetings go?",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -750,7 +754,7 @@ class TestPostTeamsMessagePreferBackend:
 
         with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
             raw = await post_teams_message(
-                target="alice@example.com", message="Hello",
+                target="alice@example.com", message="Hello", auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1250,6 +1254,7 @@ class TestPostTeamsMessageContentType:
                 target="alice@example.com",
                 message="<b>Important</b> update",
                 content_type="html",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1276,6 +1281,7 @@ class TestPostTeamsMessageContentType:
                 target="bob@example.com",
                 message="Hey check this out",
                 mention_emails=["alice@example.com"],
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1316,6 +1322,7 @@ class TestGraphSendMessageCreateChatNoId:
                 target="new@example.com",
                 message="Hello",
                 prefer_backend="graph",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1353,6 +1360,7 @@ class TestPostTeamsMessageMentionOrder:
                 target="19:chat-001",
                 message="please review",
                 mention_emails=["alice@example.com", "bob@example.com"],
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1393,6 +1401,7 @@ class TestPostTeamsMessageUnresolvedMention:
                 target="alice@example.com",
                 message="hey check this",
                 mention_emails=["known@example.com", "unknown@example.com"],
+                auto_send=True,
             )
 
         result = json.loads(raw)
