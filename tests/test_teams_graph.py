@@ -532,6 +532,107 @@ class TestPostTeamsMessageBrowserBackend:
 
 
 # ---------------------------------------------------------------------------
+# post_teams_message: Graph confirmation step
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessageGraphConfirmation:
+    """Graph path respects auto_send=False with a real confirmation step."""
+
+    async def test_graph_auto_send_false_returns_confirm_required(self):
+        """auto_send=False on Graph returns confirm_required without sending."""
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Should not send yet",
+                auto_send=False,
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+        assert result["backend"] == "graph"
+        assert "chat_id" in result
+        assert "chat_type" in result
+        assert "members" in result
+        # Message must NOT have been sent
+        gc.send_chat_message.assert_not_awaited()
+
+        mcp_server._state.graph_client = None
+
+    async def test_graph_confirm_sends_staged_message(self):
+        """confirm_teams_post sends the message staged by auto_send=False."""
+        from mcp_tools.teams_browser_tools import confirm_teams_post
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            # Stage
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Staged message",
+                auto_send=False,
+            )
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+        gc.send_chat_message.assert_not_awaited()
+
+        # Confirm
+        raw = await confirm_teams_post()
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["backend"] == "graph"
+        gc.send_chat_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+    async def test_graph_cancel_discards_staged_message(self):
+        """cancel_teams_post discards the staged Graph message without sending."""
+        from mcp_tools.teams_browser_tools import cancel_teams_post
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Will be cancelled",
+                auto_send=False,
+            )
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+
+        raw = await cancel_teams_post()
+        result = json.loads(raw)
+        assert result["status"] == "cancelled"
+        assert result["backend"] == "graph"
+        gc.send_chat_message.assert_not_awaited()
+
+        mcp_server._state.graph_client = None
+
+    async def test_graph_auto_send_true_sends_immediately(self):
+        """auto_send=True bypasses confirmation and sends via Graph immediately."""
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Send now!",
+                auto_send=True,
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["backend"] == "graph"
+        gc.send_chat_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
 # post_teams_message: prefer_backend parameter & error surfacing
 # ---------------------------------------------------------------------------
 

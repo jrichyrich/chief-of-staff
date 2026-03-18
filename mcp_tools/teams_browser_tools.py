@@ -79,6 +79,7 @@ _GRAPH_FALLBACK_EXCEPTIONS: tuple = tuple(
 _manager = None
 _poster = None
 _ab = None
+_pending_graph_message: dict | None = None
 
 
 def _get_send_backend() -> str:
@@ -165,11 +166,10 @@ async def _wait_for_teams(manager, timeout_s: int = 30) -> dict:
             await pw.stop()
 
 
-async def _graph_send_message(
-    graph_client, target: str, message: str,
-    content_type: str = "text", mentions: list[dict] | None = None,
+async def _graph_resolve_chat(
+    graph_client, target: str, target_type: str = "",
 ) -> dict:
-    """Send a Teams message via Graph API, resolving target to a chat.
+    """Resolve a target to a Teams chat ID with metadata.
 
     Resolution strategies (in order):
     0. Direct chat ID (starts with ``19:``)
@@ -177,7 +177,13 @@ async def _graph_send_message(
     1. Email target(s) -> find existing chat by member emails
     1.5. Single display name -> resolve to email via /users -> find chat
     2. Display name search across chat list (exact then substring)
-    3. Create new chat if target is email(s) and no chat found
+    3. New chat needed (returns is_new_chat=True)
+
+    Returns dict with: chat_id, chat_type, members, topic, is_new_chat.
+    For new chats, returns is_new_chat=True with target_emails.
+
+    Args:
+        target_type: Constrain resolution to 'dm', 'group', or '' (any).
 
     Raises ``GraphAPIError`` on resolution failure so the caller can
     fall back to the browser poster.
@@ -195,6 +201,7 @@ async def _graph_send_message(
         target_names = [target.strip()]
 
     chat_id = None
+    matched_chat: dict | None = None
 
     # Priority 0: Direct chat ID — skip all resolution
     if target.startswith("19:"):
@@ -227,29 +234,39 @@ async def _graph_send_message(
         if chat_id is None and len(target_names) == 1 and not target_emails:
             target_lower = target_names[0].lower()
             chats = await graph_client.list_chats(limit=50)
-            substring_matches: list[tuple[str, str, int, int]] = []
+            substring_matches: list[tuple[str, str, int, int, dict]] = []
 
             # Pass 1: exact match on topic or displayName
-            exact_matches: list[tuple[str, int, int]] = []  # (chat_id, type_priority, member_count)
+            exact_matches: list[tuple[str, int, int, dict]] = []  # (chat_id, type_priority, member_count, chat)
             for chat in chats:
                 topic = (chat.get("topic") or "").lower()
                 members = chat.get("members", [])
                 member_count = len(members)
                 chat_id_candidate = chat.get("id", "")
                 type_prio = _chat_type_priority(chat_id_candidate, chat.get("chatType", ""))
+
+                # Filter by target_type constraint
+                if target_type:
+                    ct = chat.get("chatType", "") or _chat_type_from_id(chat_id_candidate)
+                    if target_type == "dm" and ct != "oneOnOne":
+                        continue
+                    elif target_type == "group" and ct not in ("group", "meeting"):
+                        continue
+
                 if topic and target_lower == topic:
-                    exact_matches.append((chat_id_candidate, type_prio, member_count))
+                    exact_matches.append((chat_id_candidate, type_prio, member_count, chat))
                     continue
                 for m in members:
                     display = (m.get("displayName") or "").lower()
                     if target_lower == display:
-                        exact_matches.append((chat_id_candidate, type_prio, member_count))
+                        exact_matches.append((chat_id_candidate, type_prio, member_count, chat))
                         break
 
             if exact_matches:
                 # Sort by: chat type priority (oneOnOne first), then member count
                 exact_matches.sort(key=lambda x: (x[1], x[2]))
                 chat_id = exact_matches[0][0]
+                matched_chat = exact_matches[0][3]
 
             # Pass 2: substring match (only if no exact match found)
             if chat_id is None:
@@ -259,32 +276,86 @@ async def _graph_send_message(
                     member_count = len(members)
                     chat_id_candidate = chat.get("id", "")
                     type_prio = _chat_type_priority(chat_id_candidate, chat.get("chatType", ""))
+
+                    if target_type:
+                        ct = chat.get("chatType", "") or _chat_type_from_id(chat_id_candidate)
+                        if target_type == "dm" and ct != "oneOnOne":
+                            continue
+                        elif target_type == "group" and ct not in ("group", "meeting"):
+                            continue
+
                     if topic and target_lower in topic:
-                        substring_matches.append((chat_id_candidate, chat.get("topic") or "", type_prio, member_count))
+                        substring_matches.append((chat_id_candidate, chat.get("topic") or "", type_prio, member_count, chat))
                         continue
                     for m in members:
                         display = (m.get("displayName") or "").lower()
                         if target_lower in display:
-                            substring_matches.append((chat_id_candidate, m.get("displayName") or "", type_prio, member_count))
+                            substring_matches.append((chat_id_candidate, m.get("displayName") or "", type_prio, member_count, chat))
                             break
 
                 if len(substring_matches) == 1:
                     chat_id = substring_matches[0][0]
+                    matched_chat = substring_matches[0][4]
                 elif len(substring_matches) > 1:
                     # Sort by chat type priority, then member count
                     substring_matches.sort(key=lambda x: (x[2], x[3]))
                     # Only ambiguous if top two have same priority AND member count
                     if (substring_matches[0][2], substring_matches[0][3]) < (substring_matches[1][2], substring_matches[1][3]):
                         chat_id = substring_matches[0][0]
+                        matched_chat = substring_matches[0][4]
                     else:
-                        match_names = [name for _, name, _, _ in substring_matches]
+                        match_names = [name for _, name, _, _, _ in substring_matches]
                         raise GraphAPIError(
                             f"Ambiguous target '{target}' matched multiple chats: {match_names}. "
                             "Please use a more specific name or an email address."
                         )
 
-    # Strategy 3: If target is email(s), create a new chat
+    # Strategy 3: new chat needed
     if chat_id is None and target_emails:
+        return {
+            "chat_id": None,
+            "chat_type": "new",
+            "members": [],
+            "topic": None,
+            "is_new_chat": True,
+            "target_emails": target_emails,
+        }
+
+    if chat_id is None:
+        raise GraphAPIError(
+            f"Could not resolve target '{target}' to a Teams chat. "
+            "Try using an email address instead of a display name."
+        )
+
+    # Build member list for confirmation display
+    member_names = []
+    if matched_chat:
+        member_names = [
+            m.get("displayName", "Unknown")
+            for m in matched_chat.get("members", [])
+        ]
+    chat_type = (
+        (matched_chat or {}).get("chatType", "")
+        or _chat_type_from_id(chat_id)
+    )
+    topic = (matched_chat or {}).get("topic")
+
+    return {
+        "chat_id": chat_id,
+        "chat_type": chat_type,
+        "members": member_names,
+        "topic": topic,
+        "is_new_chat": False,
+    }
+
+
+async def _graph_send_to_chat(
+    graph_client, chat_id: str | None, message: str,
+    content_type: str = "text", mentions: list[dict] | None = None,
+    target_emails: list[str] | None = None, is_new_chat: bool = False,
+) -> dict:
+    """Send a message to a resolved (or new) Teams chat."""
+    if is_new_chat and target_emails:
         result = await graph_client.create_chat(target_emails)
         new_chat_id = result.get("id")
         if not new_chat_id:
@@ -297,13 +368,6 @@ async def _graph_send_message(
             "detail": f"Created new chat and sent message to {', '.join(target_emails)}",
         }
 
-    if chat_id is None:
-        raise GraphAPIError(
-            f"Could not resolve target '{target}' to a Teams chat. "
-            "Try using an email address instead of a display name."
-        )
-
-    # Send to the resolved chat
     result = await graph_client.send_chat_message(chat_id, message, content_type=content_type, mentions=mentions)
     return {
         "status": "sent",
@@ -396,7 +460,7 @@ def register(mcp, state):
     async def post_teams_message(
         target: str, message: str, auto_send: bool = False,
         content_type: str = "text", mention_emails: list[str] | None = None,
-        prefer_backend: str = "",
+        prefer_backend: str = "", target_type: str = "",
     ) -> str:
         """Prepare a message for posting to a Teams channel, person, or group.
 
@@ -425,7 +489,11 @@ def register(mcp, state):
             mention_emails: Optional list of email addresses to @mention
             prefer_backend: Force a specific backend: 'graph' (no browser fallback),
                 'browser' (skip Graph), or '' (default: Graph with browser fallback)
+            target_type: Constrain chat resolution: 'dm' (1:1 only),
+                'group' (group/meeting only), or '' (default: any type).
+                Only affects display-name resolution (Strategy 2).
         """
+        global _pending_graph_message
         send_backend = _get_send_backend()
         # Allow caller to override the backend selection
         use_graph = (prefer_backend == "graph") or (send_backend == "graph" and prefer_backend != "browser")
@@ -466,7 +534,40 @@ def register(mcp, state):
 
                 _graph_exceptions = _GRAPH_FALLBACK_EXCEPTIONS
                 try:
-                    result = await _graph_send_message(graph_client, target, message, content_type=content_type, mentions=mentions)
+                    resolved = await _graph_resolve_chat(graph_client, target, target_type=target_type)
+
+                    if not auto_send:
+                        # Stage the message for confirmation
+                        _pending_graph_message = {
+                            "graph_client": graph_client,
+                            "resolved": resolved,
+                            "message": message,
+                            "content_type": content_type,
+                            "mentions": mentions,
+                        }
+                        confirm_info: dict = {
+                            "status": "confirm_required",
+                            "backend": "graph",
+                            "chat_id": resolved.get("chat_id"),
+                            "chat_type": resolved.get("chat_type"),
+                            "members": resolved.get("members", []),
+                            "topic": resolved.get("topic"),
+                            "message_preview": message[:200],
+                        }
+                        if failed_mention_emails:
+                            confirm_info["unresolved_mentions"] = failed_mention_emails
+                        return json.dumps(confirm_info)
+
+                    # auto_send=True — send immediately
+                    result = await _graph_send_to_chat(
+                        graph_client,
+                        resolved.get("chat_id"),
+                        message,
+                        content_type=content_type,
+                        mentions=mentions,
+                        target_emails=resolved.get("target_emails"),
+                        is_new_chat=resolved.get("is_new_chat", False),
+                    )
                     if failed_mention_emails:
                         result["unresolved_mentions"] = failed_mention_emails
                     return json.dumps(result)
@@ -523,6 +624,21 @@ def register(mcp, state):
         Must be called after ``post_teams_message`` returned
         ``"confirm_required"``.
         """
+        global _pending_graph_message
+        if _pending_graph_message is not None:
+            pending = _pending_graph_message
+            _pending_graph_message = None
+            result = await _graph_send_to_chat(
+                pending["graph_client"],
+                pending["resolved"].get("chat_id"),
+                pending["message"],
+                content_type=pending["content_type"],
+                mentions=pending["mentions"],
+                target_emails=pending["resolved"].get("target_emails"),
+                is_new_chat=pending["resolved"].get("is_new_chat", False),
+            )
+            return json.dumps(result)
+
         poster = _get_poster()
         result = await poster.send_prepared_message()
         return json.dumps(result)
@@ -534,6 +650,11 @@ def register(mcp, state):
 
         Disconnects from the browser without sending.
         """
+        global _pending_graph_message
+        if _pending_graph_message is not None:
+            _pending_graph_message = None
+            return json.dumps({"status": "cancelled", "backend": "graph"})
+
         poster = _get_poster()
         result = await poster.cancel_prepared_message()
         return json.dumps(result)
