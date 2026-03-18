@@ -215,6 +215,75 @@ class TestPostTeamsMessageGraphBackend:
 
         mcp_server._state.graph_client = None
 
+    async def test_post_teams_message_graph_prefers_one_on_one_over_meeting(self):
+        """When display name matches both a 1:1 and a meeting thread, prefer 1:1."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[
+                {
+                    "id": "19:meeting_abc@thread.v2",
+                    "topic": "Theresa Staff Meeting",
+                    "chatType": "meeting",
+                    "members": [
+                        {"displayName": "Aurelia Redd", "email": "aurelia@example.com"},
+                        {"displayName": "Jason Richards", "email": "jason@example.com"},
+                        {"displayName": "Theresa O'Leary", "email": "theresa@example.com"},
+                    ],
+                },
+                {
+                    "id": "19:aurelia_dm@unq.gbl.spaces",
+                    "topic": None,
+                    "chatType": "oneOnOne",
+                    "members": [
+                        {"displayName": "Aurelia Redd", "email": "aurelia@example.com"},
+                        {"displayName": "Jason Richards", "email": "jason@example.com"},
+                    ],
+                },
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(target="Aurelia Redd", message="Hi!", auto_send=True)
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["chat_id"] == "19:aurelia_dm@unq.gbl.spaces"
+        gc.send_chat_message.assert_awaited_once_with(
+            "19:aurelia_dm@unq.gbl.spaces", "Hi!", content_type="text", mentions=None
+        )
+
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_graph_meeting_only_still_works(self):
+        """When only a meeting thread matches (no 1:1), it still resolves."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[
+                {
+                    "id": "19:meeting_only@thread.v2",
+                    "topic": "Project Sync",
+                    "chatType": "group",
+                    "members": [
+                        {"displayName": "Aurelia Redd", "email": "aurelia@example.com"},
+                        {"displayName": "Jason Richards", "email": "jason@example.com"},
+                    ],
+                },
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(target="Aurelia Redd", message="Hi!", auto_send=True)
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["chat_id"] == "19:meeting_only@thread.v2"
+
+        mcp_server._state.graph_client = None
+
 
 # ---------------------------------------------------------------------------
 # post_teams_message: Graph fails, falls back to browser

@@ -40,6 +40,16 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# Chat type priority for sorting (lower = preferred)
+_CHAT_TYPE_PRIORITY = {
+    "oneOnOne": 0,
+    "unknown": 1,
+    "group": 2,
+    "meeting": 2,
+    "channel": 3,
+}
+
+
 def _chat_type_from_id(chat_id: str) -> str:
     """Derive the chat type from a Teams chat ID string."""
     if "@unq.gbl.spaces" in chat_id:
@@ -49,6 +59,17 @@ def _chat_type_from_id(chat_id: str) -> str:
     elif "@thread.v2" in chat_id:
         return "group"
     return "unknown"
+
+
+def _chat_type_priority(chat_id: str, chat_type_field: str = "") -> int:
+    """Return sort priority for a chat. Lower = preferred.
+
+    Uses the ``chatType`` field from Graph API if available,
+    falls back to inferring from the chat ID string.
+    """
+    ct = chat_type_field or _chat_type_from_id(chat_id)
+    return _CHAT_TYPE_PRIORITY.get(ct, 2)
+
 
 # Pre-compute Graph exception tuple once at import time (avoids per-call rebuild)
 _GRAPH_FALLBACK_EXCEPTIONS: tuple = tuple(
@@ -206,25 +227,28 @@ async def _graph_send_message(
         if chat_id is None and len(target_names) == 1 and not target_emails:
             target_lower = target_names[0].lower()
             chats = await graph_client.list_chats(limit=50)
-            substring_matches: list[tuple[str, str, int]] = []
+            substring_matches: list[tuple[str, str, int, int]] = []
 
             # Pass 1: exact match on topic or displayName
-            exact_matches: list[tuple[str, int]] = []
+            exact_matches: list[tuple[str, int, int]] = []  # (chat_id, type_priority, member_count)
             for chat in chats:
                 topic = (chat.get("topic") or "").lower()
                 members = chat.get("members", [])
                 member_count = len(members)
+                chat_id_candidate = chat.get("id", "")
+                type_prio = _chat_type_priority(chat_id_candidate, chat.get("chatType", ""))
                 if topic and target_lower == topic:
-                    exact_matches.append((chat.get("id", ""), member_count))
+                    exact_matches.append((chat_id_candidate, type_prio, member_count))
                     continue
                 for m in members:
                     display = (m.get("displayName") or "").lower()
                     if target_lower == display:
-                        exact_matches.append((chat.get("id", ""), member_count))
+                        exact_matches.append((chat_id_candidate, type_prio, member_count))
                         break
 
             if exact_matches:
-                exact_matches.sort(key=lambda x: x[1])
+                # Sort by: chat type priority (oneOnOne first), then member count
+                exact_matches.sort(key=lambda x: (x[1], x[2]))
                 chat_id = exact_matches[0][0]
 
             # Pass 2: substring match (only if no exact match found)
@@ -233,23 +257,27 @@ async def _graph_send_message(
                     topic = (chat.get("topic") or "").lower()
                     members = chat.get("members", [])
                     member_count = len(members)
+                    chat_id_candidate = chat.get("id", "")
+                    type_prio = _chat_type_priority(chat_id_candidate, chat.get("chatType", ""))
                     if topic and target_lower in topic:
-                        substring_matches.append((chat.get("id", ""), chat.get("topic") or "", member_count))
+                        substring_matches.append((chat_id_candidate, chat.get("topic") or "", type_prio, member_count))
                         continue
                     for m in members:
                         display = (m.get("displayName") or "").lower()
                         if target_lower in display:
-                            substring_matches.append((chat.get("id", ""), m.get("displayName") or "", member_count))
+                            substring_matches.append((chat_id_candidate, m.get("displayName") or "", type_prio, member_count))
                             break
 
                 if len(substring_matches) == 1:
                     chat_id = substring_matches[0][0]
                 elif len(substring_matches) > 1:
-                    substring_matches.sort(key=lambda x: x[2])
-                    if substring_matches[0][2] < substring_matches[1][2]:
+                    # Sort by chat type priority, then member count
+                    substring_matches.sort(key=lambda x: (x[2], x[3]))
+                    # Only ambiguous if top two have same priority AND member count
+                    if (substring_matches[0][2], substring_matches[0][3]) < (substring_matches[1][2], substring_matches[1][3]):
                         chat_id = substring_matches[0][0]
                     else:
-                        match_names = [name for _, name, _ in substring_matches]
+                        match_names = [name for _, name, _, _ in substring_matches]
                         raise GraphAPIError(
                             f"Ambiguous target '{target}' matched multiple chats: {match_names}. "
                             "Please use a more specific name or an email address."
