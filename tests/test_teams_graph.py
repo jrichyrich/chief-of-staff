@@ -1406,6 +1406,70 @@ class TestPostTeamsMessageUnresolvedMention:
 
 
 # ---------------------------------------------------------------------------
+# post_teams_message: target_type parameter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessageTargetType:
+    """target_type parameter constrains chat resolution."""
+
+    async def test_target_type_dm_skips_group_chats(self):
+        """target_type='dm' only considers oneOnOne chats."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[
+                {
+                    "id": "19:group_chat@thread.v2",
+                    "topic": None,
+                    "chatType": "group",
+                    "members": [
+                        {"displayName": "Alice Smith", "email": "alice@example.com"},
+                        {"displayName": "Bob Jones", "email": "bob@example.com"},
+                        {"displayName": "Me", "email": "me@example.com"},
+                    ],
+                },
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="Alice Smith",
+                message="DM only",
+                auto_send=True,
+                target_type="dm",
+            )
+
+        result = json.loads(raw)
+        # Should fail to resolve — only group chat matches and we want DM
+        assert result["status"] == "error"
+
+        mcp_server._state.graph_client = None
+
+    async def test_target_type_empty_allows_any(self):
+        """Default target_type (empty) allows any chat type."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="Alice Smith",
+                message="Any chat",
+                auto_send=True,
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
 # manage_teams_chat
 # ---------------------------------------------------------------------------
 
