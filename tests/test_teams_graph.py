@@ -70,6 +70,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="alice@example.com",
                 message="Hello via Graph!",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -92,6 +93,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="Alice Smith",
                 message="Hey Alice!",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -122,7 +124,7 @@ class TestPostTeamsMessageGraphBackend:
         mcp_server._state.graph_client = gc
 
         with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
-            raw = await post_teams_message(target="Alice Smith", message="Hi exact!")
+            raw = await post_teams_message(target="Alice Smith", message="Hi exact!", auto_send=True)
 
         result = json.loads(raw)
         assert result["status"] == "sent"
@@ -143,6 +145,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="newperson@example.com",
                 message="First message!",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -173,6 +176,7 @@ class TestPostTeamsMessageGraphBackend:
             raw = await post_teams_message(
                 target="Shawn Farnworth, Phil Chandler",
                 message="How did the Lumos meetings go?",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -212,6 +216,75 @@ class TestPostTeamsMessageGraphBackend:
         # Should fall back to browser since we can't resolve all names
         assert result["status"] == "confirm_required"
         mock_poster.prepare_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_graph_prefers_one_on_one_over_meeting(self):
+        """When display name matches both a 1:1 and a meeting thread, prefer 1:1."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[
+                {
+                    "id": "19:meeting_abc@thread.v2",
+                    "topic": "Theresa Staff Meeting",
+                    "chatType": "meeting",
+                    "members": [
+                        {"displayName": "Aurelia Redd", "email": "aurelia@example.com"},
+                        {"displayName": "Jason Richards", "email": "jason@example.com"},
+                        {"displayName": "Theresa O'Leary", "email": "theresa@example.com"},
+                    ],
+                },
+                {
+                    "id": "19:aurelia_dm@unq.gbl.spaces",
+                    "topic": None,
+                    "chatType": "oneOnOne",
+                    "members": [
+                        {"displayName": "Aurelia Redd", "email": "aurelia@example.com"},
+                        {"displayName": "Jason Richards", "email": "jason@example.com"},
+                    ],
+                },
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(target="Aurelia Redd", message="Hi!", auto_send=True)
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["chat_id"] == "19:aurelia_dm@unq.gbl.spaces"
+        gc.send_chat_message.assert_awaited_once_with(
+            "19:aurelia_dm@unq.gbl.spaces", "Hi!", content_type="text", mentions=None
+        )
+
+        mcp_server._state.graph_client = None
+
+    async def test_post_teams_message_graph_meeting_only_still_works(self):
+        """When only a meeting thread matches (no 1:1), it still resolves."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[
+                {
+                    "id": "19:meeting_only@thread.v2",
+                    "topic": "Project Sync",
+                    "chatType": "group",
+                    "members": [
+                        {"displayName": "Aurelia Redd", "email": "aurelia@example.com"},
+                        {"displayName": "Jason Richards", "email": "jason@example.com"},
+                    ],
+                },
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(target="Aurelia Redd", message="Hi!", auto_send=True)
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["chat_id"] == "19:meeting_only@thread.v2"
 
         mcp_server._state.graph_client = None
 
@@ -463,6 +536,107 @@ class TestPostTeamsMessageBrowserBackend:
 
 
 # ---------------------------------------------------------------------------
+# post_teams_message: Graph confirmation step
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessageGraphConfirmation:
+    """Graph path respects auto_send=False with a real confirmation step."""
+
+    async def test_graph_auto_send_false_returns_confirm_required(self):
+        """auto_send=False on Graph returns confirm_required without sending."""
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Should not send yet",
+                auto_send=False,
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+        assert result["backend"] == "graph"
+        assert "chat_id" in result
+        assert "chat_type" in result
+        assert "members" in result
+        # Message must NOT have been sent
+        gc.send_chat_message.assert_not_awaited()
+
+        mcp_server._state.graph_client = None
+
+    async def test_graph_confirm_sends_staged_message(self):
+        """confirm_teams_post sends the message staged by auto_send=False."""
+        from mcp_tools.teams_browser_tools import confirm_teams_post
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            # Stage
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Staged message",
+                auto_send=False,
+            )
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+        gc.send_chat_message.assert_not_awaited()
+
+        # Confirm
+        raw = await confirm_teams_post()
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["backend"] == "graph"
+        gc.send_chat_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+    async def test_graph_cancel_discards_staged_message(self):
+        """cancel_teams_post discards the staged Graph message without sending."""
+        from mcp_tools.teams_browser_tools import cancel_teams_post
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Will be cancelled",
+                auto_send=False,
+            )
+        result = json.loads(raw)
+        assert result["status"] == "confirm_required"
+
+        raw = await cancel_teams_post()
+        result = json.loads(raw)
+        assert result["status"] == "cancelled"
+        assert result["backend"] == "graph"
+        gc.send_chat_message.assert_not_awaited()
+
+        mcp_server._state.graph_client = None
+
+    async def test_graph_auto_send_true_sends_immediately(self):
+        """auto_send=True bypasses confirmation and sends via Graph immediately."""
+        gc = _make_graph_client()
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="alice@example.com",
+                message="Send now!",
+                auto_send=True,
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
+        assert result["backend"] == "graph"
+        gc.send_chat_message.assert_awaited_once()
+
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
 # post_teams_message: prefer_backend parameter & error surfacing
 # ---------------------------------------------------------------------------
 
@@ -580,7 +754,7 @@ class TestPostTeamsMessagePreferBackend:
 
         with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
             raw = await post_teams_message(
-                target="alice@example.com", message="Hello",
+                target="alice@example.com", message="Hello", auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1080,6 +1254,7 @@ class TestPostTeamsMessageContentType:
                 target="alice@example.com",
                 message="<b>Important</b> update",
                 content_type="html",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1106,6 +1281,7 @@ class TestPostTeamsMessageContentType:
                 target="bob@example.com",
                 message="Hey check this out",
                 mention_emails=["alice@example.com"],
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1146,6 +1322,7 @@ class TestGraphSendMessageCreateChatNoId:
                 target="new@example.com",
                 message="Hello",
                 prefer_backend="graph",
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1183,6 +1360,7 @@ class TestPostTeamsMessageMentionOrder:
                 target="19:chat-001",
                 message="please review",
                 mention_emails=["alice@example.com", "bob@example.com"],
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1223,6 +1401,7 @@ class TestPostTeamsMessageUnresolvedMention:
                 target="alice@example.com",
                 message="hey check this",
                 mention_emails=["known@example.com", "unknown@example.com"],
+                auto_send=True,
             )
 
         result = json.loads(raw)
@@ -1231,6 +1410,70 @@ class TestPostTeamsMessageUnresolvedMention:
             f"Expected 'unresolved_mentions' in result but got: {result}"
         )
         assert result["unresolved_mentions"] == ["unknown@example.com"]
+
+        mcp_server._state.graph_client = None
+
+
+# ---------------------------------------------------------------------------
+# post_teams_message: target_type parameter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestPostTeamsMessageTargetType:
+    """target_type parameter constrains chat resolution."""
+
+    async def test_target_type_dm_skips_group_chats(self):
+        """target_type='dm' only considers oneOnOne chats."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+            list_chats=AsyncMock(return_value=[
+                {
+                    "id": "19:group_chat@thread.v2",
+                    "topic": None,
+                    "chatType": "group",
+                    "members": [
+                        {"displayName": "Alice Smith", "email": "alice@example.com"},
+                        {"displayName": "Bob Jones", "email": "bob@example.com"},
+                        {"displayName": "Me", "email": "me@example.com"},
+                    ],
+                },
+            ]),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="Alice Smith",
+                message="DM only",
+                auto_send=True,
+                target_type="dm",
+            )
+
+        result = json.loads(raw)
+        # Should fail to resolve — only group chat matches and we want DM
+        assert result["status"] == "error"
+
+        mcp_server._state.graph_client = None
+
+    async def test_target_type_empty_allows_any(self):
+        """Default target_type (empty) allows any chat type."""
+        gc = _make_graph_client(
+            find_chat_by_members=AsyncMock(return_value=None),
+            resolve_user_email=AsyncMock(return_value=None),
+        )
+        mcp_server._state.graph_client = gc
+
+        with patch.object(teams_browser_tools, "_get_send_backend", return_value="graph"):
+            raw = await post_teams_message(
+                target="Alice Smith",
+                message="Any chat",
+                auto_send=True,
+            )
+
+        result = json.loads(raw)
+        assert result["status"] == "sent"
 
         mcp_server._state.graph_client = None
 
