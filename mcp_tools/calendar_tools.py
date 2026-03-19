@@ -45,6 +45,58 @@ def register(mcp, state):
                 return json.dumps({"error": "Each alert must be 0-40320 minutes (up to 4 weeks)"})
         return [int(v) for v in alarms]
 
+    _VALID_RECURRENCE_TYPES = {
+        "daily", "weekly", "absoluteMonthly", "relativeMonthly",
+        "absoluteYearly", "relativeYearly",
+    }
+
+    def _parse_attendees(attendees_json: str) -> list[dict] | str | None:
+        """Parse and validate attendees JSON string.
+
+        Returns list[dict] on success, None if empty, or JSON error string on failure.
+        """
+        if not attendees_json:
+            return None
+        try:
+            attendees = json.loads(attendees_json)
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"Invalid attendees JSON: {e}"})
+        if not isinstance(attendees, list):
+            return json.dumps({"error": "attendees must be a JSON array"})
+        for att in attendees:
+            if not isinstance(att, dict) or "email" not in att:
+                return json.dumps({"error": "Each attendee must have an 'email' field"})
+            att.setdefault("name", att["email"].split("@")[0])
+            att.setdefault("type", "required")
+        return attendees
+
+    def _parse_recurrence(recurrence_json: str) -> dict | str | None:
+        """Parse and validate recurrence JSON string.
+
+        Returns dict on success, None if empty, or JSON error string on failure.
+        """
+        if not recurrence_json:
+            return None
+        try:
+            recurrence = json.loads(recurrence_json)
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"Invalid recurrence JSON: {e}"})
+        if not isinstance(recurrence, dict):
+            return json.dumps({"error": "recurrence must be a JSON object"})
+        rec_type = recurrence.get("type")
+        if not rec_type or rec_type not in _VALID_RECURRENCE_TYPES:
+            return json.dumps({"error": f"recurrence type must be one of: {sorted(_VALID_RECURRENCE_TYPES)}"})
+        if "end_date" in recurrence and "occurrences" in recurrence:
+            return json.dumps({"error": "Specify end_date or occurrences, not both"})
+        return recurrence
+
+    def _looks_work_calendar(name: str) -> bool:
+        """Check if a calendar name looks like a work calendar."""
+        if not name:
+            return False
+        lower = name.lower()
+        return any(kw in lower for kw in ("work", "office", "outlook", "exchange", "corp", "company", "team", "chg"))
+
     @mcp.tool()
     @tool_errors("Calendar error", expected=_EXPECTED)
     async def list_calendars(provider_preference: str = "auto", source_filter: str = "") -> str:
@@ -104,6 +156,8 @@ def register(mcp, state):
         notes: str = "",
         is_all_day: bool = False,
         alerts: str = "",
+        attendees: str = "",
+        recurrence: str = "",
         target_provider: str = "",
         provider_preference: str = "auto",
     ) -> str:
@@ -118,18 +172,84 @@ def register(mcp, state):
             notes: Event notes/description
             is_all_day: Whether this is an all-day event (default: False)
             alerts: JSON list of alert times in minutes before event (e.g. "[15, 30]")
+            attendees: JSON array of attendees (e.g. '[{"email": "user@chg.com", "name": "User"}]'). Sends Exchange meeting invites. Only works with Microsoft 365 provider.
+            recurrence: JSON object for recurring events (e.g. '{"type": "weekly", "interval": 1, "days_of_week": ["tuesday"], "end_date": "2026-12-31"}'). Valid types: daily, weekly, absoluteMonthly, relativeMonthly, absoluteYearly, relativeYearly.
             target_provider: Optional explicit provider override (apple or microsoft_365)
             provider_preference: Optional provider hint (default: auto)
         """
         calendar_store = state.calendar_store
         start_dt = _parse_date(start_date)
         end_dt = _parse_date(end_date)
+
+        # Parse alerts
         alarms = None
         if alerts:
             parsed = _parse_alerts(alerts)
             if isinstance(parsed, str):
                 return parsed
             alarms = parsed or None
+
+        # Parse attendees
+        attendees_list = None
+        if attendees:
+            parsed_att = _parse_attendees(attendees)
+            if isinstance(parsed_att, str):
+                return parsed_att
+            attendees_list = parsed_att
+
+        # Parse recurrence
+        recurrence_dict = None
+        if recurrence:
+            parsed_rec = _parse_recurrence(recurrence)
+            if isinstance(parsed_rec, str):
+                return parsed_rec
+            recurrence_dict = parsed_rec
+
+        # Dual path: Graph direct (async) vs provider chain (sync)
+        use_graph = (
+            state.graph_client
+            and (
+                attendees_list
+                or recurrence_dict
+                or target_provider == "microsoft_365"
+                or _looks_work_calendar(calendar_name)
+            )
+        )
+
+        if use_graph:
+            calendar_id = None
+            if calendar_name:
+                calendar_id = await state.graph_client.resolve_calendar_id(calendar_name)
+
+            result = await state.graph_client.create_calendar_event(
+                subject=title,
+                start=start_date,
+                end=end_date,
+                attendees=attendees_list,
+                recurrence=recurrence_dict,
+                calendar_id=calendar_id,
+                location=location or None,
+                body=notes or None,
+                is_all_day=is_all_day,
+                reminder_minutes=alarms[0] if alarms else 15,
+            )
+
+            # Track ownership
+            if calendar_store and not result.get("error"):
+                try:
+                    calendar_store._upsert_ownership({
+                        "unified_uid": f"microsoft_365:{result.get('uid', '')}",
+                        "provider": "microsoft_365",
+                        "native_id": result.get("uid", ""),
+                        "calendar": calendar_name or "",
+                    })
+                except Exception:
+                    logger.debug("Ownership tracking failed", exc_info=True)
+
+            result["provider_used"] = "microsoft_365"
+            return json.dumps({"status": "created", "event": result})
+
+        # Sync fallback path
         kwargs = {}
         if target_provider:
             kwargs["target_provider"] = target_provider
@@ -145,6 +265,8 @@ def register(mcp, state):
             notes=notes or None,
             is_all_day=is_all_day,
             alarms=alarms,
+            attendees=attendees_list,
+            recurrence=recurrence_dict,
             **kwargs,
         )
         return json.dumps({"status": "created", "event": result})
@@ -160,10 +282,15 @@ def register(mcp, state):
         location: str = "",
         notes: str = "",
         alerts: str = "",
+        attendees: str = "",
+        recurrence: str = "",
         target_provider: str = "",
         provider_preference: str = "auto",
     ) -> str:
         """Update an existing calendar event by UID.
+
+        Note: attendees is a FULL REPLACEMENT — omitted attendees are removed
+        and receive cancellation notices from Exchange.
 
         Args:
             event_uid: The unique identifier of the event (required)
@@ -174,10 +301,62 @@ def register(mcp, state):
             location: New event location
             notes: New event notes
             alerts: JSON list of alert times in minutes before event (e.g. "[15, 30]")
+            attendees: JSON array of attendees — FULL REPLACEMENT (e.g. '[{"email": "user@chg.com"}]'). Only works with Microsoft 365 provider.
+            recurrence: JSON object for recurring events. Only works with Microsoft 365 provider.
             target_provider: Optional explicit provider override (apple or microsoft_365)
             provider_preference: Optional provider hint (default: auto)
         """
         calendar_store = state.calendar_store
+
+        # Parse attendees
+        attendees_list = None
+        if attendees:
+            parsed_att = _parse_attendees(attendees)
+            if isinstance(parsed_att, str):
+                return parsed_att
+            attendees_list = parsed_att
+
+        # Parse recurrence
+        recurrence_dict = None
+        if recurrence:
+            parsed_rec = _parse_recurrence(recurrence)
+            if isinstance(parsed_rec, str):
+                return parsed_rec
+            recurrence_dict = parsed_rec
+
+        # Dual path: Graph direct for attendees/recurrence updates
+        use_graph = (
+            state.graph_client
+            and (attendees_list or recurrence_dict or target_provider == "microsoft_365")
+        )
+
+        if use_graph:
+            graph_kwargs = {}
+            if title:
+                graph_kwargs["subject"] = title
+            if start_date:
+                graph_kwargs["start"] = start_date
+            if end_date:
+                graph_kwargs["end"] = end_date
+            if location:
+                graph_kwargs["location"] = location
+            if notes:
+                graph_kwargs["body"] = notes
+            if attendees_list is not None:
+                graph_kwargs["attendees"] = attendees_list
+            if recurrence_dict is not None:
+                graph_kwargs["recurrence"] = recurrence_dict
+
+            # Resolve native event ID from unified UID
+            native_id = event_uid
+            if ":" in event_uid:
+                native_id = event_uid.split(":", 1)[1]
+
+            result = await state.graph_client.update_calendar_event(native_id, **graph_kwargs)
+            result["provider_used"] = "microsoft_365"
+            return json.dumps({"status": "updated", "event": result})
+
+        # Sync fallback path
         kwargs = {}
         if title:
             kwargs["title"] = title
@@ -203,6 +382,8 @@ def register(mcp, state):
             calendar_store.update_event,
             event_uid,
             calendar_name=calendar_name or None,
+            attendees=attendees_list,
+            recurrence=recurrence_dict,
             **kwargs,
         )
         return json.dumps({"status": "updated", "event": result})
@@ -493,3 +674,5 @@ def register(mcp, state):
     module.search_calendar_events = search_calendar_events
     module.find_my_open_slots = find_my_open_slots
     module.find_group_availability = find_group_availability
+    module._parse_attendees = _parse_attendees
+    module._parse_recurrence = _parse_recurrence

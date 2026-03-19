@@ -77,6 +77,7 @@ class GraphAuthError(GraphAPIError):
 # ---------------------------------------------------------------------------
 
 _DEFAULT_SCOPES = [
+    "Calendars.ReadWrite",
     "Channel.ReadBasic.All",
     "ChannelMessage.Send",
     "Chat.Create",
@@ -155,6 +156,7 @@ class GraphClient:
             timeout=httpx.Timeout(30.0),
             verify=self._get_ssl_context(),
         )
+        self._calendar_name_cache: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # SSL / TLS
@@ -825,6 +827,226 @@ class GraphClient:
             f"/me/messages/{safe_id}/{action}",
             json=payload,
         )
+
+    # ------------------------------------------------------------------
+    # Calendar helpers (private)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_event_datetime(
+        dt_str: str, timezone: str, is_all_day: bool
+    ) -> dict[str, str]:
+        """Format a datetime string for Graph API event payload.
+
+        Timed events: {"dateTime": "2026-04-15T09:00:00", "timeZone": "America/Denver"}
+        All-day events: {"dateTime": "2026-04-15", "timeZone": "UTC"}
+        """
+        if is_all_day:
+            return {"dateTime": dt_str[:10], "timeZone": "UTC"}
+        return {"dateTime": dt_str, "timeZone": timezone}
+
+    @staticmethod
+    def _build_attendees_payload(
+        attendees: list[dict] | None,
+    ) -> list[dict] | None:
+        """Convert simplified attendee list to Graph API format.
+
+        Input:  [{"email": "a@b.com", "name": "A", "type": "required"}]
+        Output: [{"emailAddress": {"address": "a@b.com", "name": "A"}, "type": "required"}]
+        """
+        if attendees is None:
+            return None
+        result = []
+        for att in attendees:
+            email = att["email"]
+            name = att.get("name") or email.split("@")[0]
+            att_type = att.get("type", "required")
+            result.append({
+                "emailAddress": {"address": email, "name": name},
+                "type": att_type,
+            })
+        return result
+
+    @staticmethod
+    def _build_recurrence_payload(recurrence: dict | None) -> dict | None:
+        """Convert simplified recurrence dict to Graph API format.
+
+        Input:  {"type": "weekly", "interval": 1, "days_of_week": ["tuesday"], "end_date": "2026-12-31"}
+        Output: {"pattern": {...}, "range": {...}}
+        """
+        if recurrence is None:
+            return None
+
+        rec_type = recurrence["type"]
+        interval = recurrence.get("interval", 1)
+
+        pattern: dict[str, Any] = {"type": rec_type, "interval": interval}
+        if "days_of_week" in recurrence:
+            pattern["daysOfWeek"] = recurrence["days_of_week"]
+        if "day_of_month" in recurrence:
+            pattern["dayOfMonth"] = recurrence["day_of_month"]
+        if "month" in recurrence:
+            pattern["month"] = recurrence["month"]
+
+        if "end_date" in recurrence:
+            rec_range = {
+                "type": "endDate",
+                "startDate": "",
+                "endDate": recurrence["end_date"],
+            }
+        elif "occurrences" in recurrence:
+            rec_range = {
+                "type": "numbered",
+                "startDate": "",
+                "numberOfOccurrences": recurrence["occurrences"],
+            }
+        else:
+            rec_range = {"type": "noEnd", "startDate": ""}
+
+        return {"pattern": pattern, "range": rec_range}
+
+    @staticmethod
+    def _normalize_event(graph_event: dict) -> dict:
+        """Normalize a Graph API event to internal format."""
+        location = graph_event.get("location")
+        body = graph_event.get("body")
+        attendees_raw = graph_event.get("attendees") or []
+        response_status = graph_event.get("responseStatus")
+
+        return {
+            "uid": graph_event.get("id", ""),
+            "title": graph_event.get("subject", ""),
+            "start": (graph_event.get("start") or {}).get("dateTime", ""),
+            "end": (graph_event.get("end") or {}).get("dateTime", ""),
+            "location": location.get("displayName") if isinstance(location, dict) else None,
+            "notes": body.get("content") if isinstance(body, dict) else None,
+            "is_all_day": graph_event.get("isAllDay", False),
+            "showAs": graph_event.get("showAs", ""),
+            "isCancelled": graph_event.get("isCancelled", False),
+            "responseStatus": response_status.get("response", "") if isinstance(response_status, dict) else "",
+            "attendees": [
+                att["emailAddress"]["address"]
+                for att in attendees_raw
+                if isinstance(att, dict) and "emailAddress" in att
+            ],
+            "recurrence": graph_event.get("recurrence"),
+        }
+
+    # ------------------------------------------------------------------
+    # Calendar CRUD
+    # ------------------------------------------------------------------
+
+    async def resolve_calendar_id(self, calendar_name: str) -> str | None:
+        """Resolve a human-readable calendar name to a Graph API calendar ID.
+
+        Uses a session-scoped cache. Returns None if no match found.
+        """
+        if not self._calendar_name_cache:
+            calendars = await self._request("GET", "/me/calendars")
+            for cal in calendars.get("value", []):
+                name = cal.get("name", "")
+                self._calendar_name_cache[name.lower()] = cal["id"]
+        return self._calendar_name_cache.get(calendar_name.lower())
+
+    async def create_calendar_event(
+        self,
+        subject: str,
+        start: str,
+        end: str,
+        timezone: str = "America/Denver",
+        attendees: list[dict] | None = None,
+        recurrence: dict | None = None,
+        calendar_id: str | None = None,
+        location: str | None = None,
+        body: str | None = None,
+        is_all_day: bool = False,
+        reminder_minutes: int | None = 15,
+    ) -> dict:
+        """Create a calendar event via Graph API.
+
+        Sends standard Exchange meeting invites to all attendees.
+        """
+        payload: dict[str, Any] = {
+            "subject": subject,
+            "start": self._format_event_datetime(start, timezone, is_all_day),
+            "end": self._format_event_datetime(end, timezone, is_all_day),
+        }
+
+        if location:
+            payload["location"] = {"displayName": location}
+        if body:
+            payload["body"] = {"contentType": "text", "content": body}
+        if is_all_day:
+            payload["isAllDay"] = True
+        if reminder_minutes is not None:
+            payload["isReminderOn"] = True
+            payload["reminderMinutesBeforeStart"] = reminder_minutes
+
+        graph_attendees = self._build_attendees_payload(attendees)
+        if graph_attendees:
+            payload["attendees"] = graph_attendees
+
+        graph_recurrence = self._build_recurrence_payload(recurrence)
+        if graph_recurrence:
+            graph_recurrence["range"]["startDate"] = start[:10]
+            payload["recurrence"] = graph_recurrence
+
+        endpoint = f"/me/calendars/{calendar_id}/events" if calendar_id else "/me/events"
+        response = await self._request("POST", endpoint, json=payload)
+        return self._normalize_event(response)
+
+    async def update_calendar_event(self, event_id: str, **kwargs: Any) -> dict:
+        """Update a calendar event via Graph API.
+
+        Accepts any combination of: subject, start, end, timezone, location,
+        body, is_all_day, attendees, recurrence, reminder_minutes.
+
+        Note: attendees is a FULL REPLACEMENT — omitted attendees are removed
+        and receive cancellation notices.
+        """
+        timezone = kwargs.pop("timezone", "America/Denver")
+        is_all_day = kwargs.pop("is_all_day", None)
+
+        payload: dict[str, Any] = {}
+
+        if "subject" in kwargs:
+            payload["subject"] = kwargs["subject"]
+        if "start" in kwargs:
+            payload["start"] = self._format_event_datetime(
+                kwargs["start"], timezone, is_all_day or False
+            )
+        if "end" in kwargs:
+            payload["end"] = self._format_event_datetime(
+                kwargs["end"], timezone, is_all_day or False
+            )
+        if "location" in kwargs:
+            payload["location"] = {"displayName": kwargs["location"]}
+        if "body" in kwargs:
+            payload["body"] = {"contentType": "text", "content": kwargs["body"]}
+        if is_all_day is not None:
+            payload["isAllDay"] = is_all_day
+        if "reminder_minutes" in kwargs:
+            payload["isReminderOn"] = True
+            payload["reminderMinutesBeforeStart"] = kwargs["reminder_minutes"]
+
+        if "attendees" in kwargs:
+            graph_attendees = self._build_attendees_payload(kwargs["attendees"])
+            if graph_attendees is not None:
+                payload["attendees"] = graph_attendees
+
+        if "recurrence" in kwargs:
+            graph_recurrence = self._build_recurrence_payload(kwargs["recurrence"])
+            if graph_recurrence:
+                if "start" in kwargs:
+                    graph_recurrence["range"]["startDate"] = kwargs["start"][:10]
+                payload["recurrence"] = graph_recurrence
+
+        response = await self._request("PATCH", f"/me/events/{event_id}", json=payload)
+        return self._normalize_event(response)
+
+    async def delete_calendar_event(self, event_id: str) -> dict:
+        """Delete a calendar event via Graph API."""
+        return await self._request("DELETE", f"/me/events/{event_id}")
 
     # ------------------------------------------------------------------
     # Lifecycle

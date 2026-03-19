@@ -38,6 +38,8 @@ class CalendarProvider(ABC):
         notes: Optional[str] = None,
         is_all_day: bool = False,
         alarms: Optional[list[int]] = None,
+        attendees: Optional[list[dict]] = None,
+        recurrence: Optional[dict] = None,
     ) -> dict:
         """Create an event."""
 
@@ -46,6 +48,8 @@ class CalendarProvider(ABC):
         self,
         event_uid: str,
         calendar_name: Optional[str] = None,
+        attendees: Optional[list[dict]] = None,
+        recurrence: Optional[dict] = None,
         **kwargs,
     ) -> dict:
         """Update an existing event."""

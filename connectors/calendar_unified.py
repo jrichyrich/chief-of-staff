@@ -462,6 +462,8 @@ class UnifiedCalendarService:
         target_provider: str = "",
         provider_preference: str = "auto",
         alarms: Optional[list[int]] = None,
+        attendees: Optional[list[dict]] = None,
+        recurrence: Optional[dict] = None,
     ) -> dict:
         providers, preferred, _, _ = self._resolve_write_provider(
             target_provider=target_provider,
@@ -485,6 +487,8 @@ class UnifiedCalendarService:
                 notes=notes,
                 is_all_day=is_all_day,
                 alarms=alarms,
+                attendees=attendees,
+                recurrence=recurrence,
             )
             if result.get("error"):
                 errors.append(f"{provider_name}: {result['error']}")

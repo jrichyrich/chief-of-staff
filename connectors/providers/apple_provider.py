@@ -51,6 +51,8 @@ class AppleCalendarProvider(CalendarProvider):
         notes: Optional[str] = None,
         is_all_day: bool = False,
         alarms: Optional[list[int]] = None,
+        attendees: Optional[list[dict]] = None,
+        recurrence: Optional[dict] = None,
     ) -> dict:
         result = self.store.create_event(
             title=title,
@@ -70,8 +72,11 @@ class AppleCalendarProvider(CalendarProvider):
         self,
         event_uid: str,
         calendar_name: Optional[str] = None,
+        attendees: Optional[list[dict]] = None,
+        recurrence: Optional[dict] = None,
         **kwargs,
     ) -> dict:
+        # attendees and recurrence intentionally ignored — Apple EventKit path
         result = self.store.update_event(event_uid, calendar_name=calendar_name, **kwargs)
         if result.get("error"):
             return result

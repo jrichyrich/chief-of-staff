@@ -23,6 +23,7 @@ class Microsoft365CalendarProvider(CalendarProvider):
     def __init__(
         self,
         connected: bool = False,
+        graph_client: object | None = None,
         list_calendars_fn: Callable[[], list[dict]] | None = None,
         get_events_fn: Callable[[datetime, datetime, Optional[list[str]]], list[dict]] | None = None,
         create_event_fn: Callable[..., dict] | None = None,
@@ -33,6 +34,7 @@ class Microsoft365CalendarProvider(CalendarProvider):
         connectivity_ttl_seconds: int = 300,
     ):
         self._connected = bool(connected)
+        self._graph = graph_client
         self._connectivity_checker = connectivity_checker
         self._connectivity_ttl = connectivity_ttl_seconds
         self._last_connectivity_check = time.monotonic()
@@ -104,6 +106,8 @@ class Microsoft365CalendarProvider(CalendarProvider):
         notes: Optional[str] = None,
         is_all_day: bool = False,
         alarms: Optional[list[int]] = None,
+        attendees: Optional[list[dict]] = None,
+        recurrence: Optional[dict] = None,
     ) -> dict:
         if not self.is_connected():
             return self._not_connected_error()
@@ -127,6 +131,8 @@ class Microsoft365CalendarProvider(CalendarProvider):
         self,
         event_uid: str,
         calendar_name: Optional[str] = None,
+        attendees: Optional[list[dict]] = None,
+        recurrence: Optional[dict] = None,
         **kwargs,
     ) -> dict:
         if not self.is_connected():
@@ -134,6 +140,7 @@ class Microsoft365CalendarProvider(CalendarProvider):
         hook = self._hooks["update_event"]
         if hook is None:
             return self._not_configured_error("update events")
+        # Bridge fallback ignores attendees/recurrence — Graph path is at MCP tool layer
         row = hook(event_uid=event_uid, calendar_name=calendar_name, **kwargs)
         if row.get("error"):
             return row

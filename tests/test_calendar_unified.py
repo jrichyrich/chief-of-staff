@@ -43,6 +43,8 @@ class _FakeProvider:
         notes=None,
         is_all_day=False,
         alarms=None,
+        attendees=None,
+        recurrence=None,
     ) -> dict:
         if self.create_should_fail:
             return {"error": f"{self.provider_name} unavailable"}
@@ -61,7 +63,7 @@ class _FakeProvider:
         self.created.append(event)
         return event
 
-    def update_event(self, event_uid: str, calendar_name=None, **kwargs) -> dict:
+    def update_event(self, event_uid: str, calendar_name=None, attendees=None, recurrence=None, **kwargs) -> dict:
         self.updated.append((event_uid, kwargs))
         return {
             "uid": event_uid,
