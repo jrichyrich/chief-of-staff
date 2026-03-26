@@ -521,3 +521,174 @@ def format_slots_for_sharing(
         lines.append(f"{day_of_week}, {date_formatted}: {times_str} {tz_abbr}")
 
     return "\n".join(lines)
+
+
+def find_mutual_availability(
+    my_events: list[dict],
+    others_schedules: list[dict],
+    start_date,
+    end_date,
+    duration_minutes: int,
+    working_hours_start=time(8, 0),
+    working_hours_end=time(18, 0),
+    timezone_name: str = USER_TIMEZONE,
+    include_soft_blocks: bool = True,
+    soft_keywords: list[str] | None = None,
+    user_email: str | None = None,
+    skip_weekends: bool = True,
+) -> list[dict]:
+    """Find mutually available slots between you and other people.
+
+    Intersects YOUR open slots (via find_available_slots) with other people's
+    free/busy data from Microsoft Graph getSchedule API responses.
+
+    Args:
+        my_events: Your calendar events (same format as find_available_slots input)
+        others_schedules: List of getSchedule response dicts, each with
+            'email', 'availability_view', and 'schedule_items' fields
+        start_date: Start date (str YYYY-MM-DD or datetime)
+        end_date: End date (str YYYY-MM-DD or datetime)
+        duration_minutes: Minimum slot duration in minutes
+        working_hours_start: Daily start time (default: 8:00 AM)
+        working_hours_end: Daily end time (default: 6:00 PM)
+        timezone_name: Timezone name (default: America/Denver)
+        include_soft_blocks: Treat your soft blocks as available (default: True)
+        soft_keywords: Custom soft keyword list (optional)
+        user_email: Your email for scoping tentative checks (optional)
+        skip_weekends: Skip Saturday and Sunday slots (default: True)
+
+    Returns:
+        List of slot dicts with same format as find_available_slots output,
+        plus an 'available_for' field listing participant emails who are free.
+    """
+    tz = ZoneInfo(timezone_name)
+
+    # Step 1: Get your open slots
+    my_slots = find_available_slots(
+        events=my_events,
+        start_date=start_date,
+        end_date=end_date,
+        duration_minutes=duration_minutes,
+        working_hours_start=working_hours_start,
+        working_hours_end=working_hours_end,
+        timezone_name=timezone_name,
+        include_soft_blocks=include_soft_blocks,
+        soft_keywords=soft_keywords,
+        user_email=user_email,
+    )
+
+    # Step 2: Filter out weekends if requested
+    if skip_weekends:
+        filtered_slots = []
+        for slot in my_slots:
+            slot_date = datetime.fromisoformat(slot["start"]).date()
+            # Monday=0 ... Saturday=5, Sunday=6
+            if slot_date.weekday() not in (5, 6):
+                filtered_slots.append(slot)
+        my_slots = filtered_slots
+
+    if not my_slots or not others_schedules:
+        # If no other people, return your slots with available_for = [user_email]
+        if not others_schedules:
+            for slot in my_slots:
+                slot["available_for"] = [user_email] if user_email else []
+            return my_slots
+        return []
+
+    # Step 3: Parse busy blocks for each other person
+    _BUSY_STATUSES = {"busy", "oof", "tentative"}
+    _FREE_STATUSES = {"free", "workingelsewhere", ""}
+
+    others_busy_blocks: dict[str, list[tuple[datetime, datetime]]] = {}
+    for person in others_schedules:
+        email = person.get("email", "unknown")
+        blocks = []
+        for item in person.get("schedule_items", []):
+            status = (item.get("status") or "").lower()
+            if status in _BUSY_STATUSES:
+                item_start_str = item.get("start", "")
+                item_end_str = item.get("end", "")
+                if not item_start_str or not item_end_str:
+                    continue
+                # Handle nested dict format from Graph
+                if isinstance(item_start_str, dict):
+                    item_start_str = item_start_str.get("dateTime", "")
+                if isinstance(item_end_str, dict):
+                    item_end_str = item_end_str.get("dateTime", "")
+                try:
+                    item_start = datetime.fromisoformat(item_start_str)
+                    item_end = datetime.fromisoformat(item_end_str)
+                except (ValueError, TypeError):
+                    continue
+                # Make timezone-aware if naive
+                if item_start.tzinfo is None:
+                    item_start = item_start.replace(tzinfo=tz)
+                if item_end.tzinfo is None:
+                    item_end = item_end.replace(tzinfo=tz)
+                blocks.append((item_start, item_end))
+        others_busy_blocks[email] = blocks
+
+    # Step 4: Merge all others' busy blocks into a single sorted list,
+    # then subtract them from your slots to find mutual free windows.
+    all_busy: list[tuple[datetime, datetime]] = []
+    for blocks in others_busy_blocks.values():
+        all_busy.extend(blocks)
+    all_busy.sort(key=lambda x: x[0])
+
+    # Merge overlapping busy blocks
+    merged_busy: list[tuple[datetime, datetime]] = []
+    for bs, be in all_busy:
+        if merged_busy and bs <= merged_busy[-1][1]:
+            merged_busy[-1] = (merged_busy[-1][0], max(merged_busy[-1][1], be))
+        else:
+            merged_busy.append((bs, be))
+
+    # Subtract merged busy blocks from each of your open slots
+    all_other_emails = [p.get("email", "unknown") for p in others_schedules]
+    all_participant_emails = []
+    if user_email:
+        all_participant_emails.append(user_email)
+    all_participant_emails.extend(all_other_emails)
+
+    mutual_slots = []
+    for slot in my_slots:
+        slot_start = datetime.fromisoformat(slot["start"])
+        slot_end = datetime.fromisoformat(slot["end"])
+
+        # Make timezone-aware if naive
+        if slot_start.tzinfo is None:
+            slot_start = slot_start.replace(tzinfo=tz)
+        if slot_end.tzinfo is None:
+            slot_end = slot_end.replace(tzinfo=tz)
+
+        # Subtract busy blocks from this slot to get free fragments
+        free_fragments: list[tuple[datetime, datetime]] = [(slot_start, slot_end)]
+        for busy_start, busy_end in merged_busy:
+            new_fragments = []
+            for frag_start, frag_end in free_fragments:
+                # No overlap — keep fragment as-is
+                if busy_end <= frag_start or busy_start >= frag_end:
+                    new_fragments.append((frag_start, frag_end))
+                    continue
+                # Left remainder (before busy block)
+                if frag_start < busy_start:
+                    new_fragments.append((frag_start, busy_start))
+                # Right remainder (after busy block)
+                if frag_end > busy_end:
+                    new_fragments.append((busy_end, frag_end))
+            free_fragments = new_fragments
+
+        # Convert fragments to slot dicts, filtering by minimum duration
+        for frag_start, frag_end in free_fragments:
+            frag_duration = int((frag_end - frag_start).total_seconds() / 60)
+            if frag_duration >= duration_minutes:
+                mutual_slots.append({
+                    "start": frag_start.isoformat(),
+                    "end": frag_end.isoformat(),
+                    "duration_minutes": frag_duration,
+                    "date": frag_start.date().isoformat(),
+                    "day_of_week": frag_start.strftime("%A"),
+                    "available_for": list(all_participant_emails),
+                })
+
+    return mutual_slots

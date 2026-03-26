@@ -615,7 +615,7 @@ tell application "iTerm2"
 
     tell current session of newWindow
         set name to "Jarvis — Chief of Staff"
-        write text "cd {project_dir} && clear && {banner_path} && sleep 2 && {claude_bin} --dangerously-skip-permissions --teammate-mode tmux"
+        write text "cd {project_dir} && clear && {banner_path} && sleep 2 && {claude_bin} --dangerously-skip-permissions --teammate-mode tmux --channels plugin:imessage@claude-plugins-official"
 
         -- Wait for Claude to boot, then schedule startup loops
         delay 15
@@ -633,7 +633,7 @@ _LAUNCH_SH_TERMINAL = r"""#!/bin/bash
 osascript <<'APPLESCRIPT'
 tell application "Terminal"
     activate
-    set jarvisCmd to "cd {project_dir} && clear && {banner_path} && sleep 2 && {claude_bin} --dangerously-skip-permissions --teammate-mode tmux"
+    set jarvisCmd to "cd {project_dir} && clear && {banner_path} && sleep 2 && {claude_bin} --dangerously-skip-permissions --teammate-mode tmux --channels plugin:imessage@claude-plugins-official"
     do script jarvisCmd
     -- Set the window title
     set custom title of front window to "Jarvis — Chief of Staff"

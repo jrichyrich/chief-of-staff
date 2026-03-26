@@ -1049,6 +1049,67 @@ class GraphClient:
         return await self._request("DELETE", f"/me/events/{event_id}")
 
     # ------------------------------------------------------------------
+    # Schedule / free-busy
+    # ------------------------------------------------------------------
+
+    async def get_schedule(
+        self,
+        schedules: list[str],
+        start: str,
+        end: str,
+        timezone: str = "America/Denver",
+        availability_view_interval: int = 30,
+    ) -> list[dict]:
+        """Get free/busy schedule for one or more users via Graph getSchedule API.
+
+        Uses POST /me/calendar/getSchedule to retrieve availability data.
+        Batches requests if more than 20 email addresses (Graph API limit).
+
+        Args:
+            schedules: List of email addresses to check.
+            start: Start datetime in ISO format.
+            end: End datetime in ISO format.
+            timezone: IANA timezone name (default: America/Denver).
+            availability_view_interval: Interval in minutes for the availability
+                view string (default: 30).
+
+        Returns:
+            List of dicts, one per user:
+            [{"email": str, "availability_view": str, "schedule_items": [{"status": str, "start": str, "end": str}]}]
+
+        Raises:
+            GraphAPIError: On non-transient API errors (e.g., 403 for external users).
+        """
+        BATCH_SIZE = 20
+        all_results = []
+
+        for i in range(0, len(schedules), BATCH_SIZE):
+            batch = schedules[i : i + BATCH_SIZE]
+            payload = {
+                "schedules": batch,
+                "startTime": {"dateTime": start, "timeZone": timezone},
+                "endTime": {"dateTime": end, "timeZone": timezone},
+                "availabilityViewInterval": availability_view_interval,
+            }
+            data = await self._request("POST", "/me/calendar/getSchedule", json=payload)
+
+            for item in data.get("value", []):
+                schedule_items = []
+                for si in item.get("scheduleItems", []):
+                    schedule_items.append({
+                        "status": si.get("status", ""),
+                        "start": (si.get("start") or {}).get("dateTime", ""),
+                        "end": (si.get("end") or {}).get("dateTime", ""),
+                    })
+                all_results.append({
+                    "email": item.get("scheduleId", ""),
+                    "availability_view": item.get("availabilityView", ""),
+                    "schedule_items": schedule_items,
+                })
+
+        return all_results
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

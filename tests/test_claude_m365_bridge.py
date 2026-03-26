@@ -1,4 +1,5 @@
 import json
+import logging
 import subprocess
 from datetime import datetime
 
@@ -137,3 +138,128 @@ def test_search_events_count_matches_no_warning():
     rows = bridge.search_events("Standup", datetime(2026, 3, 10), datetime(2026, 3, 11))
     assert len(rows) == 1
     assert "_bridge_warning" not in rows[0]
+
+
+# ---------------------------------------------------------------------------
+# Critical 1: System prompt hardening against prompt injection
+# ---------------------------------------------------------------------------
+
+
+def test_invoke_structured_includes_system_prompt():
+    """CLI args must include --append-system-prompt with data-boundary instructions."""
+    captured_args = {}
+
+    def spy_runner(args, capture_output, text, timeout, check):
+        captured_args["args"] = args
+        payload = {"structured_output": {"results": []}}
+        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(payload), stderr="")
+
+    bridge = ClaudeM365Bridge(runner=spy_runner)
+    bridge.list_calendars()
+
+    args = captured_args["args"]
+    assert "--append-system-prompt" in args, "Must pass --append-system-prompt to Claude CLI"
+    # The system prompt should be the argument following --append-system-prompt
+    idx = args.index("--append-system-prompt")
+    system_prompt = args[idx + 1]
+    assert "data" in system_prompt.lower(), "System prompt must mention data boundaries"
+    assert "instruction" in system_prompt.lower() or "instruct" in system_prompt.lower(), (
+        "System prompt must distinguish data from instructions"
+    )
+
+
+def test_system_prompt_references_user_tags():
+    """System prompt must explicitly reference <user_*> tags as data-only."""
+    captured_args = {}
+
+    def spy_runner(args, capture_output, text, timeout, check):
+        captured_args["args"] = args
+        payload = {"structured_output": {"results": [], "total_event_count": 0}}
+        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(payload), stderr="")
+
+    bridge = ClaudeM365Bridge(runner=spy_runner)
+    bridge.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+
+    args = captured_args["args"]
+    idx = args.index("--append-system-prompt")
+    system_prompt = args[idx + 1]
+    assert "user_" in system_prompt.lower() or "<user" in system_prompt.lower(), (
+        "System prompt must reference user_* tags as data-only markers"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Critical 2: Output validation — filter out-of-range events
+# ---------------------------------------------------------------------------
+
+
+def test_get_events_filters_out_of_range_events():
+    """Events outside the requested date range must be filtered out."""
+    events = [
+        {"title": "In range", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T10:00:00-06:00", "uid": "e1"},
+        {"title": "Before range", "start": "2026-03-08T09:00:00-06:00", "end": "2026-03-08T10:00:00-06:00", "uid": "e2"},
+        {"title": "After range", "start": "2026-03-15T09:00:00-06:00", "end": "2026-03-15T10:00:00-06:00", "uid": "e3"},
+    ]
+    bridge = _make_bridge_with_events(events, total_count=3)
+    rows = bridge.get_events(datetime(2026, 3, 9), datetime(2026, 3, 12))
+    titles = [r["title"] for r in rows]
+    assert "In range" in titles
+    assert "Before range" not in titles, "Events before requested range must be filtered"
+    assert "After range" not in titles, "Events after requested range must be filtered"
+
+
+def test_search_events_filters_out_of_range_events():
+    """search_events must also filter events outside the requested range."""
+    events = [
+        {"title": "Match in range", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T10:00:00-06:00", "uid": "e1"},
+        {"title": "Match out of range", "start": "2026-03-20T09:00:00-06:00", "end": "2026-03-20T10:00:00-06:00", "uid": "e2"},
+    ]
+    bridge = _make_bridge_with_events(events, total_count=2)
+    rows = bridge.search_events("Match", datetime(2026, 3, 9), datetime(2026, 3, 12))
+    assert len(rows) == 1
+    assert rows[0]["title"] == "Match in range"
+
+
+def test_get_events_keeps_events_with_unparseable_dates():
+    """Events with unparseable start/end should be kept (not silently dropped)."""
+    events = [
+        {"title": "Good", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T10:00:00-06:00", "uid": "e1"},
+        {"title": "Bad dates", "start": "not-a-date", "end": "also-not", "uid": "e2"},
+    ]
+    bridge = _make_bridge_with_events(events, total_count=2)
+    rows = bridge.get_events(datetime(2026, 3, 9), datetime(2026, 3, 12))
+    titles = [r["title"] for r in rows]
+    assert "Good" in titles
+    assert "Bad dates" in titles, "Events with unparseable dates should be kept, not dropped"
+
+
+def test_invoke_structured_logs_warning_on_fallback_parse(caplog):
+    """When _parse_first_json_object fallback fires, a warning must be logged."""
+    # Return data that only parses via fallback (no structured_output, result is text with embedded JSON)
+    payload = {
+        "result": "Here is your data: {\"results\": [{\"title\": \"Test\", \"start\": \"2026-03-10T09:00:00\", \"end\": \"2026-03-10T10:00:00\"}], \"total_event_count\": 1}"
+    }
+
+    def fake_runner(args, capture_output, text, timeout, check):
+        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(payload), stderr="")
+
+    bridge = ClaudeM365Bridge(runner=fake_runner)
+    with caplog.at_level(logging.WARNING, logger="connectors.claude_m365_bridge"):
+        bridge.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+
+    fallback_warnings = [r for r in caplog.records if "fallback" in r.message.lower()]
+    assert len(fallback_warnings) >= 1, "Must log a warning when fallback JSON parsing is used"
+
+
+def test_get_events_rejects_absurd_total_event_count():
+    """An unreasonably large total_event_count should produce a warning."""
+    events = [{"title": "Meeting", "start": "2026-03-10T09:00:00-06:00", "end": "2026-03-10T10:00:00-06:00"}]
+    bridge = _make_bridge_with_events(events, total_count=999999)
+    rows = bridge.get_events(datetime(2026, 3, 10), datetime(2026, 3, 11))
+    assert len(rows) == 1
+    # Should still have the bridge warning for mismatch
+    assert "_bridge_warning" in rows[0]
+    # And an additional flag about suspicious count
+    assert rows[0].get("_bridge_suspicious_count") is True, (
+        "Absurdly large total_event_count should be flagged as suspicious"
+    )

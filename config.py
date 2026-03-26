@@ -168,6 +168,7 @@ MSAL_KEYCHAIN_SERVICE = "jarvis"
 MSAL_KEYCHAIN_ACCOUNT = "msal_token_cache"
 M365_GRAPH_ENABLED = bool(M365_CLIENT_ID)
 M365_GRAPH_SCOPES = [
+    "Calendars.ReadWrite",
     "Channel.ReadBasic.All",
     "ChannelMessage.Send",
     "Chat.Create",

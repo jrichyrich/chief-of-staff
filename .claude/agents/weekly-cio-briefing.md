@@ -28,29 +28,37 @@ Run ALL of these searches concurrently:
 
 1. **OKR Snapshot** — Call `mcp__jarvis__query_okr_status` with `summary_only=True` for the executive view, then `blocked_only=True` for blockers. Note any initiatives that changed status this week.
 
-2. **Delegations & Decisions**
+2. **Security Incidents (Jira)** — Query incidents via `mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql`:
+   - **Cloud ID**: `chghealthcare.atlassian.net`
+   - **JQL**: `labels = "IncidentResponse" AND status IS NOT EMPTY AND created >= startOfYear() AND created <= endOfYear() ORDER BY created DESC`
+   - **Fields**: `["summary", "status", "priority", "created", "resolved", "labels", "issuetype", "assignee"]`
+   - **maxResults**: 100
+   - Analyze for: YTD count by severity/priority, incident type patterns (from summaries), resolution status, MTTR trends (created vs resolved), year-over-year if data available.
+   - Present as high-level patterns in the Security Incidents section, not raw ticket data.
+
+3. **Delegations & Decisions**
    - `mcp__jarvis__list_delegations` (status=active) — flag overdue and approaching-due items
    - `mcp__jarvis__check_overdue_delegations`
    - `mcp__jarvis__list_pending_decisions` — flag decisions >3 days old or blocking others
    - `mcp__jarvis__search_decisions` — recent completed/deferred decisions worth noting
 
-3. **Calendar & Email Highlights (7-day lookback)**
+4. **Calendar & Email Highlights (7-day lookback)**
    - `mcp__claude_ai_Microsoft_365__outlook_calendar_search` — key meetings this week, especially any involving Theresa or her directs
    - `mcp__claude_ai_Microsoft_365__outlook_email_search` — threads involving Theresa, cross-functional threads with Dean/Jai/Erhan, and any escalations
    - `mcp__claude_ai_Microsoft_365__chat_message_search` — Teams threads relevant to Theresa or cross-VP topics
 
-4. **Risk & Escalation Signals**
+5. **Risk & Escalation Signals**
    - `mcp__jarvis__query_memory` (query: "risk blocker escalation") — stored risk context
    - `mcp__jarvis__check_alerts` — any triggered alert rules
    - `mcp__jarvis__list_delegations` — overdue items = risk signals
    - Cross-reference: any delegation overdue >5 days, any decision pending >7 days, any OKR initiative "Blocked" or "At Risk"
 
-5. **People & Org Context**
+6. **People & Org Context**
    - `mcp__jarvis__query_memory` (query: "hiring team org change") — staffing changes, open roles
    - `mcp__jarvis__query_memory` (query: "Theresa") — recent context about what she cares about
    - Note any team milestones, accomplishments, or culture signals worth highlighting
 
-6. **Next Week Preview**
+7. **Next Week Preview**
    - `mcp__jarvis__get_calendar_events` for the upcoming week (Mon-Fri) with `provider_preference=both`
    - `mcp__jarvis__search_reminders` for upcoming deadlines
    - Identify high-stakes meetings, deadlines, or decisions Theresa should know about in advance
@@ -76,10 +84,10 @@ Pillars: IAM [G/Y/R] | ProdSec [G/Y/R] | SecOps [G/Y/R] | Privacy & GRC [G/Y/R]
 ## TL;DR
 [2-3 sentences: headline, trajectory, and the single most important thing Theresa should know. Answer: "Is ISP on track, and do I need to do anything?"]
 
-## Needs from You
-[0-3 items. Each: what you need, why, and urgency. If nothing: "No asks this week."]
+## On Your Radar
+[0-3 items for awareness or action. Each: what's happening, why it matters, and urgency. If nothing: "Nothing requiring your attention this week."]
 
-- **[Ask]** — [Context and why it matters]. [Urgency: this week / next 2 weeks / awareness]
+- **[Item]** — [Context and why it matters]. *[Urgency: this week / next 2 weeks / awareness only / monitoring]*
 
 ## Key Wins
 [3-5 outcomes delivered this week. Connect to OKRs where possible. Use metrics.]
@@ -87,16 +95,28 @@ Pillars: IAM [G/Y/R] | ProdSec [G/Y/R] | SecOps [G/Y/R] | Privacy & GRC [G/Y/R]
 - [Win] — [impact/metric] *(OKR X.X)*
 - [Win] — [impact/metric]
 
-## OKR Progress
+## Business Capability Progress
 [Executive summary of movement. Only flag changes, not steady-state.]
 
-| Objective | Status | Delta | Notes |
-|-----------|--------|-------|-------|
-| OKR 1: Trusted Security & Privacy | [G/Y/R] | [+/-/=] | [one line] |
-| OKR 2: Resilient Business Systems | [G/Y/R] | [+/-/=] | [one line] |
-| OKR 3: Fast Risk Feedback | [G/Y/R] | [+/-/=] | [one line] |
+| Objective | Status | Delta | Why It Matters |
+|-----------|--------|-------|----------------|
+| OKR 1: Trusted Security & Privacy Controls | [G/Y/R] (%) | [+/-/=] | [one line on business impact] |
+| OKR 2: Resilient Business Systems | [G/Y/R] (%) | [+/-/=] | [one line on business impact] |
+| OKR 3: Fast Risk Feedback | [G/Y/R] (%) | [+/-/=] | [one line on business impact] |
 
 **Blocked/At-Risk Initiatives:** [list any, or "None"]
+
+## Security Incidents
+[High-level patterns from Jira IncidentResponse label. YTD count by severity, dominant incident types, MTTR trends, year-over-year comparison. Present patterns, not raw data.]
+
+**YTD [YEAR]: [N] incidents** ([closed/open breakdown]) — [trend context vs prior year]
+
+| Pattern | Detail |
+|---------|--------|
+| **Severity profile** | [breakdown by priority] |
+| **Dominant type** | [most common incident categories from summaries] |
+| **MTTR trend** | [average resolution time, trend direction] |
+| **Year-over-year** | [volume/severity comparison] |
 
 ## Risks and Blockers
 [2-4 items. Each: risk, impact, what you're doing about it, and whether you need CIO help.]
@@ -134,7 +154,17 @@ Flag stale data explicitly in the brief:
 
 1. Save the brief to `~/Documents/Jarvis/Weekly_Briefs/YYYY-MM-DD_Weekly_Brief_Theresa.md`
 2. Present a summary to the user for review
-3. On approval, send via `mcp__jarvis__send_email` to theresa.oleary@chghealthcare.com
+3. On approval, send as **HTML email** via `mcp__jarvis__send_email` (Graph API backend):
+   - **to**: `theresa.oleary@chghealthcare.com` (or user's own email for test runs)
+   - **subject**: `ISP Weekly Brief | Week of [DATE RANGE]`
+   - **body**: Plain text version (fallback for clients that don't render HTML)
+   - **html_body**: Styled HTML with color-coded sections:
+     - Green cards for wins, orange cards for risks, blue cards for next-week items
+     - Status bar with pillar health indicators
+     - Styled table for OKR/Business Capability Progress
+     - TL;DR in a callout box
+     - Use inline-safe CSS (Segoe UI/Calibri font stack, border-left accent colors, subtle backgrounds)
+   - **confirm_send**: Always preview first (`false`), then send (`true`) after user confirms
 4. Store brief metadata via `mcp__jarvis__store_shared_memory` for trend analysis in future weeks
 
 ## Related Agents
@@ -156,6 +186,7 @@ Flag stale data explicitly in the brief:
 
 | Capability | MCP Tool |
 |-----------|---------|
+| Incidents (Jira) | `mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql` |
 | OKR refresh | `mcp__jarvis__refresh_okr_from_sharepoint` |
 | OKR query | `mcp__jarvis__query_okr_status` |
 | Calendar (Apple) | `mcp__jarvis__get_calendar_events`, `mcp__jarvis__search_calendar_events` |
