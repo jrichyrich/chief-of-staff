@@ -1,248 +1,370 @@
-# Security Audit Report: Microsoft Graph API Integration
+# Security Audit Report — Chief of Staff (Jarvis)
 
-**Auditor**: Security Agent (Claude)
-**Date**: 2026-03-12
-**Scope**: vault/keychain.py, connectors/graph_client.py, mcp_tools/teams_browser_tools.py, mcp_tools/mail_tools.py, config.py, scripts/bootstrap_secrets.py
+**Auditor**: Security Agent (Claude Sonnet 4.6)
+**Date**: 2026-03-30
+**Scope**: Full codebase security audit — all layers
 
----
+**Stack**: Python 3.13, FastMCP (stdio), SQLite (memory.db, chat.db, profile.db), ChromaDB,
+  Anthropic API (Claude), PyObjC EventKit, osascript/AppleScript, Playwright/Chromium,
+  MSAL (M365 Graph API), macOS Keychain
 
-## Executive Summary
+**External services**: Anthropic API, Microsoft 365 Graph API (calendar/email/Teams),
+  SharePoint Online, iMessage (chat.db), Apple Calendar/Reminders/Mail, macOS Keychain
 
-The Graph API integration is reasonably well designed for a single-user desktop tool. Secrets are stored in macOS Keychain rather than plaintext, SSL verification is never disabled, and email/iMessage sends are gated behind `confirm_send`. However, there are several findings ranging from MEDIUM to LOW severity — most related to defense-in-depth gaps rather than active exploitability.
-
-**Critical**: 0 | **High**: 1 | **Medium**: 6 | **Low**: 4
-
----
-
-## Findings
-
-### FINDING-01: Client secret held as module-level string constant (HIGH)
-
-**File**: `config.py`, line 165
-**Code**: `M365_CLIENT_SECRET = get_secret("m365_client_secret") or ""`
-
-The client secret is resolved at import time and stored as a plain Python string at module scope for the lifetime of the process. Any code path that can read `config.M365_CLIENT_SECRET` — including debug endpoints, crash dumps, or `repr()` on the config module — gets the raw secret. The same applies to `ANTHROPIC_API_KEY` (line 18), though that one uses `os.environ.get` directly.
-
-**Risk**: Memory inspection, crash dumps, or accidental logging of the config module exposes credentials.
-
-**Recommendation**:
-- Replace with a lazy accessor: `def get_m365_client_secret() -> str: return get_secret("m365_client_secret") or ""` so the secret is only held during the call, not as a permanent module attribute.
-- At minimum, avoid storing in a named module-level constant. The current pattern means `dir(config)` reveals the attribute name and `config.M365_CLIENT_SECRET` is always available.
+**Auth mechanism**: API keys (Anthropic, M365 MSAL OAuth2 with Keychain-backed token cache),
+  no HTTP server auth (stdio-only MCP — no inbound network surface)
 
 ---
 
-### FINDING-02: Token cache file lacks restricted permissions (MEDIUM)
+## Critical Findings 🔴
 
-**File**: `connectors/graph_client.py`, lines 209-215
-**Code**: `cache_dir.mkdir(parents=True, exist_ok=True)` / `FilePersistence(str(cache_path))`
+### SEC-CRIT-01: iMessage Daemon Prompt Injection — Unauthenticated Command Execution
 
-When the Keychain-backed cache fails, the fallback writes tokens to `~/.jarvis/token_cache.bin`. The directory is created with default permissions (`mkdir` without `mode=`), and `FilePersistence` does not restrict file permissions. On a shared system, this file could be world-readable.
+- **Type**: Prompt Injection / Authentication Bypass
+- **Location**: `chief/imessage_executor.py:44`, `chief/imessage_daemon.py:385`
+- **What it is**: The iMessage daemon reads raw iMessage text from `chat.db`, applies only
+  optional sender allowlist filtering, and passes the message text verbatim as the `instruction`
+  to a Claude API call. There is zero sanitization between the received iMessage content and
+  the LLM prompt. Any iMessage that matches the prefix filter (default: `"jarvis"`) is executed
+  as an autonomous Claude agent call with access to all tools wired into the executor
+  (memory writes, calendar reads, email drafts, etc.).
 
-Observed on this machine: `token_cache.lock` has permissions `-rw-r--r--` (world-readable). If `token_cache.bin` existed it would likely inherit the same umask.
+  Critically, when `IMESSAGE_DAEMON_ALLOWED_SENDERS` is empty (the **default**), _all senders_
+  are processed. There is no require-allowlist-before-running guard. The only default protection
+  is the command prefix `"jarvis"`, which is a publicly known string for this project.
 
-**Risk**: Another local user could read MSAL tokens from the file-based fallback cache.
-
-**Recommendation**:
-```python
-cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-# After FilePersistence creates the file:
-cache_path.chmod(0o600)
-```
-
----
-
-### FINDING-03: No input validation on Graph API path parameters (MEDIUM)
-
-**File**: `connectors/graph_client.py`, lines 472, 479, 575
-
-`chat_id` and `message_id` are interpolated directly into URL paths:
-```python
-f"/me/chats/{chat_id}/messages?$top={limit}"
-f"/me/messages/{message_id}/reply"
-```
-
-There is no validation that these IDs contain only expected characters. A malicious or malformed `chat_id` containing path-traversal characters (e.g., `../../`) or OData injection (`?$filter=...`) could alter the API call semantics.
-
-**Risk**: In practice, these IDs come from prior Graph API responses (not user input), so exploitability is low. But in the MCP tool layer, `chat_id` can flow from user-provided arguments without sanitization.
-
-**Recommendation**:
-- Validate `chat_id` and `message_id` against an allowlist pattern (e.g., alphanumeric + hyphens + colons): `re.match(r'^[a-zA-Z0-9:_@.\-=]+$', chat_id)`.
-- Use `urllib.parse.quote(chat_id, safe='')` when constructing URL paths.
+- **Exploitability**: Any iMessage sent to the target phone number starting with "jarvis" is
+  autonomously executed. The sender does not need to be in any allowlist by default. A malicious
+  iMessage could instruct the agent to read facts/memory, send emails or iMessages on behalf of
+  the user, or store false data in the memory store.
+- **Impact**: Unauthorized command execution, data exfiltration via iMessage replies, social
+  engineering via outbound email/Teams posts, memory store poisoning.
+- **Fix**:
+  1. Require `IMESSAGE_DAEMON_ALLOWED_SENDERS` to be non-empty as a hard prerequisite for the
+     daemon to start. Refuse to run without an explicit allowlist.
+  2. Add a max-tools-per-sender daily rate limit.
+  3. Consider requiring a second-factor prefix known only to the owner (e.g., a configurable
+     secret phrase per sender, not just "jarvis").
+  4. The `is_from_me` bypass in the allowlist check (line 355) means self-originated messages
+     always bypass the allowlist — this is intentional but creates an interesting edge if the
+     user's account is compromised.
 
 ---
 
-### FINDING-04: Subprocess injection risk via keychain key names (MEDIUM)
+### SEC-CRIT-02: Webhook Payload Injected Verbatim into Agent Prompt
 
-**File**: `vault/keychain.py`, lines 46-56, 86-97
-
-The `key` parameter is passed directly to `subprocess.run()` as a list element (`"-a", key`). Because `subprocess.run()` is called without `shell=True`, the standard shell injection vector is mitigated. However, the `security` CLI interprets certain key values specially — a key containing newlines or null bytes could cause unexpected behavior.
-
-**Risk**: Low in practice since key names are hardcoded constants (`m365_client_id`, `m365_tenant_id`, `m365_client_secret`). But `set_secret` and `get_secret` are public functions with no input validation on `key`.
-
-**Recommendation**:
-```python
-def _validate_key(key: str) -> None:
-    if not re.match(r'^[a-zA-Z0-9_\-]+$', key):
-        raise ValueError(f"Invalid keychain key: {key!r}")
-```
-
----
-
-### FINDING-05: Auth code flow binds to fixed port without TOCTOU protection (MEDIUM)
-
-**File**: `connectors/graph_client.py`, lines 292-374
-
-The auth code flow starts an HTTP server on `127.0.0.1:8400`. There is no check for whether port 8400 is already in use (a malicious process could pre-bind it to intercept the OAuth callback). The `state` parameter from the MSAL flow is captured but there is no explicit CSRF state validation in `_CallbackHandler` — this is delegated to `acquire_token_by_auth_code_flow` which validates it internally.
-
-**Risk**: A local attacker could race to bind port 8400 before the legitimate server starts, intercepting the auth code. This is a classic OAuth redirect TOCTOU attack on localhost flows.
-
-**Recommendation**:
-- Bind to port 0 (OS-assigned ephemeral port) and dynamically construct the redirect URI.
-- Alternatively, check for existing bindings before starting.
+- **Type**: Prompt Injection
+- **Location**: `webhook/dispatcher.py:157`, `webhook/dispatcher.py:273`
+- **What it is**: The `_format_input` method interpolates the raw `payload` string from an
+  ingested webhook JSON file directly into the agent's instruction via `string.Template`. The
+  `payload` field is attacker-controlled — any external system that can write a `.json` file
+  to the inbox directory controls what text the agent receives as its prompt.
+  There is no sanitization of prompt-injection characters or instructions.
+- **Exploitability**: If an attacker can write to the webhook inbox directory (e.g., via a
+  misconfigured automation, CI/CD pipeline, or local file write), they can cause the dispatched
+  agent to execute arbitrary tool calls. The agent can send emails, write iMessages, modify
+  memory/facts, or perform calendar actions.
+- **Impact**: Full autonomous agent takeover limited only by the dispatched agent's capabilities.
+- **Fix**:
+  1. Wrap `payload` content in a clear delimiter: `--- BEGIN EXTERNAL DATA ---\n{payload}\n--- END EXTERNAL DATA ---`
+     and instruct the agent in its system prompt not to follow instructions inside that block.
+  2. Validate and size-limit payload content (e.g., reject payloads > 50KB).
+  3. Consider a `source` allowlist: only process events from known, trusted sources.
 
 ---
 
-### FINDING-06: Device code displayed to stdout — phishing surface (MEDIUM)
+### SEC-CRIT-03: SharePoint Download Tool Accepts Arbitrary URLs — SSRF Vector
 
-**File**: `connectors/graph_client.py`, lines 277-286
+- **Type**: SSRF (Server-Side Request Forgery)
+- **Location**: `mcp_tools/sharepoint_tools.py:52-141`
+- **What it is**: The `download_from_sharepoint` MCP tool accepts a `sharepoint_url` parameter
+  with no domain validation. There is no check that the URL belongs to a SharePoint tenant
+  (`*.sharepoint.com`) or the organization's known domain. The URL is passed directly to a
+  Playwright browser that is already Okta-authenticated with corporate credentials.
 
-The device code is printed to stderr and logged at INFO level:
-```python
-logger.info("Device code auth: visit %s and enter code %s", ...)
-print(f"... enter code: {flow['user_code']}\n", file=sys.stderr)
-```
-
-In a multi-user or remote session scenario, anyone who can see the terminal or log output can complete the device code flow and obtain tokens for the target tenant.
-
-**Risk**: Device code phishing is a known attack vector (T1528). An attacker with log access could silently complete the flow. The 15-minute expiry window of device codes provides ample time.
-
-**Recommendation**:
-- Log the device code at WARNING level with a clear message that it should not be shared.
-- Consider adding a verification step that confirms the authenticated identity matches the expected user.
-- In daemon/headless mode, device code flow is already disabled (raises `GraphAuthError`), which is correct.
-
----
-
-### FINDING-07: In-memory secret cache not clearable on demand (MEDIUM)
-
-**File**: `vault/keychain.py`, lines 18-19, 22-24
-
-Secrets are cached in `_cache: dict[str, str | None]` at module level. While `clear_secret_cache()` exists, it is never called anywhere in the codebase. Secrets persist in process memory for the entire session lifetime.
-
-**Risk**: In a long-running MCP server process, secrets remain in memory indefinitely. A memory dump or core dump would expose all cached secrets.
-
-**Recommendation**:
-- Call `clear_secret_cache()` in a session cleanup/shutdown handler.
-- Consider using `mmap` with `mlock` for sensitive values, or at minimum zeroing out the cache dict values (not just clearing the dict).
+  An agent (or an adversarial LLM call) could pass `http://attacker.com/payload.xlsx` as the
+  URL, causing the authenticated corporate browser to fetch arbitrary URLs using the user's
+  corporate session.
+- **Exploitability**: Requires an LLM agent call with a malicious URL. An adversarial webhook
+  or iMessage payload (see SEC-CRIT-01/02) could chain this to exfiltrate the OAuth session
+  token to an attacker-controlled server.
+- **Impact**: Corporate credential exfiltration, SSRF using authenticated session, potential
+  internal network scanning.
+- **Fix**:
+  ```python
+  from urllib.parse import urlparse
+  parsed = urlparse(sharepoint_url)
+  if not parsed.hostname or not (
+      parsed.hostname.endswith(".sharepoint.com") or
+      parsed.hostname.endswith(".chghealthcare.com")
+  ):
+      return json.dumps({"status": "error", "error": "URL must be a SharePoint domain"})
+  ```
 
 ---
 
-### FINDING-08: Teams `post_teams_message` bypasses confirm gate for Graph backend (LOW)
+## Warning Findings 🟡
 
-**File**: `mcp_tools/teams_browser_tools.py`, lines 284-348
+### SEC-WARN-01: Module-Level Secret Constants (Config)
 
-When `TEAMS_SEND_BACKEND=graph`, `post_teams_message` sends the message immediately via `_graph_send_message` — there is no `confirm_send` gate, and the `auto_send` parameter is ignored for the Graph path. This contrasts with the email tools which have a strict `confirm_send` gate.
-
-The browser backend path does respect `auto_send` (line 344-347), but the Graph path at lines 309-317 sends immediately regardless.
-
-**Risk**: An LLM agent calling `post_teams_message` can send Teams messages without explicit user confirmation when Graph is the backend. This is inconsistent with the defensive pattern used for email.
-
-**Recommendation**:
-- Add a `confirm_send` gate to `post_teams_message` matching the pattern in `send_email` and `reply_to_email`.
-- Or at minimum, only send immediately when `auto_send=True`.
-
----
-
-### FINDING-09: Keychain service name collision risk (LOW)
-
-**File**: `vault/keychain.py`, line 14 — `KEYCHAIN_SERVICE = "jarvis"`
-
-The generic service name "jarvis" could collide with other applications using the same service name in the macOS Keychain. macOS Keychain items are uniquely identified by (service, account) tuples, so a collision would require both matching. However, the account names (`m365_client_id`, `m365_tenant_id`) are also relatively generic.
-
-**Risk**: Low — requires another app to use both the same service name and same account name.
-
-**Recommendation**: Use a more specific service name, e.g., `com.jarvis.chief-of-staff` (reverse-DNS style).
+- **Type**: Secret Leakage
+- **Location**: `config.py:165` (`M365_CLIENT_SECRET`), `config.py:18` (`ANTHROPIC_API_KEY`)
+- **Issue**: Both secrets are resolved at import time and stored as plain string module
+  attributes for the lifetime of the process. Any code path that can read `config.*` (debug
+  endpoints, crash dumps, `repr()`) exposes the raw secret. Previously documented as
+  FINDING-01/11 in the Graph API audit.
+- **Fix**: Replace with lazy accessor functions: `def get_m365_client_secret() -> str: ...`
+  Route `ANTHROPIC_API_KEY` through `get_secret()` for consistency.
 
 ---
 
-### FINDING-10: Error messages may leak partial API response bodies (LOW)
+### SEC-WARN-02: Token Cache File World-Readable (Default Permissions)
 
-**File**: `connectors/graph_client.py`, lines 447-456
-
-Error responses include the first 500 characters of the response body:
-```python
-body = response.text[:500]
-raise GraphAPIError(f"Graph API {response.status_code}: {body}")
-```
-
-Graph API error responses can include request IDs, tenant IDs, and other metadata. If these exceptions propagate to logs or user-facing output, they leak organizational identifiers.
-
-**Risk**: Low — these are error details, not credentials. But they provide reconnaissance information.
-
-**Recommendation**: Parse the error response JSON and extract only the `error.code` and `error.message` fields rather than dumping raw response text.
+- **Type**: Token Security
+- **Location**: `connectors/graph_client.py:209-215`
+- **Issue**: File-based MSAL token cache is written with default umask permissions.
+  `token_cache.lock` observed as `-rw-r--r--`. On a shared system this exposes OAuth tokens.
+  Previously documented as FINDING-02.
+- **Fix**: `cache_dir.mkdir(mode=0o700, ...)` and `cache_path.chmod(0o600)` after creation.
 
 ---
 
-### FINDING-11: ANTHROPIC_API_KEY exposed via os.environ fallback (LOW)
+### SEC-WARN-03: Dynamic SQL WHERE Clause Construction in `fact_store.py`
 
-**File**: `config.py`, line 18 — `ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")`
+- **Type**: SQL Injection (Low Exploitability — Internal)
+- **Location**: `memory/fact_store.py:169`, `memory/fact_store.py:322`, `memory/fact_store.py:342`
+- **Issue**: Three queries construct f-string SQL `WHERE` clauses. The clauses use
+  `OR`-joined `(category=? AND key=?)` pairs or `WHERE ...key LIKE ?` clauses, with all
+  values passed as parameterized `?` placeholders. The f-string only interpolates
+  structural parts (e.g., `{placeholders}` built from `"(category=? AND key=?)"` repeated N
+  times, and `{where}` built from static clause strings). User-controlled values are
+  never interpolated into the f-string.
 
-Unlike M365 credentials which use the Keychain-first `get_secret()` pattern, the Anthropic API key is read directly from environment variables and stored as a module-level constant. This means it is visible in `/proc/self/environ` (on Linux), in process inspection tools, and persists in `config.ANTHROPIC_API_KEY` for the process lifetime.
-
-**Risk**: Inconsistency with the Keychain-first pattern used for M365 secrets. Environment variables are a weaker storage mechanism.
-
-**Recommendation**: Route through `get_secret("ANTHROPIC_API_KEY")` for consistency with the M365 credential pattern, falling back to env var only when Keychain is unavailable.
-
----
-
-## Positive Findings (Good Practices Observed)
-
-1. **SSL never disabled**: `_get_ssl_context()` always returns either a proper SSL context or `True` (system default). There is no `verify=False` anywhere in the codebase.
-
-2. **No shell=True in subprocess calls**: All `subprocess.run()` calls in `vault/keychain.py` and `scripts/bootstrap_secrets.py` use list-form arguments, preventing shell injection.
-
-3. **confirm_send gate on email**: Both `send_email` and `reply_to_email` check `confirm_send` before any backend routing, preventing accidental sends.
-
-4. **Secret masking in bootstrap output**: `scripts/bootstrap_secrets.py` uses `mask()` to display only first/last 4 characters of secrets.
-
-5. **Secrets not logged**: Logger calls in `vault/keychain.py` log only the key name, never the secret value. Graph client logs token age but never the token itself.
-
-6. **Headless mode disables interactive auth**: When `interactive=False`, device code and auth code flows are blocked, preventing unattended auth prompts.
-
-7. **MSAL Keychain persistence preferred**: The token cache prefers macOS Keychain over file-based storage, with proper fallback chain.
-
-8. **Rate limit handling**: Graph API 429 responses respect `Retry-After` headers with bounded retries.
+  **Reviewed — not directly injectable via parameters.** However, the pattern is fragile:
+  if future changes interpolate dynamic filter values rather than `?` placeholders, this
+  will become a real SQL injection.
+- **Fix**: Refactor to use parameterized query helpers rather than f-strings for all SQL
+  construction, eliminating the pattern entirely. Document this as a code hygiene rule.
 
 ---
 
-## Risk Summary Matrix
+### SEC-WARN-04: Graph API URL Path Parameters Not Validated
 
-| ID | Severity | Category | File | Exploitability |
-|----|----------|----------|------|----------------|
-| F-01 | HIGH | Secret leakage | config.py:165 | Local process access |
-| F-02 | MEDIUM | Token security | graph_client.py:209 | Local file access |
-| F-03 | MEDIUM | Input validation | graph_client.py:472 | Requires MCP tool abuse |
-| F-04 | MEDIUM | Subprocess injection | keychain.py:46 | Requires custom key names |
-| F-05 | MEDIUM | Auth flow | graph_client.py:343 | Local port race |
-| F-06 | MEDIUM | Auth flow | graph_client.py:277 | Log/terminal access |
-| F-07 | MEDIUM | Secret leakage | keychain.py:18 | Memory dump |
-| F-08 | LOW | Confirm gate | teams_browser_tools.py:309 | LLM agent misuse |
-| F-09 | LOW | Keychain | keychain.py:14 | Service name collision |
-| F-10 | LOW | Error handling | graph_client.py:447 | Log access |
-| F-11 | LOW | Secret leakage | config.py:18 | Process inspection |
+- **Type**: Input Validation / URL Injection
+- **Location**: `connectors/graph_client.py:472, 479, 575`
+- **Issue**: `chat_id` and `message_id` are interpolated directly into URL path strings.
+  No allowlist character validation. Previously documented as FINDING-03.
+- **Fix**: Validate against `re.match(r'^[a-zA-Z0-9:_@.\-=]+$', chat_id)` and
+  `urllib.parse.quote(chat_id, safe='')`.
 
 ---
 
-## Recommended Priority Order
+### SEC-WARN-05: Subprocess Key Argument Not Validated (Keychain)
 
-1. **F-01** (HIGH) — Make secrets lazy-loaded, not module-level constants
-2. **F-08** (LOW but high-impact) — Add confirm_send gate to Teams Graph send path
-3. **F-02** (MEDIUM) — Restrict token cache file permissions to 0600
-4. **F-03** (MEDIUM) — Validate Graph API path parameters
-5. **F-05** (MEDIUM) — Use ephemeral port for auth code redirect
-6. **F-04** (MEDIUM) — Validate keychain key names
-7. **F-07** (MEDIUM) — Wire up secret cache cleanup
-8. **F-06** (MEDIUM) — Improve device code logging posture
-9. **F-10** (LOW) — Parse error responses instead of dumping raw text
-10. **F-11** (LOW) — Route ANTHROPIC_API_KEY through Keychain
-11. **F-09** (LOW) — Use reverse-DNS keychain service name
+- **Type**: Subprocess Injection (Theoretical)
+- **Location**: `vault/keychain.py:46-56, 86-97`
+- **Issue**: `key` parameter passed to `security` CLI subprocess without character validation.
+  `shell=False` prevents classic shell injection, but the `security` tool may handle unusual
+  key values unexpectedly. Previously documented as FINDING-04.
+- **Fix**: Add `_validate_key()` with allowlist pattern `r'^[a-zA-Z0-9_\-]+'`.
+
+---
+
+### SEC-WARN-06: OAuth Auth Code Flow Vulnerable to Port Race (TOCTOU)
+
+- **Type**: Auth Flow / TOCTOU
+- **Location**: `connectors/graph_client.py:292-374`
+- **Issue**: Binds to fixed port 8400 without checking if already bound. A local attacker
+  could pre-bind port 8400 to intercept the OAuth callback. Previously documented as FINDING-05.
+- **Fix**: Bind to port 0 (OS-assigned) and construct `redirect_uri` dynamically.
+
+---
+
+### SEC-WARN-07: In-Memory Secret Cache Never Cleared
+
+- **Type**: Secret Leakage (Residual)
+- **Location**: `vault/keychain.py:18-24`
+- **Issue**: `clear_secret_cache()` exists but is never called. Secrets persist in
+  `_cache: dict[str, str]` for the full process lifetime. Previously documented as FINDING-07.
+- **Fix**: Call `clear_secret_cache()` in server shutdown/session cleanup hooks.
+
+---
+
+### SEC-WARN-08: Teams Graph Backend Sends Without Confirm Gate
+
+- **Type**: Insufficient Authorization (LLM Agent Misuse)
+- **Location**: `mcp_tools/teams_browser_tools.py:309-317`
+- **Issue**: When `TEAMS_SEND_BACKEND=graph`, `post_teams_message` sends immediately without
+  a `confirm_send` gate. Inconsistent with email tools. Previously documented as FINDING-08.
+- **Fix**: Add `confirm_send` parameter and gate matching the email tool pattern.
+
+---
+
+### SEC-WARN-09: iMessage `allowed_senders` Empty by Default — No Warning at Startup
+
+- **Type**: Insufficient Authorization (Configuration Risk)
+- **Location**: `config.py:201-203`, `chief/imessage_daemon.py:87`
+- **Issue**: `IMESSAGE_DAEMON_ALLOWED_SENDERS` defaults to an empty tuple. When empty, the
+  daemon comment says "if non-empty, only process from these senders" — meaning empty =
+  **no restrictions**. There is no warning log, startup failure, or documentation that
+  deploying without this setting is a security risk. This amplifies SEC-CRIT-01.
+- **Fix**: Log a `WARNING: IMESSAGE_DAEMON_ALLOWED_SENDERS is unset — processing iMessages
+  from all senders. Set this env var to restrict access.` at daemon startup. Consider making
+  this a hard error in production mode.
+
+---
+
+### SEC-WARN-10: Device Code Flow Logged at INFO Level
+
+- **Type**: Auth Flow / Phishing Surface
+- **Location**: `connectors/graph_client.py:277-286`
+- **Issue**: Device code printed to stderr and logged at INFO. Log access exposes an active
+  auth code with 15-minute validity window. Previously documented as FINDING-06.
+- **Fix**: Log at WARNING level with a note not to share. Confirm authenticated identity
+  matches expected user after device code flow completes.
+
+---
+
+## Informational 🟢
+
+### SEC-INFO-01: SQL Migration Uses f-string Column Names (Hardcoded — Not User Input)
+
+- **Location**: `memory/store.py:468`
+- **Code**: `self.conn.execute(f"ALTER TABLE scheduled_tasks ADD COLUMN {col} {col_type}")`
+- The `col` and `col_type` values are hardcoded tuples in `_migrate_scheduled_tasks_delivery()`:
+  `[("delivery_channel", "TEXT"), ("delivery_config", "TEXT")]`. These are never user-controlled.
+  **Not exploitable.** Noted to prevent future regressions.
+
+### SEC-INFO-02: communicate.sh Passes Body Text to AppleScript
+
+- **Location**: `scripts/communicate.sh:100-110, 124-133`
+- The shell script's `escape_applescript()` function escapes `\`, `"`, `\n`, `\r`, `\t` before
+  embedding in AppleScript. This mirrors `utils/osascript.py:escape_osascript()`.
+
+  **Risk**: AppleScript injection requires breaking out of the quoted string context. The
+  escaping handles the primary injection chars but does not handle Unicode/emoji edge cases or
+  null bytes. The body arrives from Python subprocess argument list (not shell expansion), so
+  this is low risk. Mark for review if the escape function is changed.
+
+### SEC-INFO-03: Fact Store FTS5 Query Uses Quoted Token Wrapping
+
+- **Location**: `memory/fact_store.py:120`
+- FTS5 input is sanitized by removing special chars via `_FTS5_SPECIAL.sub(" ", query)` before
+  quoting each token with `f'"{t}"'`. This prevents most FTS injection. Acceptable.
+
+### SEC-INFO-04: Document Ingest Path Traversal Mitigation Exists
+
+- **Location**: `mcp_tools/document_tools.py:48-61`
+- `ingest_documents` uses `Path(path).resolve()` and validates against `allowed_ingest_roots`.
+  The protection is only active when `state.allowed_ingest_roots` is set (defaults to
+  `~/Documents`, `~/Desktop`, `~/Downloads`). The default set is reasonable but notably
+  excludes `/tmp` and `/var` — no bypass found.
+
+### SEC-INFO-05: Keychain Service Name Too Generic
+
+- **Location**: `vault/keychain.py:14`
+- `KEYCHAIN_SERVICE = "jarvis"` — generic name. Low collision risk but should be
+  `com.jarvis.chief-of-staff`. Previously documented as FINDING-09.
+
+### SEC-INFO-06: Graph Error Responses Leak Tenant Metadata
+
+- **Location**: `connectors/graph_client.py:447-456`
+- Error body truncated to 500 chars included in exception messages. May leak tenant IDs,
+  request IDs. Low risk but should parse `error.code`/`error.message` fields only.
+  Previously documented as FINDING-10.
+
+---
+
+## Dependency Vulnerabilities
+
+pip-audit was not installed in the active environment. Dependency scan could not be completed.
+
+**Manually noted**: No obviously outdated packages identified from `pyproject.toml` review.
+`anthropic`, `msal`, `playwright`, `chromadb`, `fastmcp` are all actively maintained.
+A full `pip-audit` run is strongly recommended as part of CI.
+
+---
+
+## Auth and Authorization Assessment
+
+**Session management**: No HTTP session layer (stdio MCP, no inbound network). Not applicable.
+
+**Token validation**: MSAL handles M365 token lifecycle correctly. Keychain-first storage with
+file-based fallback. Token expiry respected (MSAL handles refresh). Algorithm not configurable
+(MSAL handles internally). No JWT algorithm confusion risk identified.
+
+**Authorization checks**: The MCP server has no authorization model — any process that can
+connect to the stdio MCP server (i.e., Claude Desktop/Code running as the same user) can call
+any tool. This is the intended design for a single-user desktop tool. The only "authorization"
+controls are operational gates (`confirm_send` for email/iMessage, safety tier for routing).
+
+**Password handling**: No passwords stored or processed by this application.
+
+**Privilege escalation risk**: The iMessage daemon (SEC-CRIT-01) and webhook dispatcher
+(SEC-CRIT-02) represent the closest analog to privilege escalation — an unprivileged external
+sender gaining the agent's full capability set. These are flagged as Critical above.
+
+---
+
+## Positive Findings (Good Practices)
+
+1. **SSL never disabled**: No `verify=False` found anywhere in the codebase.
+2. **No `shell=True` in project code**: All subprocess calls use list-form arguments.
+3. **`confirm_send` gate on email**: Both `send_email` and `reply_to_email` require explicit
+   confirmation.
+4. **Document ingest path traversal guard**: Allowlist-based root checking in `document_tools.py`.
+5. **SharePoint download extension allowlist**: Only whitelisted file extensions accepted.
+6. **SharePoint download directory restriction**: Output constrained to allowed paths.
+7. **Secret masking in bootstrap output**: `scripts/bootstrap_secrets.py` masks credentials.
+8. **No `yaml.load()` unsafe calls**: All YAML loading uses `yaml.safe_load()`.
+9. **FTS5 query sanitization**: Special chars stripped before FTS5 query construction.
+10. **Headless mode disables interactive auth**: Device code and auth code flows blocked when
+    `interactive=False`.
+11. **Column name allowlist in lifecycle store**: `update_decision`/`update_delegation` validate
+    column names against `_DECISION_COLUMNS`/`_DELEGATION_COLUMNS` frozensets before building
+    dynamic `SET` clauses.
+12. **Webhook ingest uses exclusive file lock**: `fcntl.LOCK_EX` prevents concurrent ingest race.
+13. **iMessage sends require `confirm_send=True`**: `MessageStore.send_message` has explicit gate.
+14. **AppleScript escaping implemented**: Both Python (`utils/osascript.py`) and shell
+    (`communicate.sh`) escape special chars before embedding in AppleScript strings.
+
+---
+
+## Areas NOT Covered
+
+- **Runtime SSRF verification**: Cannot confirm whether the Playwright browser would actually
+  follow the attacker-controlled URL without a live test environment.
+- **Anthropic API prompt injection via tool results**: Tool results flow back into Claude messages.
+  A malicious external data source (e.g., a fact retrieved from memory, an email body) could
+  embed prompt injection. Not systematically analyzed.
+- **ChromaDB vector store security**: Embedding model (`all-MiniLM-L6-v2`) and ChromaDB
+  persistence security not evaluated.
+- **Playwright Chromium browser session isolation**: Whether the same browser profile is used
+  across SharePoint downloads and Teams sessions (credential sharing risk) not confirmed.
+- **Dependency CVE scan**: pip-audit not available in environment. Full scan required.
+- **launchd plist configurations**: Not reviewed for TOCTOU or privilege escalation vectors.
+- **Git history secret scan**: Not performed beyond the 20 most recent commits.
+
+---
+
+## Overall Security Verdict
+
+This codebase is a capable single-user desktop automation tool with several meaningful security
+controls (AppleScript escaping, confirm-send gates, extension allowlists, Keychain-backed
+secrets). However, it has **three Critical findings that could enable an external attacker to
+achieve autonomous command execution** in the user's Jarvis environment:
+
+1. **The iMessage daemon processes messages from any sender by default** (SEC-CRIT-01). Anyone
+   who can send an iMessage to this phone number and prefix it with "jarvis" can execute
+   arbitrary agent commands. This is the highest-risk finding.
+
+2. **Webhook payloads are injected verbatim into agent prompts** (SEC-CRIT-02). Any system
+   that can write to the webhook inbox directory controls what the dispatched agent does.
+
+3. **The SharePoint download tool accepts arbitrary URLs** (SEC-CRIT-03), enabling SSRF using
+   an already-authenticated corporate browser session.
+
+These three findings chain: a malicious iMessage (SEC-CRIT-01) could instruct the agent to
+call `download_from_sharepoint` with an attacker URL (SEC-CRIT-03), exfiltrating the
+corporate session token. Before enabling the iMessage daemon in production, SEC-CRIT-01 must
+be addressed with a mandatory sender allowlist requirement.
