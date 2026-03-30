@@ -341,6 +341,12 @@ class IMessageDaemon:
 
         messages: list[IngestedMessage] = []
         allowed = self.config.allowed_senders
+        if not allowed:
+            logger.warning(
+                "allowed_senders is empty — rejecting ALL inbound messages. "
+                "Set IMESSAGE_DAEMON_ALLOWED_SENDERS to enable processing."
+            )
+            return 0
         prefix = self.config.command_prefix
         for row in raw_messages:
             guid = str(row.get("guid", "")).strip()

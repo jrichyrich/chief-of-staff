@@ -184,6 +184,14 @@ def build_imessage_daemon():
     if not IMESSAGE_DAEMON_ENABLED:
         return None
 
+    if not IMESSAGE_DAEMON_ALLOWED_SENDERS:
+        logger.error(
+            "IMESSAGE_DAEMON_ENABLED=true but IMESSAGE_DAEMON_ALLOWED_SENDERS is empty. "
+            "Refusing to start iMessage daemon without an allowlist — any sender could "
+            "execute agent commands. Set the env var to a comma-separated list of handles."
+        )
+        return None
+
     from chief.imessage_daemon import DaemonConfig, IMessageDaemon
     from chief.imessage_executor import IMessageExecutor
 

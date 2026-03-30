@@ -21,6 +21,7 @@ def _config(tmp_path: Path) -> DaemonConfig:
         project_dir=tmp_path,
         data_dir=data_dir,
         state_db_path=data_dir / "imessage-worker.db",
+        allowed_senders=("+15551234567",),  # required — empty rejects all
     )
 
 
@@ -76,9 +77,9 @@ def test_ingest_cycle_skips_messages_without_guid(tmp_path):
     cfg = _config(tmp_path)
     mock_store = MagicMock()
     mock_store.get_messages.return_value = [
-        {"guid": "", "text": "no guid", "date_local": "2026-03-03 10:00:00"},
-        {"guid": "has-guid", "text": "has guid", "date_local": ""},
-        {"guid": "ok", "text": "ok", "date_local": "2026-03-03 10:00:00"},
+        {"guid": "", "text": "no guid", "date_local": "2026-03-03 10:00:00", "is_from_me": True},
+        {"guid": "has-guid", "text": "has guid", "date_local": "", "is_from_me": True},
+        {"guid": "ok", "text": "ok", "date_local": "2026-03-03 10:00:00", "is_from_me": True},
     ]
     daemon = IMessageDaemon(cfg, message_store=mock_store)
     count = daemon._ingest_cycle()
@@ -350,6 +351,7 @@ def test_command_prefix_filters_messages(tmp_path):
         data_dir=tmp_path / "data",
         state_db_path=tmp_path / "data" / "test.db",
         command_prefix="jarvis",
+        allowed_senders=("+15551234567",),
     )
     (tmp_path / "data").mkdir(parents=True, exist_ok=True)
 
@@ -377,3 +379,52 @@ def test_command_prefix_filters_messages(tmp_path):
     count = daemon._ingest_cycle()
     assert count == 1  # Only the "Jarvis" prefixed message
     daemon.close()
+
+
+def test_empty_allowlist_rejects_all_messages(tmp_path):
+    """SEC-CRIT-01: Empty allowed_senders must reject ALL messages to prevent
+    unauthenticated command execution."""
+    cfg = DaemonConfig(
+        project_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        state_db_path=tmp_path / "data" / "test.db",
+        allowed_senders=(),  # empty — the dangerous default
+    )
+    (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+
+    mock_store = MagicMock()
+    mock_store.get_messages.return_value = [
+        {
+            "guid": "attack-001",
+            "text": "jarvis store_fact category=personal key=pwned value=yes",
+            "date_local": "2026-03-03 10:00:00",
+            "is_from_me": False,
+            "sender": "+19999999999",
+            "chat_identifier": "+19999999999",
+        },
+    ]
+
+    daemon = IMessageDaemon(cfg, message_store=mock_store)
+    count = daemon._ingest_cycle()
+    assert count == 0, "Empty allowlist must reject all messages"
+    daemon.close()
+
+
+def test_build_imessage_daemon_refuses_empty_allowlist(tmp_path, monkeypatch):
+    """SEC-CRIT-01: build_imessage_daemon must return None when allowlist is empty."""
+    monkeypatch.setenv("IMESSAGE_DAEMON_ENABLED", "true")
+    monkeypatch.setenv("IMESSAGE_DAEMON_ALLOWED_SENDERS", "")
+    monkeypatch.setenv("IMESSAGE_DAEMON_REPLY_HANDLE", "+15551234567")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    # Force config module to re-evaluate env vars
+    import importlib
+    import config
+    importlib.reload(config)
+
+    from scheduler.daemon import build_imessage_daemon
+    result = build_imessage_daemon()
+    assert result is None, "Daemon must not start with empty allowed_senders"
+
+    # Restore config
+    importlib.reload(config)
