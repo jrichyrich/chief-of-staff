@@ -317,3 +317,28 @@ class TestSessionBrainChecks:
         engine = ProactiveSuggestionEngine(memory_store, session_brain=brain)
         suggestions = engine.generate_suggestions()
         assert any("action item" in s.title.lower() for s in suggestions)
+
+
+class TestCheckKnowledgeLintFindings:
+    def test_no_findings_returns_empty(self, engine):
+        result = engine._check_knowledge_lint_findings()
+        assert result == []
+
+    def test_stale_facts_surface_as_suggestions(self, memory_store, engine):
+        from datetime import datetime, timedelta
+        from memory.models import Fact
+
+        memory_store.store_fact(Fact(
+            category="work", key="old_info",
+            value="Some outdated information", confidence=0.4,
+        ))
+        memory_store.conn.execute(
+            "UPDATE facts SET updated_at = ? WHERE key = ?",
+            ((datetime.now() - timedelta(days=200)).isoformat(), "old_info"),
+        )
+        memory_store.conn.commit()
+
+        result = engine._check_knowledge_lint_findings()
+        assert len(result) >= 1
+        assert result[0].category == "knowledge"
+        assert result[0].priority == "low"

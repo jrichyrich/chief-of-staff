@@ -46,6 +46,7 @@ class ProactiveSuggestionEngine:
         suggestions.extend(self._check_session_token_limit())
         suggestions.extend(self._check_session_unflushed_items())
         suggestions.extend(self._check_session_brain_items())
+        suggestions.extend(self._check_knowledge_lint_findings())
         suggestions.extend(self._check_stale_documents())
         # Sort by priority: high first, then medium, then low
         suggestions.sort(key=lambda s: PRIORITY_ORDER.get(s.priority, 3))
@@ -226,6 +227,27 @@ class ProactiveSuggestionEngine:
                 title=f"{len(active_ws)} active workstream(s)",
                 description=f"Workstreams: {ws_list}",
                 action="get_session_brain",
+            ))
+        return results
+
+    def _check_knowledge_lint_findings(self) -> list[Suggestion]:
+        """Surface knowledge linter findings as low-priority suggestions."""
+        try:
+            from knowledge.linter import KnowledgeLinter
+            linter = KnowledgeLinter(self.memory_store)
+            findings = linter.run_all()
+        except Exception:
+            logger.debug("Knowledge lint check failed", exc_info=True)
+            return []
+
+        results = []
+        for f in findings[:5]:  # Cap at 5 to avoid suggestion overload
+            results.append(Suggestion(
+                category="knowledge",
+                priority="low",
+                title=f"Knowledge issue: {f['issue']} — {f.get('key', f.get('fact_a', {}).get('key', 'unknown'))}",
+                description=f.get("suggestion", str(f)),
+                action="query_memory",
             ))
         return results
 
