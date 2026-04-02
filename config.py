@@ -82,6 +82,17 @@ PROACTIVE_ACTION_CATEGORIES = frozenset(
     os.environ.get("PROACTIVE_ACTION_CATEGORIES", "checkpoint,delegation,decision,webhook").split(",")
 )
 
+# Knowledge enhancement settings
+KNOWLEDGE_COMPILE_ON_INGEST = os.environ.get(
+    "KNOWLEDGE_COMPILE_ON_INGEST", "false"
+).strip().lower() in {"1", "true", "yes"}
+KNOWLEDGE_LINT_MAX_AGE_DAYS = int(os.environ.get("KNOWLEDGE_LINT_MAX_AGE_DAYS", "180"))
+KNOWLEDGE_LINT_MIN_CONFIDENCE = float(os.environ.get("KNOWLEDGE_LINT_MIN_CONFIDENCE", "0.6"))
+KNOWLEDGE_LINT_SIMILARITY_THRESHOLD = float(os.environ.get("KNOWLEDGE_LINT_SIMILARITY_THRESHOLD", "0.7"))
+KNOWLEDGE_FEEDBACK_ENABLED = os.environ.get(
+    "KNOWLEDGE_FEEDBACK_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes"}
+
 # Webhook auto-dispatch settings
 WEBHOOK_AUTO_DISPATCH_ENABLED = os.environ.get(
     "WEBHOOK_AUTO_DISPATCH_ENABLED", "false"

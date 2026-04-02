@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from documents.store import DocumentStore
 
 # Feature flag: compile summaries at ingest time (requires Anthropic API key)
-COMPILE_ON_INGEST = os.environ.get("KNOWLEDGE_COMPILE_ON_INGEST", "false").strip().lower() in {"1", "true", "yes"}
+from config import KNOWLEDGE_COMPILE_ON_INGEST as COMPILE_ON_INGEST
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".pdf", ".docx"}
 
