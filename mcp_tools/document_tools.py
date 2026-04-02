@@ -20,20 +20,30 @@ def register(mcp, state):
 
     @mcp.tool()
     @tool_errors("Document search error", expected=_EXPECTED)
-    async def search_documents(query: str, top_k: int = 5) -> str:
+    async def search_documents(query: str, top_k: int = 5, include_summaries: bool = True) -> str:
         """Semantic search over ingested documents. Returns the most relevant chunks.
 
         Args:
             query: Natural language search query
             top_k: Number of results to return (default 5)
+            include_summaries: If True, also return document summaries when available (default True)
         """
         document_store = state.document_store
         results = _retry_on_transient(document_store.search, query, top_k=top_k)
 
-        if not results:
+        response = {}
+
+        # Include summaries if available and requested
+        if include_summaries:
+            summaries = _retry_on_transient(document_store.search_summaries, query, top_k=3)
+            if summaries:
+                response["summaries"] = summaries
+
+        if not results and not response.get("summaries"):
             return json.dumps({"message": "No documents found. Ingest documents first.", "results": []})
 
-        return json.dumps({"results": results})
+        response["results"] = results
+        return json.dumps(response)
 
     @mcp.tool()
     @tool_errors("Document ingestion error", expected=_EXPECTED)

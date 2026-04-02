@@ -273,6 +273,27 @@ class TestSummarySearch:
         assert results == []
 
 
+class TestSearchWithSummaries:
+    def test_search_documents_includes_summaries_flag(self, doc_store):
+        """When include_summaries=True, summaries appear first in results."""
+        doc_store.add_documents(
+            texts=["Raw chunk about RBAC policies"],
+            metadatas=[{"source": "rbac.md", "doc_type": "chunk", "chunk_index": 0}],
+            ids=["hash_0"],
+        )
+        doc_store.add_documents(
+            texts=["Summary: RBAC policy defines role-based access control rules."],
+            metadatas=[{"source": "rbac.md", "doc_type": "summary", "chunk_index": -1}],
+            ids=["hash_summary"],
+        )
+        results = doc_store.search("RBAC", top_k=5)
+        assert len(results) == 2
+
+        summaries = doc_store.search_summaries("RBAC", top_k=5)
+        assert len(summaries) == 1
+        assert summaries[0]["metadata"]["doc_type"] == "summary"
+
+
 class TestIngestionWithSummary:
     def test_ingest_generates_summary_when_enabled(self, doc_store, tmp_path):
         test_file = tmp_path / "test.md"
