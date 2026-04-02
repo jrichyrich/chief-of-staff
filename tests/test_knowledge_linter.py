@@ -1,5 +1,6 @@
 """Tests for the knowledge linter module."""
 
+import json
 import pytest
 from datetime import datetime, timedelta
 
@@ -185,3 +186,17 @@ def test_run_all_combines_findings(memory_store):
     issues = [f["issue"] for f in findings]
     assert "stale" in issues
     assert "near_duplicate" in issues
+
+
+# ---------------------------------------------------------------------------
+# TestKnowledgeLintHandler
+# ---------------------------------------------------------------------------
+
+class TestKnowledgeLintHandler:
+    def test_handler_returns_findings(self, memory_store):
+        from scheduler.handlers import execute_handler
+        result_json = execute_handler("knowledge_lint", "{}", memory_store=memory_store)
+        result = json.loads(result_json)
+        assert result["status"] == "ok"
+        assert result["handler"] == "knowledge_lint"
+        assert "findings_count" in result

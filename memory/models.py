@@ -63,6 +63,7 @@ class HandlerType(StrEnum):
     webhook_dispatch = "webhook_dispatch"
     morning_brief = "morning_brief"
     custom = "custom"
+    knowledge_lint = "knowledge_lint"
 
 
 class DeliveryChannel(StrEnum):

@@ -241,6 +241,23 @@ def _run_webhook_dispatch_handler(memory_store, agent_registry=None, document_st
         return json.dumps({"status": "error", "handler": "webhook_dispatch", "error": str(e)})
 
 
+def _run_knowledge_lint_handler(memory_store) -> str:
+    """Run the knowledge linter to check fact consistency."""
+    try:
+        from knowledge.linter import KnowledgeLinter
+        linter = KnowledgeLinter(memory_store)
+        findings = linter.run_all()
+        return json.dumps({
+            "status": "ok",
+            "handler": "knowledge_lint",
+            "findings_count": len(findings),
+            "findings": findings[:20],
+        })
+    except Exception as e:
+        logger.error("Knowledge lint handler failed: %s", e)
+        return json.dumps({"status": "error", "handler": "knowledge_lint", "error": str(e)})
+
+
 def execute_handler(handler_type: str, handler_config: str, memory_store=None, agent_registry=None, document_store=None) -> str:
     """Execute a task handler and return a JSON result string."""
     # Import here to avoid module-level circular dependency
@@ -260,6 +277,8 @@ def execute_handler(handler_type: str, handler_config: str, memory_store=None, a
         return _run_webhook_dispatch_handler(memory_store, agent_registry, document_store)
     elif handler_type == HandlerType.morning_brief:
         return _run_morning_brief_handler(handler_config)
+    elif handler_type == HandlerType.knowledge_lint:
+        return _run_knowledge_lint_handler(memory_store)
     elif handler_type == HandlerType.custom:
         return _run_custom_handler(handler_config)
     else:
