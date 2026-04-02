@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from documents.store import DocumentStore
 from documents.ingestion import chunk_text, load_text_file, _load_pdf, _load_docx, ingest_path
+import documents.ingestion
 
 
 @pytest.fixture
@@ -248,3 +249,44 @@ class TestIngestion:
             # Search should find the ingested content
             results = doc_store.search("analysis", top_k=1)
             assert len(results) > 0
+
+
+class TestSummarySearch:
+    def test_search_summaries_only(self, doc_store):
+        """search_summaries returns only doc_type=summary entries."""
+        doc_store.add_documents(
+            texts=["Raw chunk about Python"],
+            metadatas=[{"source": "doc.md", "doc_type": "chunk", "chunk_index": 0}],
+            ids=["hash_0"],
+        )
+        doc_store.add_documents(
+            texts=["Summary: Python programming overview"],
+            metadatas=[{"source": "doc.md", "doc_type": "summary", "chunk_index": -1}],
+            ids=["hash_summary"],
+        )
+        results = doc_store.search_summaries("Python", top_k=5)
+        assert len(results) == 1
+        assert results[0]["metadata"]["doc_type"] == "summary"
+
+    def test_search_summaries_empty(self, doc_store):
+        results = doc_store.search_summaries("anything")
+        assert results == []
+
+
+class TestIngestionWithSummary:
+    def test_ingest_generates_summary_when_enabled(self, doc_store, tmp_path):
+        test_file = tmp_path / "test.md"
+        test_file.write_text("word " * 100)
+        with patch.object(documents.ingestion, "COMPILE_ON_INGEST", True), \
+             patch("knowledge.compiler.compile_document_summary", return_value="A summary") as mock_compile:
+            result = ingest_path(test_file, doc_store)
+        assert "1 file(s)" in result
+        mock_compile.assert_called_once()
+
+    def test_ingest_skips_summary_when_disabled(self, doc_store, tmp_path):
+        test_file = tmp_path / "test.md"
+        test_file.write_text("word " * 100)
+        with patch.object(documents.ingestion, "COMPILE_ON_INGEST", False), \
+             patch("knowledge.compiler.compile_document_summary") as mock_compile:
+            result = ingest_path(test_file, doc_store)
+        mock_compile.assert_not_called()

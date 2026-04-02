@@ -72,3 +72,23 @@ class DocumentStore:
                 "distance": results["distances"][0][i] if results.get("distances") else None,
             })
         return output
+
+    def search_summaries(self, query: str, top_k: int = 5) -> list[dict]:
+        """Search only summary entries (doc_type=summary) in the collection."""
+        if self.collection.count() == 0:
+            return []
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=top_k,
+            where={"doc_type": "summary"},
+        )
+        if not results["documents"] or not results["documents"][0]:
+            return []
+        output = []
+        for i in range(len(results["documents"][0])):
+            output.append({
+                "text": results["documents"][0][i],
+                "metadata": results["metadatas"][0][i],
+                "distance": results["distances"][0][i] if results.get("distances") else None,
+            })
+        return output

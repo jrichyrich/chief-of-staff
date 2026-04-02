@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from documents.store import DocumentStore
 
+# Feature flag: compile summaries at ingest time (requires Anthropic API key)
+COMPILE_ON_INGEST = os.environ.get("KNOWLEDGE_COMPILE_ON_INGEST", "false").strip().lower() in {"1", "true", "yes"}
+
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".pdf", ".docx"}
 
 EXTENSION_TO_DOC_TYPE = {
@@ -175,6 +178,14 @@ def ingest_path(path: Path, document_store: "DocumentStore") -> str:
 
         document_store.add_documents(texts=texts, metadatas=metadatas, ids=ids)
         total_chunks += len(chunks)
+
+        # Optionally compile a summary for the document
+        if COMPILE_ON_INGEST:
+            try:
+                from knowledge.compiler import compile_document_summary
+                compile_document_summary(text, str(file.name), file_hash, document_store)
+            except Exception:
+                logger.warning("Summary compilation failed for %s", file.name, exc_info=True)
 
     summary = f"Ingested {len(files) - skipped} file(s), {total_chunks} chunks."
     if skipped:
