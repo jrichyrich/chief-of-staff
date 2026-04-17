@@ -319,6 +319,7 @@ from mcp_tools import (
     dispatch_tools,
     sharepoint_tools,
     api_usage_tools,
+    triage_tools,
 )
 
 # Register all tool groups
@@ -350,6 +351,7 @@ formatter_tools.register(mcp, _state)
 dispatch_tools.register(mcp, _state)
 sharepoint_tools.register(mcp, _state)
 api_usage_tools.register(mcp, _state)
+triage_tools.register(mcp, _state)
 
 # Install automatic tool usage tracking (must come after all tools are registered)
 from mcp_tools.usage_tracker import install_usage_tracker
