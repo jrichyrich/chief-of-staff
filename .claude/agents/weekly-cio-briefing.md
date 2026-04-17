@@ -79,9 +79,9 @@ After all parallel data-gathering tools return, before you write the brief:
 
 4. **Enrich person mentions** — for each distinct name that appears in the remaining items, call `orchestration.person_enrichment.enrich_person_mention(name, memory_store, identity_store)`. Keep the first-mention rendering; drop the enrichment on repeat mentions.
 
-5. **Hand off to synthesis** — pass the scored, enriched items to `orchestration.synthesis.synthesize_results(task="daily brief", dispatches=[...])`. The synthesis prompt now enforces ranking/dedup/priority.
+5. **Hand off to synthesis** — pass the scored, enriched items to `orchestration.synthesis.synthesize_results(task="weekly CIO brief", dispatches=[...], brief_type="cio-weekly")`. The synthesis prompt now enforces ranking/dedup/priority.
 
-**Do NOT** produce a daily brief from raw search results. If any of the above steps fails, degrade gracefully (log + continue) but surface the degradation in a footer note ("triage unavailable — brief is a raw dump").
+**Do NOT** produce the weekly brief from raw search results. If any of the above steps fails, degrade gracefully (log + continue) but surface the degradation in a footer note ("triage unavailable — brief is a raw dump").
 
 ### Phase 3: Synthesize
 
