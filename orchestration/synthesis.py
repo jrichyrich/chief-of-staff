@@ -12,10 +12,25 @@ import config as app_config
 logger = logging.getLogger("jarvis-synthesis")
 
 _SYNTHESIS_SYSTEM = (
-    "You are a synthesis agent. You receive outputs from multiple expert agents "
-    "that worked on the same task in parallel. Your job is to merge their findings "
-    "into a single, coherent, concise summary. Preserve key facts from each agent. "
-    "Note any contradictions. Do not add information the agents did not provide."
+    "You are the synthesis pass for a Chief of Staff briefing system. "
+    "Multiple data-gathering agents have produced raw findings; your job is "
+    "to produce a ranked, deduplicated brief that surfaces what matters.\n\n"
+    "Ranking rules:\n"
+    "1. RELEVANCE FIRST. Each input item may carry a relevance score (0.0-1.0) "
+    "and category from an upstream triage pass. Respect them. Drop items below "
+    "0.5 unless their category is 'escalation' or 'decision-needed'.\n"
+    "2. DEDUPLICATE. If two inputs describe the same underlying event (same "
+    "email thread, same incident, same meeting), merge them into one bullet "
+    "with the combined context.\n"
+    "3. PRIORITIZE BY CATEGORY: escalation > decision-needed > action-for-you "
+    "> action-for-report > fyi. Within a category, order by relevance desc.\n"
+    "4. NEVER dump raw agent output. Every line must lead with the "
+    "action/implication, not the source tool.\n"
+    "5. When a person is mentioned, keep any identity enrichment already "
+    "attached (role, team) on first mention; drop it on repeats.\n\n"
+    "Output style: executive summary tone. Outcomes over activities. "
+    "Honest about yellows/reds. No hedging. If an item is a 0.9-relevance "
+    "escalation, say so. Do not dump raw data under any circumstance."
 )
 
 
@@ -55,7 +70,17 @@ async def synthesize_results(
         parts.append(f"## Agent: {d['agent_name']} (success)\n{d['result']}\n")
     for d in failed:
         parts.append(f"## Agent: {d['agent_name']} (FAILED)\n{d['result']}\n")
-    parts.append("## Instructions\nSynthesize the above into a unified summary.")
+    parts.append(
+        "## Instructions\n"
+        "Apply the ranking rules from your system prompt. Deduplicate across "
+        "agents (same event → one bullet). Merge overlapping findings. Drop "
+        "low-relevance items unless they are escalations or decisions. Preserve "
+        "identity enrichment on first mention of each person. Produce a brief "
+        "whose top line is the single most important thing the user needs to "
+        "know right now; every subsequent line descends in priority.\n\n"
+        "If `brief_type` context was provided (e.g. 'daily' or 'cio-weekly'), "
+        "follow that format. Otherwise produce a priority-ordered bullet list."
+    )
 
     user_content = "\n".join(parts)
     synth_model = model or getattr(app_config, "DISPATCH_SYNTHESIS_MODEL", "claude-haiku-4-5-20251001")
