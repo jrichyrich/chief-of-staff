@@ -142,3 +142,86 @@ def test_build_triage_context_accepts_fact_dataclasses():
     ctx = build_triage_context(memory_store=mem, brain=FakeBrain(""))
     assert "VP" in ctx.user_role
     assert any("pst" in p.lower() for p in ctx.active_projects)
+
+
+@pytest.mark.asyncio
+async def test_llm_triage_parses_haiku_json_response():
+    from orchestration import triage as t
+    import json
+
+    items = [
+        {"kind": "email", "subject": "PST rollback decision", "from_email": "shawn@chg.com"},
+        {"kind": "email", "subject": "Lunch menu", "from_email": "cafe@chg.com"},
+    ]
+    ctx = TriageContext(
+        user_role="VP/CoS",
+        active_projects=["pst_remediation"],
+        current_focus=["close PST rollback"],
+        key_people=["shawn.farnworth"],
+    )
+
+    fake_response_text = json.dumps([
+        {"index": 0, "relevance": 0.95, "category": "decision-needed",
+         "why": "Blocks PST rollback close; aligns with current focus"},
+        {"index": 1, "relevance": 0.1, "category": "fyi",
+         "why": "Cafe menu, no action"},
+    ])
+
+    async def fake_create(**kwargs):
+        mock = MagicMock()
+        mock.content = [MagicMock(text=fake_response_text)]
+        mock.usage = MagicMock(
+            input_tokens=1, output_tokens=1,
+            cache_creation_input_tokens=0, cache_read_input_tokens=0,
+        )
+        return mock
+
+    mock_client = MagicMock()
+    mock_client.messages.create = fake_create
+
+    with patch.object(t, "AsyncAnthropic", return_value=mock_client):
+        results = await t.llm_triage(items, ctx)
+
+    assert len(results) == 2
+    assert results[0].relevance == 0.95
+    assert results[0].category == "decision-needed"
+    assert "PST" in results[0].why
+    assert results[0].relevance >= results[1].relevance
+
+
+@pytest.mark.asyncio
+async def test_llm_triage_empty_input_skips_llm_call():
+    from orchestration import triage as t
+
+    ctx = TriageContext(user_role="VP/CoS")
+    with patch.object(t, "AsyncAnthropic") as mock_client_cls:
+        results = await t.llm_triage([], ctx)
+    assert results == []
+    mock_client_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_llm_triage_falls_back_gracefully_on_bad_json():
+    from orchestration import triage as t
+
+    items = [{"kind": "email", "subject": "X"}]
+    ctx = TriageContext(user_role="VP/CoS")
+
+    async def fake_create(**kwargs):
+        mock = MagicMock()
+        mock.content = [MagicMock(text="not json at all")]
+        mock.usage = MagicMock(
+            input_tokens=1, output_tokens=1,
+            cache_creation_input_tokens=0, cache_read_input_tokens=0,
+        )
+        return mock
+
+    mock_client = MagicMock()
+    mock_client.messages.create = fake_create
+
+    with patch.object(t, "AsyncAnthropic", return_value=mock_client):
+        results = await t.llm_triage(items, ctx)
+
+    assert len(results) == 1
+    assert results[0].category == "fyi"
+    assert 0 <= results[0].relevance <= 1

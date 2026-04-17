@@ -158,3 +158,103 @@ def build_triage_context(
         current_focus=current_focus,
         key_people=list(key_people or []),
     )
+
+
+from anthropic import AsyncAnthropic
+import config as app_config
+
+
+_TRIAGE_SYSTEM = (
+    "You are the triage pass for a Chief of Staff briefing system. You will "
+    "receive a JSON array of inbound items (emails, Teams messages, delegation "
+    "updates, calendar items) and a JSON context object describing the user's "
+    "role, active projects, current focus, and key people.\n\n"
+    "Your job: return a JSON array, one object per input (preserving index), "
+    "each with: index (int), relevance (float 0.0-1.0), category (one of: "
+    "'escalation','decision-needed','action-for-you','action-for-report','fyi'), "
+    "why (one sentence citing which context signal drove the score).\n\n"
+    "Scoring rubric:\n"
+    "- 0.9-1.0: directly blocks or advances an active project / current focus item\n"
+    "- 0.7-0.9: from a key person, or directly tied to a project without blocking it\n"
+    "- 0.5-0.7: tangentially relevant; action-for-report or dependency visibility\n"
+    "- 0.2-0.5: fyi\n"
+    "- 0.0-0.2: noise; would not be missed if dropped\n\n"
+    "Return ONLY the JSON array — no prose, no markdown fences."
+)
+
+
+def _default_triaged(items: Sequence[dict[str, Any]]) -> list[TriagedItem]:
+    """Safe default when the LLM fails: everything is fyi at 0.5."""
+    return [
+        TriagedItem(item=dict(it), relevance=0.5, category="fyi",
+                    why="triage unavailable; defaulted")
+        for it in items
+    ]
+
+
+async def llm_triage(
+    items: Sequence[dict[str, Any]],
+    context: TriageContext,
+    model: str = "",
+    memory_store=None,
+) -> list[TriagedItem]:
+    """Score each item 0.0-1.0 using Haiku. Sorted by relevance desc."""
+    if not items:
+        return []
+
+    from dataclasses import asdict
+    payload = {
+        "context": asdict(context),
+        "items": [
+            {"index": i, **{k: v for k, v in item.items() if k != "raw"}}
+            for i, item in enumerate(items)
+        ],
+    }
+    user_content = json.dumps(payload, default=str)
+
+    triage_model = model or getattr(app_config, "TRIAGE_MODEL", "claude-haiku-4-5-20251001")
+
+    try:
+        client = AsyncAnthropic(api_key=app_config.ANTHROPIC_API_KEY)
+        response = await client.messages.create(
+            model=triage_model,
+            max_tokens=2048,
+            system=_TRIAGE_SYSTEM,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        if memory_store is not None:
+            try:
+                usage = response.usage
+                memory_store.log_api_call(
+                    model_id=triage_model,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                    cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+                    agent_name=None,
+                    caller="triage",
+                )
+            except Exception:
+                pass
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            if raw.startswith("json"):
+                raw = raw[4:]
+        scored_rows = json.loads(raw)
+    except (json.JSONDecodeError, Exception) as exc:
+        logger.warning("llm_triage failed, using defaults: %s", exc)
+        return _default_triaged(items)
+
+    by_index = {int(row.get("index", -1)): row for row in scored_rows}
+    out: list[TriagedItem] = []
+    for i, item in enumerate(items):
+        row = by_index.get(i) or {}
+        out.append(TriagedItem(
+            item=dict(item),
+            relevance=float(row.get("relevance", 0.5)),
+            category=str(row.get("category", "fyi")),
+            why=str(row.get("why", "")),
+        ))
+    out.sort(key=lambda r: r.relevance, reverse=True)
+    return out
