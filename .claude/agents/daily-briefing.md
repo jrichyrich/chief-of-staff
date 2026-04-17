@@ -28,22 +28,28 @@ At the start of each run, call `mcp__jarvis__get_agent_memory` with `agent_name=
 
 ## Triage & enrichment (REQUIRED before synthesis)
 
-After all parallel data-gathering tools return, before you write the brief:
+After all parallel data-gathering tools return, before you write the brief, call the `mcp__jarvis__triage_brief_items` MCP tool once. It wraps thread reconstruction, heuristic filtering, Haiku-backed relevance scoring, and identity-graph person enrichment — you cannot import the underlying Python modules from this subagent, so this MCP tool is the only path to a ranked brief.
 
-1. **Reconstruct conversations** — call `orchestration.thread_reconstruction.reconstruct_email_threads(emails)` and `reconstruct_teams_threads(teams_messages)`. Work with `EmailThread` / `TeamsThread` objects from this point on, never raw messages.
+**Call it like this:**
 
-2. **Build triage context** — call `orchestration.triage.build_triage_context(memory_store=store, brain=session_brain)` to assemble user role, active projects, and current focus.
+```
+mcp__jarvis__triage_brief_items(
+    emails=<raw results from outlook_email_search>,
+    teams_messages=<raw results from chat_message_search>,
+    brief_type="daily",
+    key_people_emails=["theresa.oleary@chghealthcare.com", "shawn.farnworth@chghealthcare.com"],
+    user_email="jason.richards@chghealthcare.com",
+)
+```
 
-3. **Apply heuristic filter then LLM triage** —
-   - `items = heuristic_filter(threads_as_items, FilterConfig(user_email="jason.richards@chghealthcare.com", key_people_emails=KEY_EMAILS))`
-   - `scored = await llm_triage(items, context)`
-   - Discard anything with `relevance < 0.5` whose category is not `escalation` or `decision-needed`.
+The tool returns a JSON object with four keys:
 
-4. **Enrich person mentions** — for each distinct name that appears in the remaining items, call `orchestration.person_enrichment.enrich_person_mention(name, memory_store, identity_store)`. Keep the first-mention rendering; drop the enrichment on repeat mentions.
+- `threads` — reconstructed email + Teams threads (already deduped across reply chains).
+- `triaged` — list of `{item, relevance, category, why}` sorted by `relevance` descending. Categories: `escalation`, `decision-needed`, `action-for-you`, `action-for-report`, `fyi`. **Discard anything with `relevance < 0.5` whose category is not `escalation` or `decision-needed`.**
+- `enriched_people` — `{canonical_name: {display_names, role, team, manager, inline, ...}}`. On first mention of a person in your brief, use the `inline` string (e.g. "Shawn Farnworth — Director of Identity Engineering"). Drop enrichment on repeat mentions.
+- `context` — the triage context (`user_role`, `active_projects`, `current_focus`, `key_people`, `brief_type`) for your reference.
 
-5. **Hand off to synthesis** — pass the scored, enriched items to `orchestration.synthesis.synthesize_results(task="daily brief", dispatches=[...])`. The synthesis prompt now enforces ranking/dedup/priority.
-
-**Do NOT** produce a daily brief from raw search results. If any of the above steps fails, degrade gracefully (log + continue) but surface the degradation in a footer note ("triage unavailable — brief is a raw dump").
+**Hand off to synthesis** using the scored, enriched items — write your brief against `triaged` and `enriched_people`, never the raw `emails` / `teams_messages` arrays. **Do NOT** produce a daily brief from raw search results. If the tool call fails or returns empty, degrade gracefully but add a footer note ("triage unavailable — brief is a raw dump").
 
 ## Output Format
 
