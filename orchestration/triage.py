@@ -98,6 +98,13 @@ def heuristic_filter(
 _DEFAULT_ROLE = "VP / Chief of Staff"
 
 
+def _fact_field(fact, name: str) -> str:
+    """Access field on Fact dataclass or dict interchangeably."""
+    if isinstance(fact, dict):
+        return fact.get(name) or ""
+    return getattr(fact, name, "") or ""
+
+
 def _extract_focus_bullets(brain_text: str) -> list[str]:
     lines = [ln.strip() for ln in (brain_text or "").splitlines()]
     bullets: list[str] = []
@@ -121,18 +128,18 @@ def build_triage_context(
     active_projects: list[str] = []
     try:
         for f in memory_store.list_facts(category="personal") or []:
-            if (f.get("key") or "") == "role":
-                role = f.get("value") or role
+            if _fact_field(f, "key") == "role":
+                role = _fact_field(f, "value") or role
                 break
     except Exception as exc:
         logger.debug("triage: failed to load role fact: %s", exc)
 
     try:
         for f in memory_store.list_facts(category="work") or []:
-            key = f.get("key") or ""
+            key = _fact_field(f, "key")
             if key.startswith("project."):
                 label = key[len("project."):].replace("_", " ")
-                val = f.get("value") or ""
+                val = _fact_field(f, "value")
                 active_projects.append(f"{label}: {val}" if val else label)
     except Exception as exc:
         logger.debug("triage: failed to load work facts: %s", exc)

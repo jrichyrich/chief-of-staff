@@ -120,3 +120,25 @@ def test_build_triage_context_tolerates_empty_sources():
     assert ctx.user_role  # falls back to default
     assert ctx.active_projects == []
     assert ctx.current_focus == []
+
+
+def test_build_triage_context_accepts_fact_dataclasses():
+    """Real MemoryStore.list_facts returns list[Fact] dataclasses, not dicts."""
+    from memory.models import Fact
+
+    class DataclassFakeMemory:
+        def __init__(self, facts):
+            self._facts = facts
+
+        def list_facts(self, category=None, limit=None):
+            if category:
+                return [f for f in self._facts if f.category == category]
+            return self._facts
+
+    mem = DataclassFakeMemory([
+        Fact(category="personal", key="role", value="VP/CoS"),
+        Fact(category="work", key="project.pst", value="active"),
+    ])
+    ctx = build_triage_context(memory_store=mem, brain=FakeBrain(""))
+    assert "VP" in ctx.user_role
+    assert any("pst" in p.lower() for p in ctx.active_projects)
