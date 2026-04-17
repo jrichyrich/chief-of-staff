@@ -81,3 +81,64 @@ def reconstruct_email_threads(messages: list[dict[str, Any]]) -> list[EmailThrea
         threads.append(EmailThread(conversation_id=key, subject=subject, messages=items))
     threads.sort(key=lambda t: t.latest_received, reverse=True)
     return threads
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(html: str) -> str:
+    return _HTML_TAG_RE.sub("", html or "").strip()
+
+
+@dataclass
+class TeamsThread:
+    chat_id: str
+    chat_type: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def latest(self) -> dict[str, Any]:
+        return self.messages[-1] if self.messages else {}
+
+    @property
+    def latest_preview(self) -> str:
+        body = self.latest.get("body") or {}
+        return _strip_html(body.get("content", ""))
+
+    @property
+    def latest_created(self) -> str:
+        return self.latest.get("createdDateTime", "")
+
+    @property
+    def latest_sender_name(self) -> str:
+        return ((self.latest.get("from") or {}).get("user") or {}).get("displayName", "")
+
+    @property
+    def participants(self) -> list[dict[str, str]]:
+        seen: dict[str, str] = {}
+        for m in self.messages:
+            user = (m.get("from") or {}).get("user") or {}
+            uid = user.get("id", "")
+            name = user.get("displayName", "")
+            if uid and uid not in seen:
+                seen[uid] = name
+        return [{"id": u, "name": n} for u, n in seen.items()]
+
+
+def reconstruct_teams_threads(messages: list[dict[str, Any]]) -> list[TeamsThread]:
+    """Group Teams chat messages by chatId and order by createdDateTime."""
+    if not messages:
+        return []
+    groups: dict[str, list[dict[str, Any]]] = {}
+    chat_types: dict[str, str] = {}
+    for m in messages:
+        cid = m.get("chatId") or m.get("channelIdentity", {}).get("channelId") or m.get("id", "")
+        groups.setdefault(cid, []).append(m)
+        chat_types[cid] = m.get("chatType", chat_types.get(cid, "unknown"))
+
+    threads: list[TeamsThread] = []
+    for cid, items in groups.items():
+        items.sort(key=lambda x: x.get("createdDateTime", ""))
+        threads.append(TeamsThread(chat_id=cid, chat_type=chat_types[cid], messages=items))
+    threads.sort(key=lambda t: t.latest_created, reverse=True)
+    return threads

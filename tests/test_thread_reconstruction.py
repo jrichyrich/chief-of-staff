@@ -4,7 +4,9 @@ import pytest
 
 from orchestration.thread_reconstruction import (
     EmailThread,
+    TeamsThread,
     reconstruct_email_threads,
+    reconstruct_teams_threads,
 )
 
 
@@ -94,3 +96,63 @@ def test_missing_conversation_id_falls_back_to_subject():
     threads = reconstruct_email_threads(items)
     assert len(threads) == 1
     assert len(threads[0].messages) == 2
+
+
+SAMPLE_TEAMS = [
+    {
+        "id": "1713292800000",
+        "chatId": "19:abc@thread.v2",
+        "chatType": "oneOnOne",
+        "from": {"user": {"id": "shawn-id", "displayName": "Shawn F"}},
+        "createdDateTime": "2026-04-17T10:00:00Z",
+        "body": {"content": "<p>Can you own PST rollback?</p>", "contentType": "html"},
+        "webUrl": "https://teams.microsoft.com/l/message/19:abc/1713292800000",
+        "replyToId": None,
+    },
+    {
+        "id": "1713292860000",
+        "chatId": "19:abc@thread.v2",
+        "chatType": "oneOnOne",
+        "from": {"user": {"id": "jason-id", "displayName": "Jason R"}},
+        "createdDateTime": "2026-04-17T10:01:00Z",
+        "body": {"content": "<p>Yes. Ship tonight.</p>", "contentType": "html"},
+        "webUrl": "https://teams.microsoft.com/l/message/19:abc/1713292860000",
+        "replyToId": "1713292800000",
+    },
+    {
+        "id": "1713293000000",
+        "chatId": "19:xyz@thread.v2",
+        "chatType": "group",
+        "from": {"user": {"id": "theresa-id", "displayName": "Theresa O"}},
+        "createdDateTime": "2026-04-17T09:00:00Z",
+        "body": {"content": "<p>Weekly roll-up due Friday</p>", "contentType": "html"},
+        "webUrl": "https://teams.microsoft.com/l/message/19:xyz/1713293000000",
+        "replyToId": None,
+    },
+]
+
+
+def test_reconstruct_teams_threads_groups_by_chat_id():
+    threads = reconstruct_teams_threads(SAMPLE_TEAMS)
+    assert len(threads) == 2
+
+
+def test_teams_thread_exposes_latest_message_text():
+    threads = reconstruct_teams_threads(SAMPLE_TEAMS)
+    abc = next(t for t in threads if t.chat_id == "19:abc@thread.v2")
+    assert "Ship tonight" in abc.latest_preview
+
+
+def test_teams_thread_strips_html():
+    threads = reconstruct_teams_threads(SAMPLE_TEAMS)
+    abc = next(t for t in threads if t.chat_id == "19:abc@thread.v2")
+    assert "<p>" not in abc.latest_preview
+    assert "</p>" not in abc.latest_preview
+
+
+def test_teams_thread_chat_type_preserved():
+    threads = reconstruct_teams_threads(SAMPLE_TEAMS)
+    abc = next(t for t in threads if t.chat_id == "19:abc@thread.v2")
+    xyz = next(t for t in threads if t.chat_id == "19:xyz@thread.v2")
+    assert abc.chat_type == "oneOnOne"
+    assert xyz.chat_type == "group"
