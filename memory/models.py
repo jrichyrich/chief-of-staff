@@ -145,8 +145,11 @@ class SourceRef:
 
     @classmethod
     def from_json(cls, raw: str) -> "SourceRef":
+        from dataclasses import fields as _fields
         import json as _json
-        return cls(**_json.loads(raw))
+        data = _json.loads(raw)
+        known = {f.name for f in _fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass

@@ -23,7 +23,12 @@ def test_source_ref_full_construction():
         timestamp="2026-04-17T14:00:00Z",
         from_identity="shawn.farnworth",
     )
+    assert ref.provider == "m365_teams"
+    assert ref.thread_id == "19:abc@thread.v2"
+    assert ref.message_id == "1713292800000"
+    assert ref.url.endswith("...")
     assert ref.quote.startswith("Can you own")
+    assert ref.timestamp == "2026-04-17T14:00:00Z"
     assert ref.from_identity == "shawn.farnworth"
 
 
@@ -37,6 +42,22 @@ def test_source_ref_json_roundtrip():
     assert isinstance(as_json, str)
     restored = SourceRef.from_json(as_json)
     assert restored == ref
+
+
+def test_source_ref_from_json_ignores_unknown_keys():
+    """Forward-compat: older code must load newer JSON that has extra fields."""
+    raw = '{"provider": "m365_email", "future_field": "ignored", "thread_id": "x"}'
+    ref = SourceRef.from_json(raw)
+    assert ref.provider == "m365_email"
+    assert ref.thread_id == "x"
+
+
+def test_source_ref_from_json_handles_partial_json():
+    """Backward-compat: tolerate JSON with only a subset of known fields."""
+    raw = '{"provider": "manual"}'
+    ref = SourceRef.from_json(raw)
+    assert ref.provider == "manual"
+    assert ref.thread_id is None
 
 
 def test_delegation_accepts_source_ref():
