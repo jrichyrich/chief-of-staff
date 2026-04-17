@@ -124,6 +124,32 @@ class AgentResultStatus(StrEnum):
 
 
 @dataclass
+class SourceRef:
+    """Structured reference to the conversation/message an item came from.
+
+    Replaces the plain-string `source` field on Decision/Delegation.
+    Carry this alongside stored items so 'why was this saved?' is answerable.
+    """
+    provider: str  # m365_email | m365_teams | imessage | calendar | manual
+    thread_id: Optional[str] = None
+    message_id: Optional[str] = None
+    url: Optional[str] = None
+    quote: Optional[str] = None
+    timestamp: Optional[str] = None  # ISO8601
+    from_identity: Optional[str] = None  # canonical_name from identities table
+
+    def to_json(self) -> str:
+        from dataclasses import asdict
+        import json as _json
+        return _json.dumps(asdict(self))
+
+    @classmethod
+    def from_json(cls, raw: str) -> "SourceRef":
+        import json as _json
+        return cls(**_json.loads(raw))
+
+
+@dataclass
 class Fact:
     category: str
     key: str
@@ -168,7 +194,8 @@ class Decision:
     status: DecisionStatus = DecisionStatus.pending_execution
     follow_up_date: Optional[str] = None
     tags: str = ""
-    source: str = ""
+    source: str = ""  # legacy free-text; new code should use source_ref
+    source_ref: Optional[SourceRef] = None
     id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -183,7 +210,8 @@ class Delegation:
     due_date: Optional[str] = None
     priority: DelegationPriority = DelegationPriority.medium
     status: DelegationStatus = DelegationStatus.active
-    source: str = ""
+    source: str = ""  # legacy free-text; new code should use source_ref
+    source_ref: Optional[SourceRef] = None
     notes: str = ""
     id: Optional[int] = None
     created_at: Optional[str] = None
