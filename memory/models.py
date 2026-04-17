@@ -151,6 +151,18 @@ class SourceRef:
         known = {f.name for f in _fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in known})
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "SourceRef":
+        """Construct from a dict, silently dropping unknown keys.
+
+        Mirrors `from_json`'s forward-compat behavior so LLM-produced dicts
+        at the MCP boundary (e.g. `create_decision(source_ref={...})`) can't
+        crash on a typo or newly-added key the client sent.
+        """
+        from dataclasses import fields as _fields
+        known = {f.name for f in _fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
 
 @dataclass
 class Fact:

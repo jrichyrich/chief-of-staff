@@ -1,5 +1,6 @@
 # memory/lifecycle_store.py
 """Domain store for decisions, delegations, and alert rules."""
+import json as _json
 import re
 import sqlite3
 import threading
@@ -7,6 +8,18 @@ from datetime import date, datetime
 from typing import Optional
 
 from memory.models import AlertRule, Decision, Delegation, SourceRef
+
+
+def _serialize_source_ref(value):
+    """Normalize a SourceRef|dict|None|str into TEXT-column-safe JSON or None."""
+    if value is None:
+        return None
+    if isinstance(value, SourceRef):
+        return value.to_json()
+    if isinstance(value, dict):
+        return _json.dumps(value)
+    # Already a JSON string — leave as-is (for callers passing pre-serialized text)
+    return value
 
 
 class LifecycleStore:
@@ -76,6 +89,8 @@ class LifecycleStore:
             raise ValueError(f"Invalid decision fields: {invalid}")
         if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
             raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
+        if "source_ref" in kwargs:
+            kwargs["source_ref"] = _serialize_source_ref(kwargs["source_ref"])
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [decision_id]
         with self._lock:
@@ -165,6 +180,8 @@ class LifecycleStore:
             raise ValueError(f"Invalid delegation fields: {invalid}")
         if not all(re.match(r'^[a-z_]+$', k) for k in kwargs):
             raise ValueError("Invalid column names: column names must contain only lowercase letters and underscores")
+        if "source_ref" in kwargs:
+            kwargs["source_ref"] = _serialize_source_ref(kwargs["source_ref"])
         set_clause = ", ".join(f"{k}=?" for k in kwargs)
         values = list(kwargs.values()) + [delegation_id]
         with self._lock:

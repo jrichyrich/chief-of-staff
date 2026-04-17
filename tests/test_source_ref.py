@@ -133,3 +133,48 @@ def test_legacy_delegation_without_source_ref_still_loads(store):
     saved = store.store_delegation(d)
     reloaded = store.get_delegation(saved.id)
     assert reloaded.source_ref is None
+
+
+# ---------------------------------------------------------------------------
+# Update-path serialization tests — the TEXT column must receive JSON, not a
+# SourceRef or dict repr. Mirrors the pattern scheduler_store uses for
+# delivery_config on update_scheduled_task.
+# ---------------------------------------------------------------------------
+
+
+def test_update_delegation_source_ref_round_trips(store):
+    d = Delegation(task="t", delegated_to="x")
+    saved = store.store_delegation(d)
+    ref = SourceRef(provider="m365_teams", thread_id="19:abc@thread.v2", quote="Own it")
+    store.update_delegation(saved.id, source_ref=ref)
+    reloaded = store.get_delegation(saved.id)
+    assert reloaded.source_ref == ref
+
+
+def test_update_delegation_source_ref_accepts_dict(store):
+    d = Delegation(task="t", delegated_to="x")
+    saved = store.store_delegation(d)
+    store.update_delegation(saved.id, source_ref={"provider": "m365_email", "quote": "sure"})
+    reloaded = store.get_delegation(saved.id)
+    assert reloaded.source_ref == SourceRef(provider="m365_email", quote="sure")
+
+
+def test_update_decision_source_ref_round_trips(store):
+    dec = Decision(title="x")
+    saved = store.store_decision(dec)
+    ref = SourceRef(provider="m365_email", quote="Going with B")
+    store.update_decision(saved.id, source_ref=ref)
+    reloaded = store.get_decision(saved.id)
+    assert reloaded.source_ref == ref
+
+
+# ---------------------------------------------------------------------------
+# from_dict defends the MCP boundary against LLM-produced dicts with unknown
+# keys (same forward-compat behavior SourceRef.from_json already has).
+# ---------------------------------------------------------------------------
+
+
+def test_from_dict_filters_unknown_keys():
+    ref = SourceRef.from_dict({"provider": "m365_teams", "foo": "bar", "quote": "hi"})
+    assert ref.provider == "m365_teams"
+    assert ref.quote == "hi"

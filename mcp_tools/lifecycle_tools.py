@@ -4,6 +4,7 @@ import json
 import logging
 import sqlite3
 
+from memory.models import SourceRef
 from tools import lifecycle as lifecycle_tools
 
 from .decorators import tool_errors
@@ -109,8 +110,7 @@ def register(mcp, state):
                 Keys: provider (required), thread_id, message_id, url, quote,
                 timestamp, from_identity.
         """
-        from memory.models import SourceRef
-        ref = SourceRef(**source_ref) if source_ref else None
+        ref = SourceRef.from_dict(source_ref) if source_ref else None
         memory_store = state.memory_store
         result = lifecycle_tools.create_decision(
             memory_store,
@@ -197,8 +197,7 @@ def register(mcp, state):
                 Keys: provider (required), thread_id, message_id, url, quote,
                 timestamp, from_identity.
         """
-        from memory.models import SourceRef
-        ref = SourceRef(**source_ref) if source_ref else None
+        ref = SourceRef.from_dict(source_ref) if source_ref else None
         memory_store = state.memory_store
         result = lifecycle_tools.create_delegation(
             memory_store,
