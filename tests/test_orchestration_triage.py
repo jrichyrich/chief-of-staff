@@ -64,3 +64,59 @@ def test_filter_drops_self_sent():
     config = FilterConfig(user_email="jason@chg.com")
     out = heuristic_filter(items, config)
     assert len(out) == 1 and out[0]["from_email"] == "shawn@chg.com"
+
+
+from orchestration.triage import build_triage_context
+
+
+class FakeMemory:
+    def __init__(self, facts):
+        self._facts = facts
+
+    def list_facts(self, category=None, limit=None):
+        if category:
+            return [f for f in self._facts if f["category"] == category]
+        return self._facts
+
+
+class FakeBrain:
+    def __init__(self, text):
+        self._text = text
+
+    def get_current_focus(self):
+        return self._text
+
+
+def test_build_triage_context_pulls_user_role():
+    mem = FakeMemory([
+        {"category": "personal", "key": "role", "value": "VP/Chief of Staff to the CIO"},
+    ])
+    ctx = build_triage_context(memory_store=mem, brain=FakeBrain(""))
+    assert "VP" in ctx.user_role or "Chief of Staff" in ctx.user_role
+
+
+def test_build_triage_context_includes_active_projects():
+    mem = FakeMemory([
+        {"category": "work", "key": "project.pst_remediation", "value": "Active — sev-0 rollback"},
+        {"category": "work", "key": "project.dmo_conf_2026", "value": "Panel co-owner"},
+        {"category": "personal", "key": "role", "value": "VP"},
+    ])
+    ctx = build_triage_context(memory_store=mem, brain=FakeBrain(""))
+    joined = " ".join(ctx.active_projects).lower()
+    assert "pst" in joined
+    assert "dmo" in joined
+
+
+def test_build_triage_context_pulls_current_focus_from_brain():
+    mem = FakeMemory([])
+    brain = FakeBrain("## Focus\n- Ship CIO weekly brief Friday\n- Close PST rollback")
+    ctx = build_triage_context(memory_store=mem, brain=brain)
+    joined = " ".join(ctx.current_focus).lower()
+    assert "cio weekly" in joined or "pst rollback" in joined
+
+
+def test_build_triage_context_tolerates_empty_sources():
+    ctx = build_triage_context(memory_store=FakeMemory([]), brain=FakeBrain(""))
+    assert ctx.user_role  # falls back to default
+    assert ctx.active_projects == []
+    assert ctx.current_focus == []

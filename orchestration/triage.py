@@ -93,3 +93,61 @@ def heuristic_filter(
             continue
         kept.append(item)
     return kept
+
+
+_DEFAULT_ROLE = "VP / Chief of Staff"
+
+
+def _extract_focus_bullets(brain_text: str) -> list[str]:
+    lines = [ln.strip() for ln in (brain_text or "").splitlines()]
+    bullets: list[str] = []
+    for ln in lines:
+        if ln.startswith("- ") or ln.startswith("* "):
+            bullets.append(ln[2:].strip())
+    return bullets
+
+
+def build_triage_context(
+    memory_store,
+    brain=None,
+    key_people: list[str] | None = None,
+) -> TriageContext:
+    """Assemble the TriageContext from memory + session brain.
+
+    Expects memory_store to have a list_facts(category=...) method that
+    returns iterables of dicts with 'category', 'key', 'value'.
+    """
+    role = _DEFAULT_ROLE
+    active_projects: list[str] = []
+    try:
+        for f in memory_store.list_facts(category="personal") or []:
+            if (f.get("key") or "") == "role":
+                role = f.get("value") or role
+                break
+    except Exception as exc:
+        logger.debug("triage: failed to load role fact: %s", exc)
+
+    try:
+        for f in memory_store.list_facts(category="work") or []:
+            key = f.get("key") or ""
+            if key.startswith("project."):
+                label = key[len("project."):].replace("_", " ")
+                val = f.get("value") or ""
+                active_projects.append(f"{label}: {val}" if val else label)
+    except Exception as exc:
+        logger.debug("triage: failed to load work facts: %s", exc)
+
+    current_focus: list[str] = []
+    if brain is not None:
+        try:
+            text = brain.get_current_focus() if hasattr(brain, "get_current_focus") else str(brain)
+            current_focus = _extract_focus_bullets(text)
+        except Exception as exc:
+            logger.debug("triage: failed to pull brain focus: %s", exc)
+
+    return TriageContext(
+        user_role=role,
+        active_projects=active_projects,
+        current_focus=current_focus,
+        key_people=list(key_people or []),
+    )
