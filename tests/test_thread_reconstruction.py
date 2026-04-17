@@ -156,3 +156,52 @@ def test_teams_thread_chat_type_preserved():
     xyz = next(t for t in threads if t.chat_id == "19:xyz@thread.v2")
     assert abc.chat_type == "oneOnOne"
     assert xyz.chat_type == "group"
+
+
+def test_email_thread_to_triage_dict_shape():
+    """Threads must convert to a dict shape heuristic_filter understands."""
+    threads = reconstruct_email_threads(SAMPLE_EMAILS)
+    abc = next(t for t in threads if t.conversation_id == "conv-abc")
+    d = abc.to_triage_dict()
+    assert d["kind"] == "email"
+    assert d["conversation_id"] == "conv-abc"
+    assert d["from_email"] == "jason@chg.com"
+    assert d["timestamp"] == "2026-04-17T10:30:00Z"
+    assert "option B" in d["preview"]
+    assert d["message_count"] == 2
+    assert d["subject"].lower().startswith("re:") or "PST" in d["subject"]
+
+
+def test_email_thread_to_triage_dict_feeds_heuristic_filter():
+    """to_triage_dict output must round-trip through heuristic_filter unchanged."""
+    from orchestration.triage import FilterConfig, heuristic_filter
+
+    threads = reconstruct_email_threads(SAMPLE_EMAILS)
+    dicts = [t.to_triage_dict() for t in threads]
+    out = heuristic_filter(dicts, FilterConfig(user_email="jason@chg.com"))
+    senders = {d["from_email"] for d in out}
+    assert "jason@chg.com" not in senders
+    assert any(d["from_email"] == "theresa@chg.com" for d in out)
+
+
+def test_teams_thread_to_triage_dict_shape():
+    threads = reconstruct_teams_threads(SAMPLE_TEAMS)
+    abc = next(t for t in threads if t.chat_id == "19:abc@thread.v2")
+    d = abc.to_triage_dict()
+    assert d["kind"] == "teams"
+    assert d["chat_id"] == "19:abc@thread.v2"
+    assert d["chat_type"] == "oneOnOne"
+    assert d["from_name"] == "Jason R"
+    assert d["timestamp"] == "2026-04-17T10:01:00Z"
+    assert "Ship tonight" in d["preview"]
+    assert d["message_count"] == 2
+
+
+def test_teams_thread_to_triage_dict_passes_heuristic_filter():
+    """Teams threads without email senders should pass the filter when fresh."""
+    from orchestration.triage import FilterConfig, heuristic_filter
+
+    threads = reconstruct_teams_threads(SAMPLE_TEAMS)
+    dicts = [t.to_triage_dict() for t in threads]
+    out = heuristic_filter(dicts, FilterConfig())
+    assert len(out) == len(dicts)

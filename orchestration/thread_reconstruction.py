@@ -62,6 +62,21 @@ class EmailThread:
     def latest_preview(self) -> str:
         return self.latest.get("bodyPreview", "")
 
+    def to_triage_dict(self) -> dict[str, Any]:
+        """Convert to the shape expected by heuristic_filter / llm_triage."""
+        sender_email, sender_name = _extract_sender(self.latest)
+        return {
+            "kind": "email",
+            "conversation_id": self.conversation_id,
+            "subject": self.subject,
+            "from_email": sender_email,
+            "from_name": sender_name,
+            "timestamp": self.latest_received,
+            "preview": self.latest_preview,
+            "message_count": len(self.messages),
+            "participants": self.participants,
+        }
+
 
 def reconstruct_email_threads(messages: list[dict[str, Any]]) -> list[EmailThread]:
     """Group email messages into threads keyed by conversationId (or normalized subject)."""
@@ -123,6 +138,20 @@ class TeamsThread:
             if uid and uid not in seen:
                 seen[uid] = name
         return [{"id": u, "name": n} for u, n in seen.items()]
+
+    def to_triage_dict(self) -> dict[str, Any]:
+        """Convert to the shape expected by heuristic_filter / llm_triage."""
+        return {
+            "kind": "teams",
+            "chat_id": self.chat_id,
+            "chat_type": self.chat_type,
+            "from_email": "",
+            "from_name": self.latest_sender_name,
+            "timestamp": self.latest_created,
+            "preview": self.latest_preview,
+            "message_count": len(self.messages),
+            "participants": self.participants,
+        }
 
 
 def reconstruct_teams_threads(messages: list[dict[str, Any]]) -> list[TeamsThread]:
