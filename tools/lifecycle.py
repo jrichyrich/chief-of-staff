@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from memory.models import (
     AlertRule, Decision, DecisionStatus, Delegation, DelegationStatus,
-    DelegationPriority,
+    DelegationPriority, SourceRef,
 )
 
 
@@ -21,7 +21,8 @@ def _validate_enum(value: str, enum_cls, field_name: str) -> None:
 
 def create_decision(memory_store, *, title: str, description: str = "", context: str = "",
                     decided_by: str = "", owner: str = "", status: str = DecisionStatus.pending_execution,
-                    follow_up_date: str = "", tags: str = "", source: str = "") -> dict[str, Any]:
+                    follow_up_date: str = "", tags: str = "", source: str = "",
+                    source_ref: Optional[SourceRef] = None) -> dict[str, Any]:
     _validate_enum(status, DecisionStatus, "status")
     decision = Decision(
         title=title,
@@ -33,6 +34,7 @@ def create_decision(memory_store, *, title: str, description: str = "", context:
         follow_up_date=follow_up_date or None,
         tags=tags,
         source=source,
+        source_ref=source_ref,
     )
     stored = memory_store.store_decision(decision)
     return {
@@ -124,7 +126,8 @@ def delete_decision(memory_store, *, decision_id: int) -> dict[str, Any]:
 
 
 def create_delegation(memory_store, *, task: str, delegated_to: str, description: str = "",
-                      due_date: str = "", priority: str = DelegationPriority.medium, source: str = "") -> dict[str, Any]:
+                      due_date: str = "", priority: str = DelegationPriority.medium, source: str = "",
+                      source_ref: Optional[SourceRef] = None) -> dict[str, Any]:
     _validate_enum(priority, DelegationPriority, "priority")
     delegation = Delegation(
         task=task,
@@ -133,6 +136,7 @@ def create_delegation(memory_store, *, task: str, delegated_to: str, description
         due_date=due_date or None,
         priority=priority,
         source=source,
+        source_ref=source_ref,
     )
     stored = memory_store.store_delegation(delegation)
     return {

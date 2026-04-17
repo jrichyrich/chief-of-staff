@@ -41,6 +41,7 @@ class MemoryStore:
         self._migrate_agent_memory_namespace()
         self._migrate_scheduled_tasks_delivery()
         self._migrate_tool_usage_log_response_size()
+        self._migrate_source_ref()
 
         # --- Thread safety: shared lock for all write operations ---
         self._lock = threading.RLock()
@@ -477,6 +478,15 @@ class MemoryStore:
             self.conn.commit()
         except sqlite3.OperationalError:
             pass
+
+    def _migrate_source_ref(self):
+        """Add source_ref column to delegations/decisions if missing (idempotent)."""
+        for table in ("delegations", "decisions"):
+            try:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN source_ref TEXT")
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     # --- Connection management ---
 

@@ -91,6 +91,7 @@ def register(mcp, state):
         follow_up_date: str = "",
         tags: str = "",
         source: str = "",
+        source_ref: dict | None = None,
     ) -> str:
         """Log a decision for tracking and follow-up.
 
@@ -104,7 +105,12 @@ def register(mcp, state):
             follow_up_date: Date to follow up (YYYY-MM-DD)
             tags: Comma-separated tags for categorization
             source: Where the decision was made (e.g. meeting name, email)
+            source_ref: Optional structured reference to the originating conversation.
+                Keys: provider (required), thread_id, message_id, url, quote,
+                timestamp, from_identity.
         """
+        from memory.models import SourceRef
+        ref = SourceRef(**source_ref) if source_ref else None
         memory_store = state.memory_store
         result = lifecycle_tools.create_decision(
             memory_store,
@@ -117,6 +123,7 @@ def register(mcp, state):
             follow_up_date=follow_up_date,
             tags=tags,
             source=source,
+            source_ref=ref,
         )
         return json.dumps(result)
 
@@ -175,6 +182,7 @@ def register(mcp, state):
         due_date: str = "",
         priority: str = "medium",
         source: str = "",
+        source_ref: dict | None = None,
     ) -> str:
         """Create a new delegation to track a task assigned to someone.
 
@@ -185,7 +193,12 @@ def register(mcp, state):
             due_date: Due date (YYYY-MM-DD)
             priority: Priority level (low, medium, high, critical)
             source: Where the delegation originated
+            source_ref: Optional structured reference to the originating conversation.
+                Keys: provider (required), thread_id, message_id, url, quote,
+                timestamp, from_identity.
         """
+        from memory.models import SourceRef
+        ref = SourceRef(**source_ref) if source_ref else None
         memory_store = state.memory_store
         result = lifecycle_tools.create_delegation(
             memory_store,
@@ -195,6 +208,7 @@ def register(mcp, state):
             due_date=due_date,
             priority=priority,
             source=source,
+            source_ref=ref,
         )
         return json.dumps(result)
 

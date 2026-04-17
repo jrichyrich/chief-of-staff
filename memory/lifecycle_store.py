@@ -6,7 +6,7 @@ import threading
 from datetime import date, datetime
 from typing import Optional
 
-from memory.models import AlertRule, Decision, Delegation
+from memory.models import AlertRule, Decision, Delegation, SourceRef
 
 
 class LifecycleStore:
@@ -14,12 +14,12 @@ class LifecycleStore:
 
     _DECISION_COLUMNS = frozenset({
         "title", "description", "context", "alternatives_considered",
-        "decided_by", "owner", "status", "follow_up_date", "tags", "source", "updated_at",
+        "decided_by", "owner", "status", "follow_up_date", "tags", "source", "source_ref", "updated_at",
     })
 
     _DELEGATION_COLUMNS = frozenset({
         "task", "description", "delegated_to", "delegated_by",
-        "due_date", "priority", "status", "source", "notes", "updated_at",
+        "due_date", "priority", "status", "source", "source_ref", "notes", "updated_at",
     })
 
     _ALERT_RULE_COLUMNS = frozenset({
@@ -34,15 +34,16 @@ class LifecycleStore:
 
     def store_decision(self, decision: Decision) -> Decision:
         now = datetime.now().isoformat()
+        source_ref_json = decision.source_ref.to_json() if decision.source_ref else None
         with self._lock:
             cursor = self.conn.execute(
                 """INSERT INTO decisions (title, description, context, alternatives_considered,
-                   decided_by, owner, status, follow_up_date, tags, source, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   decided_by, owner, status, follow_up_date, tags, source, source_ref, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (decision.title, decision.description, decision.context,
                  decision.alternatives_considered, decision.decided_by, decision.owner,
                  decision.status, decision.follow_up_date, decision.tags, decision.source,
-                 now, now),
+                 source_ref_json, now, now),
             )
             self.conn.commit()
         return self.get_decision(cursor.lastrowid)
@@ -93,6 +94,8 @@ class LifecycleStore:
         return cursor.rowcount > 0
 
     def _row_to_decision(self, row: sqlite3.Row) -> Decision:
+        source_ref_raw = row["source_ref"] if "source_ref" in row.keys() else None
+        source_ref = SourceRef.from_json(source_ref_raw) if source_ref_raw else None
         return Decision(
             id=row["id"],
             title=row["title"],
@@ -105,6 +108,7 @@ class LifecycleStore:
             follow_up_date=row["follow_up_date"],
             tags=row["tags"],
             source=row["source"],
+            source_ref=source_ref,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -113,14 +117,15 @@ class LifecycleStore:
 
     def store_delegation(self, delegation: Delegation) -> Delegation:
         now = datetime.now().isoformat()
+        source_ref_json = delegation.source_ref.to_json() if delegation.source_ref else None
         with self._lock:
             cursor = self.conn.execute(
                 """INSERT INTO delegations (task, description, delegated_to, delegated_by,
-                   due_date, priority, status, source, notes, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   due_date, priority, status, source, source_ref, notes, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (delegation.task, delegation.description, delegation.delegated_to,
                  delegation.delegated_by, delegation.due_date, delegation.priority,
-                 delegation.status, delegation.source, delegation.notes, now, now),
+                 delegation.status, delegation.source, source_ref_json, delegation.notes, now, now),
             )
             self.conn.commit()
         return self.get_delegation(cursor.lastrowid)
@@ -178,6 +183,8 @@ class LifecycleStore:
         return cursor.rowcount > 0
 
     def _row_to_delegation(self, row: sqlite3.Row) -> Delegation:
+        source_ref_raw = row["source_ref"] if "source_ref" in row.keys() else None
+        source_ref = SourceRef.from_json(source_ref_raw) if source_ref_raw else None
         return Delegation(
             id=row["id"],
             task=row["task"],
@@ -188,6 +195,7 @@ class LifecycleStore:
             priority=row["priority"],
             status=row["status"],
             source=row["source"],
+            source_ref=source_ref,
             notes=row["notes"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],

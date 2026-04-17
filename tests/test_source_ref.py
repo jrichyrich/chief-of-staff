@@ -87,3 +87,49 @@ def test_decision_source_ref_defaults_none():
     dec = Decision(title="t")
     assert dec.source_ref is None
     assert dec.source == ""
+
+
+# ---------------------------------------------------------------------------
+# Persistence tests (SQLite round-trip via MemoryStore)
+# ---------------------------------------------------------------------------
+
+import tempfile
+from pathlib import Path
+
+from memory.store import MemoryStore
+
+
+@pytest.fixture
+def store(tmp_path):
+    db = tmp_path / "test.db"
+    return MemoryStore(db_path=str(db))
+
+
+def test_delegation_source_ref_persists(store):
+    ref = SourceRef(
+        provider="m365_teams",
+        thread_id="19:abc@thread.v2",
+        url="https://teams.microsoft.com/l/message/x",
+        quote="Own PST remediation",
+    )
+    d = Delegation(task="PST remediation", delegated_to="shawn", source_ref=ref)
+    saved = store.store_delegation(d)
+    assert saved.id is not None
+    reloaded = store.get_delegation(saved.id)
+    assert reloaded.source_ref == ref
+
+
+def test_decision_source_ref_persists(store):
+    ref = SourceRef(provider="m365_email", quote="Going with option B")
+    dec = Decision(title="Adopt option B", source_ref=ref)
+    saved = store.store_decision(dec)
+    reloaded = store.get_decision(saved.id)
+    assert reloaded.source_ref == ref
+
+
+def test_legacy_delegation_without_source_ref_still_loads(store):
+    """Existing rows (no source_ref column value) must load with source_ref=None."""
+    d = Delegation(task="t", delegated_to="x")  # source_ref defaults to None
+    saved = store.store_delegation(d)
+    reloaded = store.get_delegation(saved.id)
+    assert reloaded.source_ref is None
