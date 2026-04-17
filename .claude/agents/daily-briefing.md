@@ -26,6 +26,25 @@ At the start of each run, call `mcp__jarvis__get_agent_memory` with `agent_name=
    - Call out risks and items that could derail the day
    - Prioritize by impact, not recency
 
+## Triage & enrichment (REQUIRED before synthesis)
+
+After all parallel data-gathering tools return, before you write the brief:
+
+1. **Reconstruct conversations** — call `orchestration.thread_reconstruction.reconstruct_email_threads(emails)` and `reconstruct_teams_threads(teams_messages)`. Work with `EmailThread` / `TeamsThread` objects from this point on, never raw messages.
+
+2. **Build triage context** — call `orchestration.triage.build_triage_context(memory_store=store, brain=session_brain)` to assemble user role, active projects, and current focus.
+
+3. **Apply heuristic filter then LLM triage** —
+   - `items = heuristic_filter(threads_as_items, FilterConfig(user_email="jason.richards@chghealthcare.com", key_people_emails=KEY_EMAILS))`
+   - `scored = await llm_triage(items, context)`
+   - Discard anything with `relevance < 0.5` whose category is not `escalation` or `decision-needed`.
+
+4. **Enrich person mentions** — for each distinct name that appears in the remaining items, call `orchestration.person_enrichment.enrich_person_mention(name, memory_store, identity_store)`. Keep the first-mention rendering; drop the enrichment on repeat mentions.
+
+5. **Hand off to synthesis** — pass the scored, enriched items to `orchestration.synthesis.synthesize_results(task="daily brief", dispatches=[...])`. The synthesis prompt now enforces ranking/dedup/priority.
+
+**Do NOT** produce a daily brief from raw search results. If any of the above steps fails, degrade gracefully (log + continue) but surface the degradation in a footer note ("triage unavailable — brief is a raw dump").
+
 ## Output Format
 
 Use urgency flags: **URGENT** for immediate action, **ACTION** for needs response today, **FYI** for awareness only. Keep each section to 3-5 bullet points max. If a section has nothing notable, say "All clear." and move on.
