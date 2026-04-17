@@ -39,6 +39,7 @@ async def synthesize_results(
     dispatches: list[dict[str, Any]],
     model: str = "",
     max_tokens: int = 0,
+    brief_type: str = "",
     memory_store=None,
 ) -> str:
     """Synthesize multiple agent results into a single coherent summary.
@@ -48,6 +49,8 @@ async def synthesize_results(
         dispatches: List of dispatch result dicts with agent_name, status, result.
         model: Override model (default: config DISPATCH_SYNTHESIS_MODEL).
         max_tokens: Override max_tokens (default: config DISPATCH_SYNTHESIS_MAX_TOKENS).
+        brief_type: Optional format hint ('daily', 'cio-weekly', etc.) injected into
+            the prompt so synthesis can follow a specific output structure.
 
     Returns:
         Synthesized summary string.
@@ -70,6 +73,8 @@ async def synthesize_results(
         parts.append(f"## Agent: {d['agent_name']} (success)\n{d['result']}\n")
     for d in failed:
         parts.append(f"## Agent: {d['agent_name']} (FAILED)\n{d['result']}\n")
+    if brief_type:
+        parts.append(f"## Brief Type\n{brief_type}\n")
     parts.append(
         "## Instructions\n"
         "Apply the ranking rules from your system prompt. Deduplicate across "
